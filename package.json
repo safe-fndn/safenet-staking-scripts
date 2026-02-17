@@ -1,0 +1,29 @@
+{
+	"name": "@safenet/staking-scripts",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "rimraf dist && tsc --project tsconfig.dist.json",
+		"check": "biome check && tsc",
+		"dev": "tsx src/validator.ts",
+		"cmd:rewards": "tsx src/rewards.ts",
+		"fix": "biome check --write",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"coverage": "vitest run --coverage"
+	},
+	"dependencies": {
+		"dotenv": "^17.2.1",
+		"viem": "^2.38.5",
+		"zod": "^4.1.12"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.0.6",
+		"@types/node": "^24.1.0",
+		"@vitest/coverage-v8": "^4.0.16",
+		"rimraf": "^6.0.1",
+		"tsx": "^4.20.3",
+		"typescript": "^5.8.3",
+		"vitest": "^4.0.6"
+	}
+}

@@ -1,0 +1,7 @@
+{
+    "name": "Safenet Scripts",
+    "image": "mcr.microsoft.com/devcontainers/typescript-node:dev-24-bookworm",
+
+    // User that VS Code connects as *inside* the container.
+    "remoteUser": "node"
+}
