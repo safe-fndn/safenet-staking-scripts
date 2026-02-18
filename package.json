@@ -6,7 +6,7 @@
 		"build": "rimraf dist && tsc --project tsconfig.dist.json",
 		"check": "biome check && tsc",
 		"dev": "tsx src/validator.ts",
-		"cmd:rewards": "tsx src/rewards.ts",
+		"cmd:stats": "tsx src/stats.ts",
 		"fix": "biome check --write",
 		"test": "vitest run",
 		"test:watch": "vitest",

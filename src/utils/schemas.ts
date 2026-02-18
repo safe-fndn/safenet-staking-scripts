@@ -1,4 +1,4 @@
-import { Address, getAddress, isAddress } from "viem";
+import { type Address, getAddress, isAddress } from "viem";
 import z from "zod";
 
 export const checkedAddressSchema = z
