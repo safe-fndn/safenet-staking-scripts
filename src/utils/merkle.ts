@@ -71,7 +71,10 @@ export const generateMerkleProof = (leaves: Hex[], index: number): Hex[] => {
 	return proof;
 };
 
-export const generateParticipantProof = (participants: readonly Participant[], participantId: ParticipantId): Hex[] => {
+export const generateParticipantProof = (
+	participants: readonly Participant[],
+	participantId: ParticipantId,
+): Hex[] => {
 	const index = participants.findIndex((p) => p.id === participantId);
 	return generateMerkleProof(participants.map(hashParticipant), index);
 };

@@ -2,10 +2,10 @@ import { parseArgs } from "node:util";
 import { configDotenv } from "dotenv";
 import { createPublicClient, http, type PublicClient } from "viem";
 import z from "zod";
-import { getKeyGenStats, logKeyGenStats } from "./stats/keyGen.js";
-import { CONSENSUS_FUNCTIONS } from "./utils/functions.js";
-import { checkedAddressSchema } from "./utils/schemas.js";
-import { getSigningStats, logSigningStats } from "./stats/signing.js";
+import { getKeyGenStats, logKeyGenStats } from "../stats/keyGen.js";
+import { getSigningStats, logSigningStats } from "../stats/signing.js";
+import { CONSENSUS_FUNCTIONS } from "../utils/functions.js";
+import { checkedAddressSchema } from "../utils/schemas.js";
 
 configDotenv({ quiet: true });
 
@@ -45,7 +45,7 @@ const main = async (
 	if (includeKeyGens) {
 		const keyGenStats = await getKeyGenStats(client, coordinator, startBlock, targetBlock);
 		logKeyGenStats(keyGenStats, displayFailed);
-		console.log()
+		console.log();
 	}
 	const signingStats = await getSigningStats(client, coordinator, startBlock, targetBlock);
 	logSigningStats(signingStats, displayFailed);
