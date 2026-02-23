@@ -20,7 +20,12 @@ export const calcGroupContext = (consensus: Address, epoch: bigint): Hex => {
 	return encodePacked(["uint32", "address", "uint64"], [0, consensus, epoch]);
 };
 
-export const calcGroupId = (participantsRoot: Hex, count: number, threshold: number, context: Hex): Hex => {
+export const calcGroupId = (
+	participantsRoot: Hex,
+	count: number,
+	threshold: number,
+	context: Hex,
+): Hex => {
 	const infoHash = BigInt(
 		keccak256(
 			encodeAbiParameters(parseAbiParameters("bytes32, uint16, uint16, bytes32"), [
@@ -31,7 +36,10 @@ export const calcGroupId = (participantsRoot: Hex, count: number, threshold: num
 			]),
 		),
 	);
-	return numberToHex(infoHash & 0xffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000n, { size: 32 });
+	return numberToHex(
+		infoHash & 0xffffffffffffffffffffffffffffffffffffffffffffffff0000000000000000n,
+		{ size: 32 },
+	);
 };
 
 export const calcGenesisGroup = ({
@@ -51,7 +59,9 @@ export const calcGenesisGroup = ({
 	// for multiple consensus contracts without needing to rotate the validator
 	// accounts).
 	const context =
-		genesisSalt === zeroHash ? zeroHash : keccak256(encodePacked(["string", "bytes32"], ["genesis", genesisSalt]));
+		genesisSalt === zeroHash
+			? zeroHash
+			: keccak256(encodePacked(["string", "bytes32"], ["genesis", genesisSalt]));
 	return {
 		id: calcGroupId(participantsRoot, count, threshold, context),
 		participantsRoot,

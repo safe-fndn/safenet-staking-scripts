@@ -1,29 +1,24 @@
 {
-	"name": "@safenet/staking-scripts",
+	"name": "@safenet/accounting",
 	"private": true,
 	"type": "module",
 	"scripts": {
 		"build": "rimraf dist && tsc --project tsconfig.dist.json",
 		"check": "biome check && tsc",
-		"dev": "tsx src/validator.ts",
-		"cmd:stats": "tsx src/stats.ts",
-		"fix": "biome check --write",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"coverage": "vitest run --coverage"
+		"cmd:stats": "tsx src/cmd/stats.ts",
+		"fix": "biome check --write"
 	},
 	"dependencies": {
-		"dotenv": "^17.2.1",
-		"viem": "^2.38.5",
-		"zod": "^4.1.12"
+		"better-sqlite3": "^12.6.2",
+		"dotenv": "^17.3.1",
+		"viem": "^2.46.2",
+		"zod": "^4.3.6"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.0.6",
-		"@types/node": "^24.1.0",
-		"@vitest/coverage-v8": "^4.0.16",
-		"rimraf": "^6.0.1",
-		"tsx": "^4.20.3",
-		"typescript": "^5.8.3",
-		"vitest": "^4.0.6"
+		"@biomejs/biome": "^2.4.4",
+		"@types/node": "^24.10.13",
+		"rimraf": "^6.1.3",
+		"tsx": "^4.21.0",
+		"typescript": "^5.9.3"
 	}
 }

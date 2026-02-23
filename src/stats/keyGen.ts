@@ -30,8 +30,8 @@ export const getKeyGenStats = async (
 			const groupStats = agg[gid] ?? {
 				gid,
 				initiatedAt: 0n,
-                lastUpdatedAt: 0n,
-                lastUpdatedBy: 0n,
+				lastUpdatedAt: 0n,
+				lastUpdatedBy: 0n,
 				committed: [],
 				secrets: [],
 				confirmed: [],
@@ -71,11 +71,16 @@ export const getKeyGenStats = async (
 	);
 };
 
-export const logKeyGenStats = (aggregation: Record<string, KeyGenStats>, displayFailed: boolean) => {
+export const logKeyGenStats = (
+	aggregation: Record<string, KeyGenStats>,
+	displayFailed: boolean,
+) => {
 	const totalKeyGens = Object.values(aggregation).filter((kg) => kg.initiatedAt > 0);
 	const completedKeyGens = totalKeyGens.filter((kg) => kg.completed);
 	const validatorStats = {} as Record<string, number>;
-	console.log(`Tracked ${totalKeyGens.length} key generations with ${completedKeyGens.length} completed`);
+	console.log(
+		`Tracked ${totalKeyGens.length} key generations with ${completedKeyGens.length} completed`,
+	);
 	for (const details of completedKeyGens) {
 		for (const validator of details.confirmed) {
 			validatorStats[validator.toString()] = (validatorStats[validator.toString()] ?? 0) + 1;
@@ -87,7 +92,9 @@ export const logKeyGenStats = (aggregation: Record<string, KeyGenStats>, display
 	for (const [validatorId, confirmed] of validators) {
 		console.log();
 		console.log(`Validator with index ${validatorId}`);
-		console.log(`Confirmed ${confirmed}/${completedKeyGens.length} (${(100 * confirmed) / completedKeyGens.length}%)`);
+		console.log(
+			`Confirmed ${confirmed}/${completedKeyGens.length} (${(100 * confirmed) / completedKeyGens.length}%)`,
+		);
 	}
 
 	const incompletedKeyGens = totalKeyGens.filter((kg) => !kg.completed);
