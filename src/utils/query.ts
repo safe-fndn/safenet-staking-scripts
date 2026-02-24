@@ -1,5 +1,5 @@
 import type { AbiEvent, Address, GetLogsReturnType, PublicClient } from "viem";
-import { minBigNum } from "./math.js";
+import { minBigInt } from "./math.js";
 
 type EventQuery<E extends Readonly<AbiEvent[]>> = {
 	address: Address;
@@ -19,7 +19,7 @@ export const getLogsBatched = async <E extends Readonly<AbiEvent[]>>(
 	let currentFrom = fromBlock;
 	let currentBatchSize = batchSize;
 	while (currentFrom < toBlock && currentBatchSize > 0) {
-		const currentTo = minBigNum(currentFrom + currentBatchSize, toBlock);
+		const currentTo = minBigInt(currentFrom + currentBatchSize, toBlock);
 		try {
 			console.debug(`Load batch from ${currentFrom} to ${currentTo}`);
 			const logResults = await client.getLogs({
