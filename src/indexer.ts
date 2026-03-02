@@ -6,16 +6,29 @@
  */
 
 import type { Database, Statement, Transaction } from "better-sqlite3";
-import { type AbiEvent, type Address, type Client, type Log, toEventSelector } from "viem";
-import { getLogs } from "viem/actions";
+import debug, { type Debugger } from "debug";
+import {
+	type AbiEvent,
+	type Address,
+	type Client,
+	type ExtractAbiItem,
+	getAbiItem,
+	type Log,
+	toEventSelector,
+} from "viem";
+import { getBlockNumber, getLogs, readContract } from "viem/actions";
 import { z } from "zod";
+import { CONSENSUS_ABI, COORDINATOR_ABI, STAKING_ABI } from "./abi.js";
 import { jsonPreprocessor, jsonReplacer } from "./utils/json.js";
 import { type BlockRange, nextPage, type PagedBlockRange, reduceRanges } from "./utils/ranges.js";
 
 export type Configuration<Event> = {
 	db: Database;
+	client: Client;
 	address: Address;
 	event: Event;
+	startBlock?: bigint;
+	backoff?: number[];
 };
 
 const bigIntIshSchema = z.union([z.bigint(), z.int(), z.string()]).transform((i) => BigInt(i));
@@ -29,30 +42,40 @@ const rangesSchema = z.preprocess(
 		.array(),
 );
 
-type ParsedLog<Event extends AbiEvent> = Log<bigint, number, false, Event>;
+type ParsedLog<Event extends AbiEvent> = Log<bigint, number, false, Event, true>;
+
+export type UpdateBlockRange = Partial<BlockRange> & Pick<PagedBlockRange, "blockPageSize">;
 
 export class Indexer<Event extends AbiEvent> {
+	#debug: Debugger;
 	#db: Database;
+	#client: Client;
 	#filter: {
 		address: Address;
 		event: Event;
 		strict: true;
 	};
+	#startBlock?: bigint;
+	#backoff: number[];
 	#table: string;
 	#queries: {
 		selectIndexedRanges: Statement<[], string>;
 		upsertIndexedRanges: Statement<{ ranges: string }, number>;
-		insertEvent: Statement<{ block: bigint; index: number; args: string }, number>;
-		addEvents: Transaction<(args: { page: BlockRange; logs: Log[] }) => void>;
+		insertEvent: Statement<{ blockNumber: bigint; logIndex: number; args: string }, number>;
+		addEvents: Transaction<(args: { page: BlockRange; logs: ParsedLog<Event>[] }) => void>;
 	};
 
-	constructor({ db, address, event }: Configuration<Event>) {
+	constructor({ db, client, address, event, startBlock, backoff }: Configuration<Event>) {
+		this.#debug = debug(`indexer:${event.name}`);
 		this.#db = db;
+		this.#client = client;
 		this.#filter = {
 			address,
 			event,
 			strict: true,
 		};
+		this.#startBlock = startBlock;
+		this.#backoff = backoff ?? [200, 1000, 5000];
 
 		// We create a unique table per address and event. This ensures that we
 		// don't accidentally mix up events with different signatures accross
@@ -61,44 +84,40 @@ export class Indexer<Event extends AbiEvent> {
 
 		this.#db.exec(`
 			CREATE TABLE IF NOT EXISTS indexer_ranges(
-				table TEXT NOT NULL,
+				table_name TEXT NOT NULL,
 				ranges TEXT NOT NULL,
-				PRIMARY KEY(table)
+				PRIMARY KEY(table_name)
 			);
-			CREATE INDEX IF NOT EXISTS indexer_updates_table_idx ON indexer_updates(table);
 
 			CREATE TABLE IF NOT EXISTS ${this.#table}(
-				block INTEGER NOT NULL,
-				index INTEGER NOT NULL,
+				block_number INTEGER NOT NULL,
+				log_index INTEGER NOT NULL,
 				args TEXT NOT NULL,
-				PRIMARY KEY(block, index)
+				PRIMARY KEY(block_number, log_index)
 			);
 		`);
 
 		this.#queries = {
-			selectIndexedRanges: this.#db
-				.prepare<[], string>(`
-					SELECT ranges
-					FROM indexer_ranges
-					WHERE table = '${this.#table}'
-				`)
-				.pluck(),
-			upsertIndexedRanges: this.#db
-				.prepare<{ ranges: string }, number>(`
-					INSERT INTO indexer_ranges(table, ranges)
-					VALUES('${this.#table}', @ranges)
-					ON CONFLICT(table)
-					DO UPDATE SET ranges = excluded.ranges
-				`)
-				.pluck(),
-			insertEvent: this.#db
-				.prepare<{ block: bigint; index: number; args: string }, number>(`
-					INSERT INTO ${this.#table}(block, index, args)
-					VALUES(@block, @index, @args)
-					ON CONFLICT(block, index)
-					DO NOTHING
-				`)
-				.pluck(),
+			selectIndexedRanges: this.#db.prepare<[], string>(`
+				SELECT ranges
+				FROM indexer_ranges
+				WHERE table_name = '${this.#table}'
+			`),
+			upsertIndexedRanges: this.#db.prepare<{ ranges: string }, number>(`
+				INSERT INTO indexer_ranges(table_name, ranges)
+				VALUES('${this.#table}', @ranges)
+				ON CONFLICT(table_name)
+				DO UPDATE SET ranges = excluded.ranges
+			`),
+			insertEvent: this.#db.prepare<
+				{ blockNumber: bigint; logIndex: number; args: string },
+				number
+			>(`
+				INSERT INTO ${this.#table}(block_number, log_index, args)
+				VALUES(@blockNumber, @logIndex, @args)
+				ON CONFLICT(block_number, log_index)
+				DO NOTHING
+			`),
 			addEvents: this.#db.transaction(
 				({ page, logs }: { page: BlockRange; logs: ParsedLog<Event>[] }) => {
 					// Update atomically, preventing any undefined behaviour in
@@ -107,8 +126,8 @@ export class Indexer<Event extends AbiEvent> {
 					this.#queries.upsertIndexedRanges.run({ ranges: JSON.stringify(ranges, jsonReplacer) });
 					for (const { blockNumber, logIndex, args } of logs) {
 						this.#queries.insertEvent.run({
-							block: blockNumber,
-							index: logIndex,
+							blockNumber,
+							logIndex,
 							args: JSON.stringify(args, jsonReplacer),
 						});
 					}
@@ -118,25 +137,151 @@ export class Indexer<Event extends AbiEvent> {
 	}
 
 	#indexedRanges(): BlockRange[] {
-		return rangesSchema.safeParse(this.#queries.selectIndexedRanges.get()).data ?? [];
+		return rangesSchema.safeParse(this.#queries.selectIndexedRanges.pluck().get()).data ?? [];
 	}
 
 	#nextPage(range: PagedBlockRange): BlockRange | null {
 		return nextPage(range, this.#indexedRanges());
 	}
 
-	async update(client: Client, range: PagedBlockRange): Promise<void> {
-		while (true) {
+	async #getLogs(page: BlockRange): Promise<ParsedLog<Event>[]> {
+		const params = {
+			...this.#filter,
+			...page,
+		} as const;
+
+		for (const backoff of this.#backoff) {
+			try {
+				return await getLogs(this.#client, params);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : "unknown error";
+				this.#debug(`error fetching logs (${msg}), trying again in ${backoff / 1000}s`);
+				await new Promise((resolve) => setTimeout(resolve, backoff));
+			}
+		}
+		return await getLogs(this.#client, params);
+	}
+
+	async update(
+		{ fromBlock, toBlock, blockPageSize }: UpdateBlockRange,
+		cancel?: () => boolean,
+	): Promise<void> {
+		const range = {
+			fromBlock: fromBlock ?? this.#startBlock ?? 0n,
+			toBlock: toBlock ?? (await getBlockNumber(this.#client)),
+			blockPageSize,
+		};
+		while (cancel?.() !== true) {
 			const page = this.#nextPage(range);
 			if (page === null) {
 				break;
 			}
+			this.#debug(`fetching block page ${page.fromBlock}-${page.toBlock}`);
 
-			const logs = await getLogs(client, {
-				...this.#filter,
-				...page,
-			});
+			const logs = await this.#getLogs(page);
 			this.#queries.addEvents({ page, logs });
+			this.#debug(`indexed ${logs.length} logs`);
 		}
 	}
 }
+
+export type SafenetIndexers = {
+	stakeIncreased: Indexer<ExtractAbiItem<typeof STAKING_ABI, "StakeIncreased">>;
+	withdrawalInitiated: Indexer<ExtractAbiItem<typeof STAKING_ABI, "WithdrawalInitiated">>;
+	validatorUpdated: Indexer<ExtractAbiItem<typeof STAKING_ABI, "ValidatorUpdated">>;
+	signShared: Indexer<ExtractAbiItem<typeof COORDINATOR_ABI, "SignShared">>;
+	signCompleted: Indexer<ExtractAbiItem<typeof COORDINATOR_ABI, "SignCompleted">>;
+	validatorStakerSet: Indexer<ExtractAbiItem<typeof CONSENSUS_ABI, "ValidatorStakerSet">>;
+	transactionAttested: Indexer<ExtractAbiItem<typeof CONSENSUS_ABI, "TransactionAttested">>;
+};
+
+export const createSafenetIndexers = async ({
+	db,
+	...params
+}: {
+	db: Database;
+	stakingClient: Client;
+	stakingAddress: Address;
+	stakingStartBlock?: bigint;
+	consensusClient: Client;
+	consensusAddress: Address;
+	consensusStartBlock?: bigint;
+}): Promise<SafenetIndexers> => {
+	const coordinatorAddress = await readContract(params.consensusClient, {
+		address: params.consensusAddress,
+		abi: CONSENSUS_ABI,
+		functionName: "COORDINATOR",
+	});
+
+	return {
+		stakeIncreased: new Indexer({
+			db,
+			client: params.stakingClient,
+			address: params.stakingAddress,
+			event: getAbiItem({ abi: STAKING_ABI, name: "StakeIncreased" }),
+			startBlock: params.stakingStartBlock,
+		}),
+		withdrawalInitiated: new Indexer({
+			db,
+			client: params.stakingClient,
+			address: params.stakingAddress,
+			event: getAbiItem({ abi: STAKING_ABI, name: "WithdrawalInitiated" }),
+			startBlock: params.stakingStartBlock,
+		}),
+		validatorUpdated: new Indexer({
+			db,
+			client: params.stakingClient,
+			address: params.stakingAddress,
+			event: getAbiItem({ abi: STAKING_ABI, name: "ValidatorUpdated" }),
+			startBlock: params.stakingStartBlock,
+		}),
+		signShared: new Indexer({
+			db,
+			client: params.consensusClient,
+			address: coordinatorAddress,
+			event: getAbiItem({ abi: COORDINATOR_ABI, name: "SignShared" }),
+			startBlock: params.consensusStartBlock,
+		}),
+		signCompleted: new Indexer({
+			db,
+			client: params.consensusClient,
+			address: coordinatorAddress,
+			event: getAbiItem({ abi: COORDINATOR_ABI, name: "SignCompleted" }),
+			startBlock: params.consensusStartBlock,
+		}),
+		validatorStakerSet: new Indexer({
+			db,
+			client: params.consensusClient,
+			address: params.consensusAddress,
+			event: getAbiItem({ abi: CONSENSUS_ABI, name: "ValidatorStakerSet" }),
+			startBlock: params.consensusStartBlock,
+		}),
+		transactionAttested: new Indexer({
+			db,
+			client: params.consensusClient,
+			address: params.consensusAddress,
+			event: getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionAttested" }),
+			startBlock: params.consensusStartBlock,
+		}),
+	};
+};
+
+export const updateIndexers = async (
+	indexers: Partial<SafenetIndexers>,
+	range: UpdateBlockRange,
+): Promise<void> => {
+	// We want to fail updating early - that is if we run into trouble with a
+	// particular indexer, we want to stop the others. This prevents large block
+	// ranges that take a long time to index hide early errors.
+	let failedEarly = false;
+	await Promise.all(
+		Object.values(indexers).map((indexer) =>
+			indexer
+				.update(range, () => failedEarly)
+				.catch((err) => {
+					failedEarly = true;
+					throw err;
+				}),
+		),
+	);
+};

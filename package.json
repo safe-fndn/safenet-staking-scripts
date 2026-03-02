@@ -5,6 +5,7 @@
 	"scripts": {
 		"build": "rimraf dist && tsc --project tsconfig.dist.json",
 		"check": "biome check && tsc",
+		"cmd:index": "tsx src/cmd/index.ts",
 		"cmd:stats": "tsx src/cmd/stats.ts",
 		"fix": "biome check --write",
 		"test": "vitest run",
@@ -12,14 +13,16 @@
 	},
 	"dependencies": {
 		"better-sqlite3": "^12.6.2",
+		"debug": "^4.4.3",
 		"dotenv": "^17.3.1",
-		"viem": "^2.46.2",
+		"viem": "^2.46.3",
 		"zod": "^4.3.6"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.4.4",
 		"@types/better-sqlite3": "^7.6.13",
-		"@types/node": "^24.10.13",
+		"@types/debug": "^4.1.12",
+		"@types/node": "^24.10.15",
 		"rimraf": "^6.1.3",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3",
