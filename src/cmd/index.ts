@@ -4,11 +4,10 @@
  */
 
 import { parseArgs } from "node:util";
-import Sqlite3 from "better-sqlite3";
 import { configDotenv } from "dotenv";
 import { createClient, getAddress, http } from "viem";
 import { z } from "zod";
-import { createSafenetIndexers, updateIndexers } from "../indexing/safenet.js";
+import { Safenet } from "../safenet.js";
 
 configDotenv({ quiet: true });
 
@@ -47,8 +46,7 @@ const main = async () => {
 		}).values,
 	);
 
-	const indexers = await createSafenetIndexers({
-		db: new Sqlite3(args.databaseFile),
+	const safenet = await Safenet.create({
 		stakingClient: createClient({
 			transport: http(args.stakingRpcUrl),
 		}),
@@ -57,7 +55,7 @@ const main = async () => {
 		}),
 		...args,
 	});
-	await updateIndexers(indexers, { blockPageSize: args.blockPageSize });
+	await safenet.index({ blockPageSize: args.blockPageSize });
 };
 
 main().catch((err) => {

@@ -38,6 +38,7 @@ export class BlockTimestampCache {
 	#db: Database;
 	#client: Client;
 	#backoff: Backoff;
+	#table: string;
 	#queries: {
 		selectTimestamp: Statement<{ blockNumber: bigint }, number>;
 		upsertTimestamp: Statement<BlockTimestamp, number>;
@@ -47,7 +48,7 @@ export class BlockTimestampCache {
 		>;
 	};
 
-	constructor({ db, client }: Configuration) {
+	constructor({ db, client, chainId }: Configuration) {
 		this.#debug = debug(`indexing:block`);
 		this.#db = db;
 		this.#client = client;
@@ -55,8 +56,11 @@ export class BlockTimestampCache {
 			debug: this.#debug,
 		});
 
+		// We create separate tables per chain.
+		this.#table = `block_timestamps_${chainId}`;
+
 		this.#db.exec(`
-			CREATE TABLE IF NOT EXISTS block_timestamps(
+			CREATE TABLE IF NOT EXISTS ${this.#table}(
 				block_number INTEGER NOT NULL,
 				timestamp INTEGER NOT NULL,
 				PRIMARY KEY(block_number)
@@ -66,11 +70,11 @@ export class BlockTimestampCache {
 		this.#queries = {
 			selectTimestamp: this.#db.prepare<{ blockNumber: bigint }, number>(`
 				SELECT timestamp
-				FROM block_timestamps
+				FROM ${this.#table}
 				WHERE block_number = @blockNumber
 			`),
 			upsertTimestamp: this.#db.prepare<BlockTimestamp, number>(`
-				INSERT INTO block_timestamps(block_number, timestamp)
+				INSERT INTO ${this.#table}(block_number, timestamp)
 				VALUES(@blockNumber, @timestamp)
 				ON CONFLICT(block_number)
 				DO NOTHING
@@ -80,12 +84,16 @@ export class BlockTimestampCache {
 				{ blockNumber: number; timestamp: number }
 			>(`
 				SELECT block_number AS blockNumber, timestamp
-				FROM block_timestamps
+				FROM ${this.#table}
 				WHERE timestamp >= @timestamp
 				ORDER BY block_number ASC
 				LIMIT 1
 			`),
 		};
+	}
+
+	get table(): string {
+		return this.#table;
 	}
 
 	async getLatest(): Promise<BlockTimestamp> {
