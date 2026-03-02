@@ -8,12 +8,12 @@ import Sqlite3 from "better-sqlite3";
 import { configDotenv } from "dotenv";
 import { createClient, getAddress, http } from "viem";
 import { z } from "zod";
-import { createSafenetIndexers, updateIndexers } from "../indexer.js";
+import { createSafenetIndexers, updateIndexers } from "../indexing/safenet.js";
 
 configDotenv({ quiet: true });
 
 const argsSchema = z.object({
-	databaseFile: z.string(),
+	databaseFile: z.string().min(1),
 	stakingRpcUrl: z.url(),
 	stakingAddress: z.string().transform((a) => getAddress(a)),
 	stakingStartBlock: z.coerce.bigint(),
