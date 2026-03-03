@@ -49,7 +49,7 @@ export class BlockTimestampCache {
 	};
 
 	constructor({ db, client, chainId }: Configuration) {
-		this.#debug = debug(`indexing:block`);
+		this.#debug = debug(`safenet:indexing:block`);
 		this.#db = db;
 		this.#client = client;
 		this.#backoff = backoff({
@@ -136,7 +136,7 @@ export class BlockTimestampCache {
 	async searchBlock({
 		timestamp,
 	}: Pick<BlockTimestamp, "timestamp">): Promise<BlockTimestamp | null> {
-		const cached = this.#queries.selectBlockAfterTimestamp.pluck().get({ timestamp });
+		const cached = this.#queries.selectBlockAfterTimestamp.get({ timestamp });
 		if (cached && BigInt(cached.timestamp) === timestamp) {
 			return bt(cached);
 		}

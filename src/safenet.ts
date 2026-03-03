@@ -2,12 +2,13 @@
  * Safenet data source.
  */
 
-import Sqlite3 from "better-sqlite3";
+import Sqlite3, { type Database } from "better-sqlite3";
 import { type Address, type Client, type ExtractAbiItem, getAbiItem } from "viem";
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, COORDINATOR_ABI, STAKING_ABI } from "./abi.js";
-import { BlockTimestampCache } from "./indexing/block.js";
+import { BlockTimestampCache, type TimestampRange } from "./indexing/block.js";
 import { EventIndexer, type UpdateBlockRange } from "./indexing/event.js";
+import { type ValidatorSetQuery, validatorSet } from "./queries/validator-set.js";
 
 type SafenetChain<Events> = {
 	client: Client;
@@ -28,19 +29,31 @@ type ConsensusEvents = {
 	transactionAttested: EventIndexer<ExtractAbiItem<typeof CONSENSUS_ABI, "TransactionAttested">>;
 };
 
+export type RewardsPeriod = TimestampRange & {
+	blockPageSize: bigint;
+};
+
 export class Safenet {
 	#staking: SafenetChain<StakingEvents>;
 	#consensus: SafenetChain<ConsensusEvents>;
+	#validatorSet: ValidatorSetQuery;
 
 	private constructor({
+		db,
 		staking,
 		consensus,
 	}: {
+		db: Database;
 		staking: SafenetChain<StakingEvents>;
 		consensus: SafenetChain<ConsensusEvents>;
 	}) {
 		this.#staking = staking;
 		this.#consensus = consensus;
+
+		this.#validatorSet = validatorSet({
+			db,
+			validatorUpdated: staking.events.validatorUpdated,
+		});
 	}
 
 	async index(range: UpdateBlockRange): Promise<void> {
@@ -59,6 +72,17 @@ export class Safenet {
 						}),
 			),
 		);
+	}
+
+	async validatorStats(period: RewardsPeriod): Promise<void> {
+		const range = await this.#staking.blocks.searchBlockRange(period);
+		if (range === null) {
+			throw new Error("invalid payout period range");
+		}
+
+		await this.index({ ...period, ...range });
+		const set = await this.#validatorSet({ staking: range });
+		console.log(set);
 	}
 
 	static async create(params: {
@@ -90,6 +114,7 @@ export class Safenet {
 			chainId: consensusChain,
 		});
 		return new Safenet({
+			db,
 			staking: {
 				client: params.stakingClient,
 				blocks: stakingBlocks,

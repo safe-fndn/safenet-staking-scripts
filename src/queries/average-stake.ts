@@ -1,13 +1,15 @@
 import type { Database } from "better-sqlite3";
-import type { Blocks, EventTable } from "./types.js";
+import type { BlockRange, Blocks, Event } from "./types.js";
 
-export const averageStake = async ({
-	db, stakeIncreased, withdrawalInitiated,
+export const averageStake = ({
+	db,
+	stakeIncreased,
+	withdrawalInitiated,
 }: {
 	db: Database;
 	stakingBlocks: Blocks;
-	stakeIncreased: EventTable;
-	withdrawalInitiated: EventTable;
+	stakeIncreased: Event;
+	withdrawalInitiated: Event;
 }) => {
 	const startingBalances = db.prepare(`
 		WITH added AS (
@@ -38,28 +40,32 @@ export const averageStake = async ({
 	const balanceChanges = db.prepare(`
 		WITH added AS (
 			SELECT block_number
-			, log_index
-			, json_extract(args, '$.staker') AS staker
-			, json_extract(args, '$.validator') AS validator
-			, decimal_sum(json_extract(args, '$.amount')) AS amount
+			, json_extract(args, '$.amount') AS amount
 			FROM ${stakeIncreased.table}
+			WHERE block_number >= @blockNumber
+			AND block_number <= @toBlock
+			AND json_extract(args, '$.staker') = @staker
+			AND json_extract(args, '$.validator') = @validator
 		)
 		, removed AS (
 			SELECT block_number
-			, log_index
-			, json_extract(args, '$.staker') AS staker
-			, json_extract(args, '$.validator') AS validator
-			, decimal_sum(json_extract(args, '$.amount')) AS amount
+			, json_extract(args, '$.amount') AS amount
 			FROM ${withdrawalInitiated.table}
+			WHERE block_number >= @blockNumber
+			AND block_number <= @toBlock
+			AND json_extract(args, '$.staker') = @staker
+			AND json_extract(args, '$.validator') = @validator
 		)
-		SELECT COALESCE(added.staker, removed.staker)
-		, COALESCE(added.validator, removed.validator)
-		, decimal_sub(COALESCE(removed.amount, 0), COALESCE(removed.amount, 0)) AS amount
+		SELECT COALESCE(added.block_number, removed.block_number) AS blockNumber
+		, decimal_sub(COALESCE(added.amount, 0), COALESCE(removed.amount, 0)) AS amount
 		FROM added
 		FULL JOIN removed
-		ON added.block_number = removed.block_number
-		AND added.log_index = removed.log_index
-		WHERE block_number >= @blockNumber
-		AND block_number <= @toBlock
+		ON 1 = 0
 	`);
-}
+
+	return async function* (range: BlockRange) {
+		console.log(startingBalances, balanceChanges, range);
+		yield 1;
+		throw new Error("not implemented");
+	};
+};

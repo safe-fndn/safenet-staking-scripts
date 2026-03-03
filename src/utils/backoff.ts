@@ -7,7 +7,7 @@ export type Configuration = {
 
 export const DEFAULT_CONFIGURATION = {
 	delays: [200, 1000, 5000],
-	debug: debug("backoff"),
+	debug: debug("safenet:backoff"),
 };
 
 export type Backoff = <T>(query: () => Promise<T>) => Promise<T>;
