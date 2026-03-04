@@ -36,7 +36,7 @@ type BlockRange = {
 	toBlock: bigint;
 };
 
-export class EventIndexer<Event extends AbiEvent> {
+export class EventIndexer<Event extends AbiEvent = AbiEvent> {
 	#debug: Debugger;
 	#db: Database;
 	#client: Client;
@@ -56,7 +56,7 @@ export class EventIndexer<Event extends AbiEvent> {
 	};
 
 	constructor({ db, client, chainId, address, event, startBlock, blocks }: Configuration<Event>) {
-		this.#debug = debug(`indexing:event:${event.name}`);
+		this.#debug = debug(`safenet:indexing:event:${event.name}`);
 		this.#db = db;
 		this.#client = client;
 		this.#filter = {
