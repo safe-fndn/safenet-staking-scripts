@@ -8,5 +8,5 @@ import { main } from "./args.js";
 
 main(async (args) => {
 	const safenet = await Safenet.create(args);
-	await safenet.index({ blockPageSize: args.blockPageSize });
+	await safenet.index();
 });

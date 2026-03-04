@@ -3,7 +3,7 @@ import debug from "debug";
 import { configDotenv } from "dotenv";
 import { type Client, createClient, getAddress, http, type Prettify } from "viem";
 import { z } from "zod";
-import type { RewardsPeriod } from "../safenet.js";
+import type { TimestampRange } from "../utils/ranges.js";
 
 const SCHEMA = z.object({
 	databaseFile: z.string().min(1),
@@ -90,16 +90,16 @@ export function main<T extends z.core.$ZodLooseShape>(
 }
 
 export const rewardsPeriod = (period: {
-	rewardsPeriodStart?: bigint;
-	rewardsPeriodEnd?: bigint;
-	blockPageSize: bigint;
-}): RewardsPeriod => {
+	rewardPeriodStart?: bigint;
+	rewardPeriodEnd?: bigint;
+}): TimestampRange => {
 	const TWO_WEEKS = BigInt(60 * 60 * 24 * 7 * 2);
 	const lastSunday = () => {
 		const now = new Date();
-		// Day '0' is Sunday, so we get just subtract the day of the week from the date (i.e. the
-		// day of the month) to get the date of the last Sunday (noting that the Date functions
-		// support negative dates to roll back months).
+		// Day '0' is Sunday, so we get just subtract the day of the week from
+		// the date (i.e. the day of the month) to get the date of the last
+		// Sunday (noting that the Date functions support negative dates to roll
+		// back months).
 		const sunday = Date.UTC(
 			now.getUTCFullYear(),
 			now.getUTCMonth(),
@@ -109,10 +109,8 @@ export const rewardsPeriod = (period: {
 	};
 
 	const toTimestamp =
-		period.rewardsPeriodEnd ??
-		(period.rewardsPeriodStart !== undefined
-			? period.rewardsPeriodStart + TWO_WEEKS
-			: lastSunday());
-	const fromTimestamp = period.rewardsPeriodStart ?? toTimestamp - TWO_WEEKS;
-	return { fromTimestamp, toTimestamp, blockPageSize: period.blockPageSize };
+		period.rewardPeriodEnd ??
+		(period.rewardPeriodStart !== undefined ? period.rewardPeriodStart + TWO_WEEKS : lastSunday());
+	const fromTimestamp = period.rewardPeriodStart ?? toTimestamp - TWO_WEEKS;
+	return { fromTimestamp, toTimestamp };
 };
