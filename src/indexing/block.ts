@@ -11,7 +11,12 @@ import debug, { type Debugger } from "debug";
 import { BlockNotFoundError, type Client, type Log } from "viem";
 import { getBlock } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
-import type { BlockRange } from "../utils/ranges.js";
+import {
+	type BlockRange,
+	formatRange,
+	formatTimestamp,
+	type TimestampRange,
+} from "../utils/ranges.js";
 
 export type Configuration = {
 	db: Database;
@@ -24,17 +29,11 @@ export type BlockTimestamp = {
 	timestamp: bigint;
 };
 
-export type TimestampRange = {
-	fromTimestamp: bigint;
-	toTimestamp: bigint;
-};
-
 export class BlockTimestampCache {
 	#debug: Debugger;
 	#db: Database;
 	#client: Client;
 	#backoff: Backoff;
-	#table: string;
 	#queries: {
 		selectTimestamp: Statement<{ blockNumber: bigint }, number>;
 		upsertTimestamp: Statement<BlockTimestamp, number>;
@@ -56,27 +55,26 @@ export class BlockTimestampCache {
 			debug: this.#debug,
 		});
 
-		// We create separate tables per chain.
-		this.#table = `block_timestamps_${chainId}`;
-
 		this.#db.exec(`
-			CREATE TABLE IF NOT EXISTS ${this.#table}(
+			CREATE TABLE IF NOT EXISTS block_timestamps(
+				chain_id INTEGER NOT NULL,
 				block_number INTEGER NOT NULL,
 				timestamp INTEGER NOT NULL,
-				PRIMARY KEY(block_number)
+				PRIMARY KEY(chain_id, block_number)
 			);
 		`);
 
 		this.#queries = {
 			selectTimestamp: this.#db.prepare<{ blockNumber: bigint }, number>(`
 				SELECT timestamp
-				FROM ${this.#table}
-				WHERE block_number = @blockNumber
+				FROM block_timestamps
+				WHERE chain_id = ${chainId}
+				AND block_number = @blockNumber
 			`),
 			upsertTimestamp: this.#db.prepare<BlockTimestamp, number>(`
-				INSERT INTO ${this.#table}(block_number, timestamp)
-				VALUES(@blockNumber, @timestamp)
-				ON CONFLICT(block_number)
+				INSERT INTO block_timestamps(chain_id, block_number, timestamp)
+				VALUES(${chainId}, @blockNumber, @timestamp)
+				ON CONFLICT(chain_id, block_number)
 				DO NOTHING
 			`),
 			selectBlockAfterTimestamp: this.#db.prepare<
@@ -84,8 +82,9 @@ export class BlockTimestampCache {
 				{ blockNumber: number; timestamp: number }
 			>(`
 				SELECT block_number AS blockNumber, timestamp
-				FROM ${this.#table}
-				WHERE timestamp >= @timestamp
+				FROM block_timestamps
+				WHERE chain_id = ${chainId}
+				AND timestamp >= @timestamp
 				ORDER BY block_number ASC
 				LIMIT 1
 			`),
@@ -94,16 +93,13 @@ export class BlockTimestampCache {
 				{ blockNumber: number; timestamp: number }
 			>(`
 				SELECT block_number AS blockNumber, timestamp
-				FROM ${this.#table}
-				WHERE timestamp < @timestamp
+				FROM block_timestamps
+				WHERE chain_id = ${chainId}
+				AND timestamp < @timestamp
 				ORDER BY block_number DESC
 				LIMIT 1
 			`),
 		};
-	}
-
-	get table(): string {
-		return this.#table;
 	}
 
 	async getLatest(): Promise<BlockTimestamp> {
@@ -122,6 +118,7 @@ export class BlockTimestampCache {
 			return BigInt(cached);
 		}
 
+		this.#debug(`fetching timestamp for block ${blockNumber}`);
 		const block = await this.#backoff(async () => {
 			try {
 				return await getBlock(this.#client, { blockNumber });
@@ -143,19 +140,30 @@ export class BlockTimestampCache {
 		return block.timestamp;
 	}
 
+	async mustGetTimestamp({ blockNumber }: Pick<BlockTimestamp, "blockNumber">): Promise<bigint> {
+		const timestamp = await this.getTimestamp({ blockNumber });
+		if (timestamp === null) {
+			throw new Error(`unexpected missing timestamp for block ${blockNumber}`);
+		}
+		return timestamp;
+	}
+
 	async searchBlock({
 		timestamp,
 	}: Pick<BlockTimestamp, "timestamp">): Promise<BlockTimestamp | null> {
-		const cached = this.#queries.selectBlockAfterTimestamp.get({ timestamp });
-		if (cached && BigInt(cached.timestamp) === timestamp) {
-			return bt(cached);
-		}
-
 		// Binary search to find the block we are looking for. In the future,
 		// this can be optimized a bit by "guessing" where the correct block
 		// number based on average block times.
-		const high = bt(cached ?? (await this.getLatest()));
-		const low = bt(
+		const high = normalizeBlockTimestamp(
+			this.#queries.selectBlockAfterTimestamp.get({ timestamp }) ?? (await this.getLatest()),
+		);
+		if (high.timestamp === timestamp) {
+			return high;
+		} else if (high.timestamp < timestamp) {
+			return null;
+		}
+
+		const low = normalizeBlockTimestamp(
 			this.#queries.selectBlockBeforeTimestamp.get({ timestamp }) ?? {
 				blockNumber: -1n,
 				timestamp: 0n,
@@ -167,20 +175,31 @@ export class BlockTimestampCache {
 			);
 
 			const mid = (high.blockNumber + low.blockNumber) / 2n;
-			const t = await this.getTimestamp({ blockNumber: mid });
-			if (t === null) {
-				throw new Error(`unexpected missing block ${mid}`);
+			const t = await this.mustGetTimestamp({ blockNumber: mid });
+			if (t === timestamp) {
+				return { blockNumber: mid, timestamp: t };
 			} else if (t < timestamp) {
 				low.blockNumber = mid;
 				low.timestamp = t;
 			} else if (t > timestamp) {
 				high.blockNumber = mid;
 				high.timestamp = t;
-			} else {
-				return { blockNumber: mid, timestamp: t };
 			}
 		}
 		return high;
+	}
+
+	async block({ timestamp }: Pick<BlockTimestamp, "timestamp">): Promise<BlockTimestamp> {
+		const block = await this.searchBlock({ timestamp });
+		if (block === null) {
+			throw new Error(`missing blocks for time ${formatTimestamp(timestamp)}`);
+		}
+		return block;
+	}
+
+	async blockBefore({ timestamp }: Pick<BlockTimestamp, "timestamp">): Promise<bigint> {
+		const { blockNumber } = await this.block({ timestamp });
+		return blockNumber - 1n;
 	}
 
 	async searchBlockRange({
@@ -198,6 +217,14 @@ export class BlockTimestampCache {
 		return { fromBlock: fromBlock.blockNumber, toBlock: upToBlock.blockNumber - 1n };
 	}
 
+	async blockRange(range: TimestampRange): Promise<BlockRange> {
+		const blocks = await this.searchBlockRange(range);
+		if (blocks === null) {
+			throw new Error(`missing blocks for time range ${formatRange(range)}`);
+		}
+		return blocks;
+	}
+
 	recordLog({
 		blockNumber,
 		blockTimestamp,
@@ -210,7 +237,10 @@ export class BlockTimestampCache {
 	}
 }
 
-const bt = (b: { blockNumber: number | bigint; timestamp: number | bigint }): BlockTimestamp => ({
+const normalizeBlockTimestamp = (b: {
+	blockNumber: number | bigint;
+	timestamp: number | bigint;
+}): BlockTimestamp => ({
 	blockNumber: BigInt(b.blockNumber),
 	timestamp: BigInt(b.timestamp),
 });
