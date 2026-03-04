@@ -46,6 +46,10 @@ export class BlockTimestampCache {
 			{ timestamp: bigint },
 			{ blockNumber: number; timestamp: number }
 		>;
+		selectBlockBeforeTimestamp: Statement<
+			{ timestamp: bigint },
+			{ blockNumber: number; timestamp: number }
+		>;
 	};
 
 	constructor({ db, client, chainId }: Configuration) {
@@ -87,6 +91,16 @@ export class BlockTimestampCache {
 				FROM ${this.#table}
 				WHERE timestamp >= @timestamp
 				ORDER BY block_number ASC
+				LIMIT 1
+			`),
+			selectBlockBeforeTimestamp: this.#db.prepare<
+				{ timestamp: bigint },
+				{ blockNumber: number; timestamp: number }
+			>(`
+				SELECT block_number AS blockNumber, timestamp
+				FROM ${this.#table}
+				WHERE timestamp < @timestamp
+				ORDER BY block_number DESC
 				LIMIT 1
 			`),
 		};
@@ -141,24 +155,21 @@ export class BlockTimestampCache {
 			return bt(cached);
 		}
 
-		if (cached) {
-			// We found a block, but we don't know for sure whether or not it
-			// matches the timestamp, which may fall between two blocks. We need
-			// to get the block immediately before and check whether it comes
-			// before the timestamp. If it does, then we found our block. If it
-			// doesn't, fall back to binary searching.
-			const before = await this.getTimestamp({ blockNumber: BigInt(cached.blockNumber - 1) });
-			if (before !== null && before < timestamp) {
-				return bt(cached);
-			}
-		}
-
 		// Binary search to find the block we are looking for. In the future,
 		// this can be optimized a bit by "guessing" where the correct block
 		// number based on average block times.
-		const high = await this.getLatest();
-		const low = { blockNumber: -1n, timestamp: 0n };
+		const high = bt(cached ?? (await this.getLatest()));
+		const low = bt(
+			this.#queries.selectBlockBeforeTimestamp.get({ timestamp }) ?? {
+				blockNumber: -1n,
+				timestamp: 0n,
+			},
+		);
 		while (high.blockNumber - low.blockNumber > 1n) {
+			this.#debug(
+				`searching for timestamp ${timestamp} between blocks ${high.blockNumber}-${low.blockNumber}`,
+			);
+
 			const mid = (high.blockNumber + low.blockNumber) / 2n;
 			const t = await this.getTimestamp({ blockNumber: mid });
 			if (t === null) {
@@ -203,7 +214,7 @@ export class BlockTimestampCache {
 	}
 }
 
-const bt = (b: { blockNumber: number; timestamp: number }): BlockTimestamp => ({
+const bt = (b: { blockNumber: number | bigint; timestamp: number | bigint }): BlockTimestamp => ({
 	blockNumber: BigInt(b.blockNumber),
 	timestamp: BigInt(b.timestamp),
 });

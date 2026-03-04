@@ -14,7 +14,6 @@ main(
 	async (args) => {
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
-		console.log(period);
 		await safenet.validatorStats(period);
 	},
 );

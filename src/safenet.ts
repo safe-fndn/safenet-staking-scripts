@@ -3,11 +3,12 @@
  */
 
 import Sqlite3, { type Database } from "better-sqlite3";
+import debug, { type Debugger } from "debug";
 import { type Address, type Client, type ExtractAbiItem, getAbiItem } from "viem";
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, COORDINATOR_ABI, STAKING_ABI } from "./abi.js";
-import { BlockTimestampCache, type TimestampRange } from "./indexing/block.js";
-import { EventIndexer, type UpdateBlockRange } from "./indexing/event.js";
+import { type BlockRange, BlockTimestampCache, type TimestampRange } from "./indexing/block.js";
+import { EventIndexer } from "./indexing/event.js";
 import { type ValidatorSetQuery, validatorSet } from "./queries/validator-set.js";
 
 type SafenetChain<Events> = {
@@ -29,11 +30,19 @@ type ConsensusEvents = {
 	transactionAttested: EventIndexer<ExtractAbiItem<typeof CONSENSUS_ABI, "TransactionAttested">>;
 };
 
+export type ToBlock = Pick<BlockRange, "toBlock">;
+export type IndexRanges = {
+	staking?: ToBlock | null;
+	consensus?: ToBlock | null;
+	blockPageSize: bigint;
+};
+
 export type RewardsPeriod = TimestampRange & {
 	blockPageSize: bigint;
 };
 
 export class Safenet {
+	#debug: Debugger;
 	#staking: SafenetChain<StakingEvents>;
 	#consensus: SafenetChain<ConsensusEvents>;
 	#validatorSet: ValidatorSetQuery;
@@ -47,6 +56,7 @@ export class Safenet {
 		staking: SafenetChain<StakingEvents>;
 		consensus: SafenetChain<ConsensusEvents>;
 	}) {
+		this.#debug = debug("safenet");
 		this.#staking = staking;
 		this.#consensus = consensus;
 
@@ -56,32 +66,42 @@ export class Safenet {
 		});
 	}
 
-	async index(range: UpdateBlockRange): Promise<void> {
+	async index(ranges: IndexRanges): Promise<void> {
+		const updates = (
+			range: ToBlock | null | undefined,
+			events: Record<string, Pick<EventIndexer, "update">>,
+		) =>
+			(range !== null ? Object.values(events) : []).map((indexer) =>
+				indexer
+					.update(
+						{ toBlock: range?.toBlock, blockPageSize: ranges.blockPageSize },
+						() => failedEarly,
+					)
+					.catch((err) => {
+						failedEarly = true;
+						throw err;
+					}),
+			);
 		// We want to fail updating early - that is if we run into trouble with
 		// a particular indexer, we want to stop the others. This prevents large
 		// block ranges that take a long time to index hide early errors.
 		let failedEarly = false;
-		await Promise.all(
-			[...Object.values(this.#staking.events), ...Object.values(this.#consensus.events)].map(
-				(indexer) =>
-					indexer
-						.update(range, () => failedEarly)
-						.catch((err) => {
-							failedEarly = true;
-							throw err;
-						}),
-			),
-		);
+		await Promise.all([
+			...updates(ranges.staking, this.#staking.events),
+			...updates(ranges.consensus, this.#consensus.events),
+		]);
 	}
 
 	async validatorStats(period: RewardsPeriod): Promise<void> {
-		const range = await this.#staking.blocks.searchBlockRange(period);
-		if (range === null) {
+		const staking = await this.#staking.blocks.searchBlockRange(period);
+		if (staking === null) {
 			throw new Error("invalid payout period range");
 		}
 
-		await this.index({ ...period, ...range });
-		const set = await this.#validatorSet({ staking: range });
+		this.#debug(`staking block range ${staking.fromBlock}-${staking.toBlock}`);
+
+		await this.index({ ...period, staking, consensus: null });
+		const set = await this.#validatorSet({ staking });
 		console.log(set);
 	}
 
