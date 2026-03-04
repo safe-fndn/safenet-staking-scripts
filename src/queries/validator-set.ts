@@ -1,6 +1,7 @@
 import type { Database } from "better-sqlite3";
 import type { Address } from "viem";
-import type { BlockRange, Event, Query, QueryRange } from "./types.js";
+import { type BlockRange, reduceRanges } from "../utils/ranges.js";
+import type { Event, Query, QueryRange } from "./types.js";
 
 // Gets the validator set the is considered for rewards. We consider all validators that are
 // registered **at any time** during the payout period. That is, if a validator is added part way
@@ -76,6 +77,9 @@ export const validatorSet = ({
 			}
 		}
 
+		for (const validator in set) {
+			set[validator] = reduceRanges(set[validator]);
+		}
 		return set;
 	};
 };

@@ -11,6 +11,7 @@ import debug, { type Debugger } from "debug";
 import { BlockNotFoundError, type Client, type Log } from "viem";
 import { getBlock } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
+import type { BlockRange } from "../utils/ranges.js";
 
 export type Configuration = {
 	db: Database;
@@ -26,11 +27,6 @@ export type BlockTimestamp = {
 export type TimestampRange = {
 	fromTimestamp: bigint;
 	toTimestamp: bigint;
-};
-
-export type BlockRange = {
-	fromBlock: bigint;
-	toBlock: bigint;
 };
 
 export class BlockTimestampCache {

@@ -1,11 +1,11 @@
-import type { BlockRange, BlockTimestampCache } from "../indexing/block.js";
+import type { BlockTimestampCache } from "../indexing/block.js";
 import type { EventIndexer } from "../indexing/event.js";
+import type { BlockRange } from "../utils/ranges.js";
 
 export type Blocks = Pick<BlockTimestampCache, "getTimestamp">;
 
 export type Event = Pick<EventIndexer, "table">;
 
-export type { BlockRange } from "../indexing/block.js";
 export type QueryRange = {
 	staking: BlockRange;
 	consensus: BlockRange;

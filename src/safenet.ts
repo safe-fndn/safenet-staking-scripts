@@ -7,9 +7,10 @@ import debug, { type Debugger } from "debug";
 import { type Address, type Client, type ExtractAbiItem, getAbiItem } from "viem";
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, COORDINATOR_ABI, STAKING_ABI } from "./abi.js";
-import { type BlockRange, BlockTimestampCache, type TimestampRange } from "./indexing/block.js";
+import { BlockTimestampCache, type TimestampRange } from "./indexing/block.js";
 import { EventIndexer } from "./indexing/event.js";
 import { type ValidatorSetQuery, validatorSet } from "./queries/validator-set.js";
+import { type BlockRange, formatRange } from "./utils/ranges.js";
 
 type SafenetChain<Events> = {
 	client: Client;
@@ -24,9 +25,14 @@ type StakingEvents = {
 };
 
 type ConsensusEvents = {
+	keyGen: EventIndexer<ExtractAbiItem<typeof COORDINATOR_ABI, "KeyGen">>;
+	keyGenCommitted: EventIndexer<ExtractAbiItem<typeof COORDINATOR_ABI, "KeyGenCommitted">>;
+	sign: EventIndexer<ExtractAbiItem<typeof COORDINATOR_ABI, "Sign">>;
+	signRevealedNonces: EventIndexer<ExtractAbiItem<typeof COORDINATOR_ABI, "SignRevealedNonces">>;
 	signShared: EventIndexer<ExtractAbiItem<typeof COORDINATOR_ABI, "SignShared">>;
 	signCompleted: EventIndexer<ExtractAbiItem<typeof COORDINATOR_ABI, "SignCompleted">>;
 	validatorStakerSet: EventIndexer<ExtractAbiItem<typeof CONSENSUS_ABI, "ValidatorStakerSet">>;
+	transactionProposed: EventIndexer<ExtractAbiItem<typeof CONSENSUS_ABI, "TransactionProposed">>;
 	transactionAttested: EventIndexer<ExtractAbiItem<typeof CONSENSUS_ABI, "TransactionAttested">>;
 };
 
@@ -94,15 +100,30 @@ export class Safenet {
 
 	async validatorStats(period: RewardsPeriod): Promise<void> {
 		const staking = await this.#staking.blocks.searchBlockRange(period);
+		const consensus = await this.#consensus.blocks.searchBlockRange(period);
+		if (staking === null || consensus === null) {
+			throw new Error("invalid payout period range");
+		}
+
+		this.#debug(`staking block range ${formatRange(staking)}`);
+		this.#debug(`consensus block range ${formatRange(consensus)}`);
+		await this.index({ ...period, staking, consensus });
+
+		const set = await this.#validatorSet({ staking });
+		console.log(set);
+	}
+
+	async *averageStakes(period: RewardsPeriod): AsyncGenerator<bigint> {
+		const staking = await this.#staking.blocks.searchBlockRange(period);
 		if (staking === null) {
 			throw new Error("invalid payout period range");
 		}
 
-		this.#debug(`staking block range ${staking.fromBlock}-${staking.toBlock}`);
-
+		this.#debug(`staking block range ${formatRange(staking)}`);
 		await this.index({ ...period, staking, consensus: null });
-		const set = await this.#validatorSet({ staking });
-		console.log(set);
+
+		// TODO...
+		yield 42n;
 	}
 
 	static async create(params: {
@@ -172,6 +193,42 @@ export class Safenet {
 				client: params.consensusClient,
 				blocks: stakingBlocks,
 				events: {
+					keyGen: new EventIndexer({
+						db,
+						client: params.consensusClient,
+						chainId: consensusChain,
+						address: coordinatorAddress,
+						event: getAbiItem({ abi: COORDINATOR_ABI, name: "KeyGen" }),
+						startBlock: params.consensusStartBlock,
+						blocks: consensusBlocks,
+					}),
+					keyGenCommitted: new EventIndexer({
+						db,
+						client: params.consensusClient,
+						chainId: consensusChain,
+						address: coordinatorAddress,
+						event: getAbiItem({ abi: COORDINATOR_ABI, name: "KeyGenCommitted" }),
+						startBlock: params.consensusStartBlock,
+						blocks: consensusBlocks,
+					}),
+					sign: new EventIndexer({
+						db,
+						client: params.consensusClient,
+						chainId: consensusChain,
+						address: coordinatorAddress,
+						event: getAbiItem({ abi: COORDINATOR_ABI, name: "Sign" }),
+						startBlock: params.consensusStartBlock,
+						blocks: consensusBlocks,
+					}),
+					signRevealedNonces: new EventIndexer({
+						db,
+						client: params.consensusClient,
+						chainId: consensusChain,
+						address: coordinatorAddress,
+						event: getAbiItem({ abi: COORDINATOR_ABI, name: "SignRevealedNonces" }),
+						startBlock: params.consensusStartBlock,
+						blocks: consensusBlocks,
+					}),
 					signShared: new EventIndexer({
 						db,
 						client: params.consensusClient,
@@ -196,6 +253,15 @@ export class Safenet {
 						chainId: consensusChain,
 						address: params.consensusAddress,
 						event: getAbiItem({ abi: CONSENSUS_ABI, name: "ValidatorStakerSet" }),
+						startBlock: params.consensusStartBlock,
+						blocks: consensusBlocks,
+					}),
+					transactionProposed: new EventIndexer({
+						db,
+						client: params.consensusClient,
+						chainId: consensusChain,
+						address: params.consensusAddress,
+						event: getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionProposed" }),
 						startBlock: params.consensusStartBlock,
 						blocks: consensusBlocks,
 					}),
