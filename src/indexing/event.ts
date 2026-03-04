@@ -12,6 +12,7 @@ import { getBlockNumber, getLogs } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
 import { jsonReplacer } from "../utils/json.js";
 import { minBigInt } from "../utils/math.js";
+import { type BlockRange, formatRange } from "../utils/ranges.js";
 import type { BlockTimestampCache } from "./block.js";
 
 export type Configuration<Event> = {
@@ -25,16 +26,11 @@ export type Configuration<Event> = {
 };
 
 export type UpdateBlockRange = {
-	toBlock?: bigint;
+	toBlock?: BlockRange["toBlock"];
 	blockPageSize: bigint;
 };
 
 type ParsedLog<Event extends AbiEvent> = Log<bigint, number, false, Event, true>;
-
-type BlockRange = {
-	fromBlock: bigint;
-	toBlock: bigint;
-};
 
 export class EventIndexer<Event extends AbiEvent = AbiEvent> {
 	#debug: Debugger;
@@ -159,7 +155,7 @@ export class EventIndexer<Event extends AbiEvent = AbiEvent> {
 			if (page === null) {
 				break;
 			}
-			this.#debug(`fetching block page ${page.fromBlock}-${page.toBlock}`);
+			this.#debug(`fetching block page ${formatRange(page)}`);
 
 			const logs = await this.#backoff(() =>
 				getLogs(this.#client, {
