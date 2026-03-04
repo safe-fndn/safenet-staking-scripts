@@ -4,7 +4,8 @@
 
 import { z } from "zod";
 import { Safenet } from "../safenet.js";
-import { main, rewardsPeriod } from "./args.js";
+import { main, rewardsPeriod } from "../utils/args.js";
+import { formatPercent, formatSafeToken } from "../utils/format.js";
 
 main(
 	{
@@ -14,6 +15,18 @@ main(
 	async (args) => {
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
-		await safenet.validatorStats(period);
+
+		console.log(
+			` Validator                                  | Self Stake                    | Total Stake                   | Participation`,
+		);
+		console.log(
+			`--------------------------------------------+-------------------------------+-------------------------------|---------------`,
+		);
+		const validators = await safenet.validatorStats(period);
+		for (const [validator, { stake, participation }] of Object.entries(validators)) {
+			console.log(
+				` ${validator} | ${formatSafeToken(stake.self)} | ${formatSafeToken(stake.total)} | ${formatPercent(participation).padStart(13)}`,
+			);
+		}
 	},
 );

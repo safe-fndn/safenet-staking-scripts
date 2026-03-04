@@ -11,12 +11,8 @@ import debug, { type Debugger } from "debug";
 import { BlockNotFoundError, type Client, type Log } from "viem";
 import { getBlock } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
-import {
-	type BlockRange,
-	formatRange,
-	formatTimestamp,
-	type TimestampRange,
-} from "../utils/ranges.js";
+import { formatTimestamp } from "../utils/format.js";
+import { type BlockRange, formatRange, type TimestampRange } from "../utils/ranges.js";
 
 export type Configuration = {
 	db: Database;

@@ -4,13 +4,39 @@
 
 import Sqlite3 from "better-sqlite3";
 import debug, { type Debugger } from "debug";
-import type { Address, Client } from "viem";
+import { type Address, type Client, getAddress } from "viem";
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI } from "./abi.js";
 import { BlockTimestampCache } from "./indexing/block.js";
-import { Stake, type Staked } from "./indexing/stake.js";
+import { Stake } from "./indexing/stake.js";
+import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
-import type { TimestampRange, ToTimestamp } from "./utils/ranges.js";
+import {
+	formatRange,
+	rangeDuration,
+	type TimestampRange,
+	type ToTimestamp,
+} from "./utils/ranges.js";
+
+export type ValidatorStats = Record<
+	Address,
+	{
+		beneficiary: Address | null;
+		stake: {
+			self: bigint;
+			total: bigint;
+		};
+		participation: number;
+	}
+>;
+
+export type Staked = {
+	staker: Address;
+	amounts: {
+		validator: Address;
+		amount: bigint;
+	}[];
+};
 
 type StakingChain = {
 	blocks: BlockTimestampCache;
@@ -19,6 +45,12 @@ type StakingChain = {
 };
 type ConsensusChain = {
 	blocks: BlockTimestampCache;
+	stakers: ValidatorStakers;
+};
+
+type ValidatorRegistrations = {
+	validator: Address;
+	registrations: TimestampRange[];
 };
 
 export class Safenet {
@@ -36,8 +68,6 @@ export class Safenet {
 		this.#debug = debug("safenet");
 		this.#staking = staking;
 		this.#consensus = consensus;
-
-		this.#debug(`${this.#consensus}`);
 	}
 
 	async index(to: Partial<ToTimestamp> = {}): Promise<void> {
@@ -57,17 +87,148 @@ export class Safenet {
 		);
 	}
 
-	async validatorStats(period: TimestampRange) {
-		await this.index(period);
-		const set = await this.#staking.validators.validatorSet(period);
-		console.log(set);
+	async #debugPeriod(period: TimestampRange): Promise<void> {
+		this.#debug(`using period ${formatRange(period)}`);
+		const staking = await this.#staking.blocks.blockRange(period);
+		this.#debug(`staking chain block range ${formatRange(staking)}`);
+		const consensus = await this.#consensus.blocks.blockRange(period);
+		this.#debug(`consensus chain block range ${formatRange(consensus)}`);
 	}
 
-	async *staked(period: TimestampRange): AsyncGenerator<Staked> {
+	async #validatorRegistrations(period: TimestampRange): Promise<ValidatorRegistrations[]> {
 		await this.index(period);
-		const staked = this.#staking.stake.staked(period);
-		for await (const item of staked) {
-			yield item;
+		const set = await this.#staking.validators.validatorSet(period);
+		return Object.entries(set).map(([key, registrations]) => ({
+			validator: getAddress(key),
+			registrations,
+		}));
+	}
+
+	async #validatorSelfStake(
+		period: TimestampRange,
+		{ validator, registrations }: ValidatorRegistrations,
+	): Promise<{ beneficiary: Address | null; stake: bigint }> {
+		const result = {
+			beneficiary: null as Address | null,
+			stake: 0n,
+		};
+
+		// Note that validator registrations can have holes in them, which
+		// matters when computing weighted time averages. In particular, we only
+		// want to count stake that was there _while_ the validator was
+		// registered. Go over all registration slices for the validator over
+		// the total period, for each slice get the registered stakers (which
+		// may itself change over that period) and compute the average stake
+		// over those sub-ranges.
+
+		for (const registration of registrations) {
+			const stakers = await this.#consensus.stakers.validatorStakers({
+				validator,
+				...registration,
+			});
+			for (const { staker, ...slice } of stakers) {
+				// Note that the staker that receives the commissions is defined
+				// to be the **last** staker set by the validator. Keep track of
+				// the last seen staker as we go over the time slices.
+				result.beneficiary = staker;
+				result.stake += await this.#staking.stake.timeWeightedStake({
+					staker,
+					validator,
+					...slice,
+				});
+			}
+		}
+
+		result.stake /= rangeDuration(period);
+		return result;
+	}
+
+	async #validatorTotalStake(
+		period: TimestampRange,
+		{ validator, registrations }: ValidatorRegistrations,
+	): Promise<bigint> {
+		let total = 0n;
+		for (const registration of registrations) {
+			for await (const staker of this.#staking.stake.stakers(registration)) {
+				const stake = await this.#staking.stake.averageStake({
+					staker,
+					validator,
+					...registration,
+				});
+				total += stake * rangeDuration(registration);
+			}
+		}
+		return total / rangeDuration(period);
+	}
+
+	/**
+	 * Compute stats about all active validators within a period.
+	 *
+	 * The stats include the average stake for the validator as well as their
+	 * participation rate. Along with the average stake, the beneficiary for
+	 * the commissions (defined to be the last set validator staker) is also
+	 * returned.
+	 */
+	async validatorStats(period: TimestampRange): Promise<ValidatorStats> {
+		await this.#debugPeriod(period);
+
+		const stats = {} as ValidatorStats;
+		const validators = await this.#validatorRegistrations(period);
+		for (const { validator, registrations } of validators) {
+			const { beneficiary, stake } = await this.#validatorSelfStake(period, {
+				validator,
+				registrations,
+			});
+			const total = await this.#validatorTotalStake(period, { validator, registrations });
+			stats[validator] = {
+				beneficiary,
+				stake: {
+					self: stake,
+					total,
+				},
+				participation: 0.5,
+			};
+		}
+
+		return stats;
+	}
+
+	/**
+	 * Compute the average staked amounts per staker/validator pair over a
+	 * period.
+	 *
+	 * The staked amounts are provided as a streaming interface to avoid loading
+	 * staking data for all stakers into memory at once.
+	 */
+	async *staked(period: TimestampRange): AsyncGenerator<Staked> {
+		await this.#debugPeriod(period);
+
+		// We need to, even for computed average stake amounts, get the set of
+		// validators and their registration periods, because we only want any
+		// particular stake to count to the weighted average during a
+		// registration period.
+		const validators = await this.#validatorRegistrations(period);
+
+		for await (const staker of this.#staking.stake.stakers(period)) {
+			const amounts = [] as Staked["amounts"];
+			for (const { validator, registrations } of validators) {
+				let amount = 0n;
+				for (const registration of registrations) {
+					amount += await this.#staking.stake.timeWeightedStake({
+						staker,
+						validator,
+						...registration,
+					});
+				}
+				if (amount > 0n) {
+					amount /= rangeDuration(period);
+					amounts.push({ validator, amount });
+				}
+			}
+			yield {
+				staker,
+				amounts,
+			};
 		}
 	}
 
@@ -88,7 +249,6 @@ export class Safenet {
 			abi: CONSENSUS_ABI,
 			functionName: "COORDINATOR",
 		});
-		console.log(coordinatorAddress);
 
 		const db = new Sqlite3(params.databaseFile);
 		const stakingBlocks = new BlockTimestampCache({
@@ -110,6 +270,20 @@ export class Safenet {
 			client: params.consensusClient,
 			chainId: consensusChain,
 		});
+		const consensusConfig = {
+			db,
+			blocks: consensusBlocks,
+			client: params.consensusClient,
+			blockPageSize: params.blockPageSize,
+			chainId: consensusChain,
+			address: params.consensusAddress,
+			startBlock: params.consensusStartBlock,
+		};
+		const coordinatorConfig = {
+			...consensusConfig,
+			address: coordinatorAddress,
+		};
+		console.log(!!coordinatorConfig); // TODO
 		return new Safenet({
 			staking: {
 				blocks: stakingBlocks,
@@ -120,6 +294,7 @@ export class Safenet {
 			},
 			consensus: {
 				blocks: consensusBlocks,
+				stakers: new ValidatorStakers(consensusConfig),
 			},
 		});
 	}

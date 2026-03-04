@@ -1,3 +1,4 @@
+import { formatTimestamp } from "./format.js";
 import { maxBigInt } from "./math.js";
 
 export type BlockRange = {
@@ -52,10 +53,10 @@ export const reduceRanges = <T extends Range>(ranges: readonly T[]): T[] => {
 };
 
 /**
- * Formats a timestamp.
+ * Returns the duration of a timestamp range.
  */
-export const formatTimestamp = (timestamp: bigint): string =>
-	new Date(Number(timestamp) * 1000).toISOString();
+export const rangeDuration = (range: TimestampRange): bigint =>
+	range.toTimestamp - range.fromTimestamp;
 
 /**
  * Formats a timestamp or block range.

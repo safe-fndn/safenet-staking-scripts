@@ -57,8 +57,7 @@ export class Validators extends EventIndexer<typeof EVENTS> {
 					, is_registered
 					, row_number() OVER (
 						PARTITION BY validator
-						ORDER BY block_number DESC
-						, log_index DESC
+						ORDER BY block_number DESC, log_index DESC
 					) AS n
 					FROM validators
 					WHERE contract = '${this.contract}'
