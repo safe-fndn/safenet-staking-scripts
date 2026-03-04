@@ -4,7 +4,7 @@
  */
 
 import { Safenet } from "../safenet.js";
-import { main } from "./args.js";
+import { main } from "../utils/args.js";
 
 main(async (args) => {
 	const safenet = await Safenet.create(args);

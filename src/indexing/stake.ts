@@ -2,7 +2,7 @@ import type { Statement } from "better-sqlite3";
 import { type Address, getAbiItem } from "viem";
 import { STAKING_ABI } from "../abi.js";
 import { maxBigInt } from "../utils/math.js";
-import type { BlockRange, TimestampRange } from "../utils/ranges.js";
+import { type BlockRange, rangeDuration, type TimestampRange } from "../utils/ranges.js";
 import type { BlockTimestampCache } from "./block.js";
 import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
 
@@ -18,10 +18,6 @@ export type Parameters = Configuration & {
 export type StakeSelector = {
 	staker: Address;
 	validator: Address;
-};
-
-export type Staked = StakeSelector & {
-	amount: bigint;
 };
 
 export type AverageStakeSelector = StakeSelector & TimestampRange;
@@ -40,6 +36,7 @@ type StakeChange = StakeSelector & {
 
 type StakeAmount = {
 	blockNumber: number;
+	validator: Address;
 	amount: string;
 };
 
@@ -51,7 +48,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 		upsertStake: Statement<StakeChange, number>;
 		selectStakeAmounts: Statement<SelectStakeAmounts, StakeAmount>;
 		selectStakeBlocks: Statement<BlockRange, number>;
-		selectStakers: Statement<BlockRange, StakeSelector>;
+		selectStakers: Statement<BlockRange, Address>;
 	};
 
 	constructor(config: Configuration) {
@@ -93,8 +90,8 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 			`),
 			selectStakeAmounts: this.db.prepare<SelectStakeAmounts, StakeAmount>(`
 				WITH starting_stake AS (
-					SELECT block_number AS starting_block_number
-					, amount AS starting_amount
+					SELECT block_number AS blockNumber
+					, amount
 					FROM stake
 					WHERE contract = '${this.contract}'
 					AND block_number < @fromBlock
@@ -103,11 +100,11 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 					ORDER BY block_number DESC
 					LIMIT 1
 				)
-				SELECT COALESCE(block_number, starting_block_number) as blockNumber
-				, COALESCE(amount, starting_amount) AS amount
+				SELECT * FROM starting_stake
+				UNION ALL
+				SELECT block_number as blockNumber
+				, amount
 				FROM stake
-				FULL OUTER JOIN starting_stake
-				ON 1 = 0
 				WHERE contract = '${this.contract}'
 				AND block_number >= @fromBlock
 				AND block_number <= @toBlock
@@ -121,45 +118,30 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 				AND block_number >= @fromBlock
 				AND block_number <= @toBlock
 			`),
-			selectStakers: this.db.prepare<BlockRange, StakeSelector>(`
+			selectStakers: this.db.prepare<BlockRange, Address>(`
 				WITH starting_stake AS (
 					SELECT staker
-					, validator
 					, amount
+					, row_number() OVER (
+						PARTITION BY validator
+						ORDER BY block_number DESC
+					) AS n
 					FROM stake
 					WHERE contract = '${this.contract}'
 					AND block_number < @fromBlock
-					GROUP BY staker, validator
-					ORDER BY block_number DESC
-					LIMIT 1
 				)
-				, starters AS (
-					SELECT staker
-					, validator
-					FROM starting_stake
-					WHERE amount != '0'
-				)
-				, adders AS (
-					SELECT staker
-					, validator
-					FROM stake
-					WHERE contract = '${this.contract}'
-					AND block_number >= @fromBlock
-					AND block_number <= @toBlock
-					AND amount != '0'
-				)
-				, pairs AS (
-					SELECT COALESCE(starters.staker, adders.staker) AS staker
-					, COALESCE(starters.validator, adders.validator) AS validator
-					FROM starters
-					FULL OUTER JOIN adders
-					ON starters.staker = adders.staker
-					AND starters.validator = adders.validator
-				)
-				SELECT staker
-				, validator
-				FROM pairs
-				GROUP BY staker, validator
+				SELECT DISTINCT(staker) AS staker
+				FROM starting_stake
+				WHERE amount != '0'
+				AND n = 1
+				UNION ALL
+				SELECT DISTINCT(staker) AS staker
+				FROM stake
+				WHERE contract = '${this.contract}'
+				AND block_number >= @fromBlock
+				AND block_number <= @toBlock
+				AND amount != '0'
+				ORDER BY staker COLLATE NOCASE ASC
 			`),
 		};
 	}
@@ -197,30 +179,36 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 		});
 	}
 
-	async averageStake(selector: AverageStakeSelector): Promise<bigint> {
-		const range = await this.blocks.blockRange(selector);
+	async timeWeightedStake({ staker, validator, ...period }: AverageStakeSelector): Promise<bigint> {
+		const range = await this.blocks.blockRange(period);
 		const amounts = this.#queries.selectStakeAmounts.all({
-			...selector,
+			staker,
+			validator,
 			...range,
 		});
 		amounts.sort((a, b) => a.blockNumber - b.blockNumber);
 
-		let timeweight = 0n;
+		let weighted = 0n;
 		let last = { amount: 0n, timestamp: 0n };
 		for (const { blockNumber, amount } of amounts) {
 			const timestamp = maxBigInt(
 				await this.blocks.mustGetTimestamp({ blockNumber: BigInt(blockNumber) }),
-				selector.fromTimestamp,
+				period.fromTimestamp,
 			);
-			timeweight += last.amount * (timestamp - last.timestamp);
+			weighted += last.amount * (timestamp - last.timestamp);
 			last = { amount: BigInt(amount), timestamp };
 		}
 
-		timeweight += last.amount * (selector.toTimestamp - last.timestamp);
-		return timeweight / (selector.toTimestamp - selector.fromTimestamp);
+		weighted += last.amount * (period.toTimestamp - last.timestamp);
+		return weighted;
 	}
 
-	async *staked(period: TimestampRange): AsyncGenerator<Staked> {
+	async averageStake(params: AverageStakeSelector): Promise<bigint> {
+		const weighted = await this.timeWeightedStake(params);
+		return weighted / rangeDuration(params);
+	}
+
+	async *stakers(period: TimestampRange): AsyncGenerator<Address> {
 		const range = await this.blocks.blockRange(period);
 
 		// Prefetch missing block timestamps for the range. We will need these
@@ -231,10 +219,9 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 			await this.blocks.mustGetTimestamp({ blockNumber: BigInt(block) });
 		}
 
-		const stakers = this.#queries.selectStakers.iterate(range);
-		for (const selector of stakers) {
-			const amount = await this.averageStake({ ...selector, ...period });
-			yield { ...selector, amount: BigInt(amount) };
+		const stakers = this.#queries.selectStakers.pluck().iterate(range);
+		for (const staker of stakers) {
+			yield staker;
 		}
 	}
 }
