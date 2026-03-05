@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
-import { formatPercent, formatSafeToken } from "../utils/format.js";
+import { formatSafeToken } from "../utils/format.js";
 
 main(
 	{
@@ -16,17 +16,11 @@ main(
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 
-		console.log(
-			` Validator                                  | Self Stake                    | Total Stake                   | Participation`,
-		);
-		console.log(
-			`--------------------------------------------+-------------------------------+-------------------------------|---------------`,
-		);
+		console.log(` Validator                                  | Self Stake                    `);
+		console.log(`--------------------------------------------+-------------------------------`);
 		const validators = await safenet.validatorStats(period);
-		for (const [validator, { stake, participation }] of Object.entries(validators)) {
-			console.log(
-				` ${validator} | ${formatSafeToken(stake.self)} | ${formatSafeToken(stake.total)} | ${formatPercent(participation).padStart(13)}`,
-			);
+		for (const [validator, { stake }] of Object.entries(validators)) {
+			console.log(` ${validator} | ${formatSafeToken(stake)}`);
 		}
 	},
 );

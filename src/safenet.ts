@@ -11,11 +11,13 @@ import { BlockTimestampCache } from "./indexing/block.js";
 import type { EventIndexer } from "./indexing/events.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
+import { Transactions } from "./indexing/transactions.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
 import { minBigInt } from "./utils/math.js";
 import {
 	formatRange,
+	rangeContains,
 	rangeDuration,
 	type TimestampRange,
 	type ToTimestamp,
@@ -25,11 +27,7 @@ export type ValidatorStats = Record<
 	Address,
 	{
 		beneficiary: Address | null;
-		stake: {
-			self: bigint;
-			total: bigint;
-		};
-		participation: number;
+		stake: bigint;
 	}
 >;
 
@@ -41,6 +39,11 @@ export type Staked = {
 	}[];
 };
 
+export type Participation = {
+	total: number;
+	validators: Record<Address, number>;
+};
+
 type StakingChain = {
 	blocks: BlockTimestampCache;
 	stake: Stake;
@@ -49,6 +52,7 @@ type StakingChain = {
 type ConsensusChain = {
 	blocks: BlockTimestampCache;
 	stakers: ValidatorStakers;
+	transactions: Transactions;
 	signatures: Signatures;
 };
 
@@ -87,21 +91,23 @@ export class Safenet {
 					throw err;
 				});
 
-		// For signatures, we need to add a small grace period for indexing.
-		// This is because participation is computed for transactions
-		// proposed within a transaction period.
-		const signaturesTo = to;
-		if (signaturesTo.toTimestamp !== undefined) {
+		// For attestations (transaction attestations and signing ceremonies),
+		// we need to add a small grace period for indexing. This is because
+		// participation is computed for transactions proposed within a
+		// transaction period.
+		const attestTo = to;
+		if (attestTo.toTimestamp !== undefined) {
 			const ONE_HOUR = 60n * 60n;
 			const latest = await this.#consensus.blocks.getLatest();
-			signaturesTo.toTimestamp = minBigInt(signaturesTo.toTimestamp + ONE_HOUR, latest.timestamp);
+			attestTo.toTimestamp = minBigInt(attestTo.toTimestamp + ONE_HOUR, latest.timestamp);
 		}
 
 		await Promise.all([
 			update(this.#staking.stake, to),
 			update(this.#staking.validators, to),
 			update(this.#consensus.stakers, to),
-			update(this.#consensus.signatures, signaturesTo),
+			update(this.#consensus.transactions, attestTo),
+			update(this.#consensus.signatures, attestTo),
 		]);
 	}
 
@@ -161,24 +167,6 @@ export class Safenet {
 		return result;
 	}
 
-	async #validatorTotalStake(
-		period: TimestampRange,
-		{ validator, registrations }: ValidatorRegistrations,
-	): Promise<bigint> {
-		let total = 0n;
-		for (const registration of registrations) {
-			for await (const staker of this.#staking.stake.stakers(registration)) {
-				const stake = await this.#staking.stake.averageStake({
-					staker,
-					validator,
-					...registration,
-				});
-				total += stake * rangeDuration(registration);
-			}
-		}
-		return total / rangeDuration(period);
-	}
-
 	/**
 	 * Compute stats about all active validators within a period.
 	 *
@@ -197,14 +185,9 @@ export class Safenet {
 				validator,
 				registrations,
 			});
-			const total = await this.#validatorTotalStake(period, { validator, registrations });
 			stats[validator] = {
 				beneficiary,
-				stake: {
-					self: stake,
-					total,
-				},
-				participation: 0.5,
+				stake,
 			};
 		}
 
@@ -248,6 +231,33 @@ export class Safenet {
 				amounts,
 			};
 		}
+	}
+
+	async participation(period: TimestampRange): Promise<Participation> {
+		await this.#debugPeriod(period);
+
+		// Get the validator registration periods, to make sure to only count
+		// participation when a validator is registered.
+		const validators = Object.fromEntries(
+			(await this.#validatorRegistrations(period)).map(({ validator, registrations }) => [
+				validator,
+				registrations,
+			]),
+		);
+
+		const participation = { total: 0, validators: {} } as Participation;
+		for await (const { timestamp, ...packet } of this.#consensus.transactions.packets(period)) {
+			participation.total++;
+
+			const participants = this.#consensus.signatures.participants(packet);
+			for (const participant of participants) {
+				if ((validators[participant] ?? []).some((period) => rangeContains(period, timestamp))) {
+					participation.validators[participant] = (participation.validators[participant] ?? 0) + 1;
+				}
+			}
+		}
+
+		return participation;
 	}
 
 	static async create(params: {
@@ -312,6 +322,7 @@ export class Safenet {
 			consensus: {
 				blocks: consensusBlocks,
 				stakers: new ValidatorStakers(consensusConfig),
+				transactions: new Transactions(consensusConfig),
 				signatures: new Signatures(coordinatorConfig),
 			},
 		});
