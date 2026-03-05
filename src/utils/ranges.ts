@@ -59,6 +59,17 @@ export const rangeDuration = (range: TimestampRange): bigint =>
 	range.toTimestamp - range.fromTimestamp;
 
 /**
+ * Returns weither or not the range contains a value.
+ *
+ * Note that by convention, block range's ending value is inclusive, however,
+ * timestamp ranges `toTimestamp` is not.
+ */
+export const rangeContains = (range: Range, value: bigint): boolean =>
+	isBlockRange(range)
+		? range.fromBlock <= value && value <= range.toBlock
+		: range.fromTimestamp <= value && value < range.toTimestamp;
+
+/**
  * Formats a timestamp or block range.
  */
 export const formatRange = (range: Range): string =>

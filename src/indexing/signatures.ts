@@ -14,7 +14,7 @@ const EVENTS = [
 	getAbiItem({ abi: COORDINATOR_ABI, name: "SignCompleted" }),
 ];
 
-const SIGNATURE_SCHEMA = z.object({
+export const SIGNATURE_SCHEMA = z.object({
 	r: z.object({
 		x: z.coerce.bigint(),
 		y: z.coerce.bigint(),
@@ -22,10 +22,12 @@ const SIGNATURE_SCHEMA = z.object({
 	z: z.coerce.bigint(),
 });
 
+export type Signature = z.infer<typeof SIGNATURE_SCHEMA>;
+
 export type Packet = {
 	message: Hex;
 	valid: boolean;
-	attestation?: z.infer<typeof SIGNATURE_SCHEMA>;
+	attestation?: Signature;
 };
 
 type Group = {
