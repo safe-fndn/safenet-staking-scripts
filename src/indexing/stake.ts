@@ -3,17 +3,12 @@ import { type Address, getAbiItem } from "viem";
 import { STAKING_ABI } from "../abi.js";
 import { maxBigInt } from "../utils/math.js";
 import { type BlockRange, rangeDuration, type TimestampRange } from "../utils/ranges.js";
-import type { BlockTimestampCache } from "./block.js";
 import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: STAKING_ABI, name: "StakeIncreased" }),
 	getAbiItem({ abi: STAKING_ABI, name: "WithdrawalInitiated" }),
 ];
-
-export type Parameters = Configuration & {
-	blocks: BlockTimestampCache;
-};
 
 export type StakeSelector = {
 	staker: Address;
