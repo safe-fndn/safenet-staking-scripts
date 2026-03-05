@@ -8,9 +8,12 @@ import { type Address, type Client, getAddress } from "viem";
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI } from "./abi.js";
 import { BlockTimestampCache } from "./indexing/block.js";
+import type { EventIndexer } from "./indexing/events.js";
+import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
+import { minBigInt } from "./utils/math.js";
 import {
 	formatRange,
 	rangeDuration,
@@ -46,6 +49,7 @@ type StakingChain = {
 type ConsensusChain = {
 	blocks: BlockTimestampCache;
 	stakers: ValidatorStakers;
+	signatures: Signatures;
 };
 
 type ValidatorRegistrations = {
@@ -75,16 +79,30 @@ export class Safenet {
 		// a particular indexer, we want to stop the others. This prevents large
 		// block ranges that take a long time to index hide early errors.
 		let failedEarly = false;
-		await Promise.all(
-			[this.#staking.stake, this.#staking.validators].map((indexer) =>
-				indexer
-					.update(to, () => failedEarly)
-					.catch((err) => {
-						failedEarly = true;
-						throw err;
-					}),
-			),
-		);
+		const update = (indexer: Pick<EventIndexer, "update">, to: Partial<ToTimestamp>) =>
+			indexer
+				.update(to, () => failedEarly)
+				.catch((err) => {
+					failedEarly = true;
+					throw err;
+				});
+
+		// For signatures, we need to add a small grace period for indexing.
+		// This is because participation is computed for transactions
+		// proposed within a transaction period.
+		const signaturesTo = to;
+		if (signaturesTo.toTimestamp !== undefined) {
+			const ONE_HOUR = 60n * 60n;
+			const latest = await this.#consensus.blocks.getLatest();
+			signaturesTo.toTimestamp = minBigInt(signaturesTo.toTimestamp + ONE_HOUR, latest.timestamp);
+		}
+
+		await Promise.all([
+			update(this.#staking.stake, to),
+			update(this.#staking.validators, to),
+			update(this.#consensus.stakers, to),
+			update(this.#consensus.signatures, signaturesTo),
+		]);
 	}
 
 	async #debugPeriod(period: TimestampRange): Promise<void> {
@@ -283,7 +301,6 @@ export class Safenet {
 			...consensusConfig,
 			address: coordinatorAddress,
 		};
-		console.log(!!coordinatorConfig); // TODO
 		return new Safenet({
 			staking: {
 				blocks: stakingBlocks,
@@ -295,6 +312,7 @@ export class Safenet {
 			consensus: {
 				blocks: consensusBlocks,
 				stakers: new ValidatorStakers(consensusConfig),
+				signatures: new Signatures(coordinatorConfig),
 			},
 		});
 	}
