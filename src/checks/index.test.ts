@@ -1,9 +1,10 @@
+import { encodeFunctionData, encodePacked, parseAbi, toHex } from "viem";
 import { describe, expect, it } from "vitest";
 import { checkTransaction } from "./index.js";
 
 describe("checks", () => {
 	describe("buildSafeTransactionCheck", () => {
-		it("should allow owner change", async () => {
+		it("should allow owner change", () => {
 			expect(
 				checkTransaction({
 					safe: "0xF01888f0677547Ec07cd16c8680e699c96588E6B",
@@ -15,7 +16,7 @@ describe("checks", () => {
 			).toBe(true);
 		});
 
-		it("should allow multisend with calls to other contracts", async () => {
+		it("should allow multisend with calls to other contracts", () => {
 			expect(
 				checkTransaction({
 					safe: "0xF01888f0677547Ec07cd16c8680e699c96588E6B",
@@ -27,7 +28,7 @@ describe("checks", () => {
 			).toBe(true);
 		});
 
-		it("should allow cancelation transaction", async () => {
+		it("should allow cancelation transaction", () => {
 			expect(
 				checkTransaction({
 					safe: "0xF01888f0677547Ec07cd16c8680e699c96588E6B",
@@ -39,7 +40,7 @@ describe("checks", () => {
 			).toBe(true);
 		});
 
-		it("should allow multisend with multiple owner changes", async () => {
+		it("should allow multisend with multiple owner changes", () => {
 			expect(
 				checkTransaction({
 					safe: "0x81a45AA50195f0A752159d5198780cDfb8e19732",
@@ -51,7 +52,7 @@ describe("checks", () => {
 			).toBe(true);
 		});
 
-		it("should allow singleton upgrade", async () => {
+		it("should allow singleton upgrade", () => {
 			expect(
 				checkTransaction({
 					safe: "0x81a45AA50195f0A752159d5198780cDfb8e19732",
@@ -63,7 +64,7 @@ describe("checks", () => {
 			).toBe(true);
 		});
 
-		it("should not allow empty self delegate call transaction", async () => {
+		it("should not allow empty self delegate call transaction", () => {
 			expect(
 				checkTransaction({
 					safe: "0x1db92e2EeBC8E0c075a02BeA49a2935BcD2dFCF4",
@@ -75,7 +76,7 @@ describe("checks", () => {
 			).toBe(false);
 		});
 
-		it("should not allow bybit transaction", async () => {
+		it("should not allow bybit transaction", () => {
 			expect(
 				checkTransaction({
 					safe: "0x1db92e2EeBC8E0c075a02BeA49a2935BcD2dFCF4",
@@ -87,7 +88,7 @@ describe("checks", () => {
 			).toBe(false);
 		});
 
-		it("should not allow arbitrary self-calls", async () => {
+		it("should not allow arbitrary self-calls", () => {
 			expect(
 				checkTransaction({
 					safe: "0x3850cd76006dc6CaCBCBB514995C47Ca8Ad0bb96",
@@ -97,6 +98,127 @@ describe("checks", () => {
 					operation: 1,
 				}),
 			).toBe(false);
+		});
+
+		it("should allow a multi-send with a valid delegate call", () => {
+			expect(
+				checkTransaction({
+					safe: "0x3850cd76006dc6CaCBCBB514995C47Ca8Ad0bb96",
+					to: "0x218543288004CD07832472D464648173c77D7eB7",
+					value: 0n,
+					data: encodeFunctionData({
+						abi: parseAbi(["function multiSend(bytes transactions)"]),
+						functionName: "multiSend",
+						args: [
+							encodePacked(
+								[
+									"uint8",
+									"address",
+									"uint256",
+									"uint256",
+									"bytes",
+									"uint8",
+									"address",
+									"uint256",
+									"uint256",
+									"bytes",
+								],
+								[
+									1,
+									"0x4FfeF8222648872B3dE295Ba1e49110E61f5b5aa",
+									0n,
+									100n,
+									encodeFunctionData({
+										abi: parseAbi(["function signMessage(bytes message)"]),
+										functionName: "signMessage",
+										args: [toHex("swap GNO for SAFE")],
+									}),
+									0,
+									"0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb",
+									0n,
+									68n,
+									encodeFunctionData({
+										abi: parseAbi(["function approve(address to, uint256 amount)"]),
+										functionName: "approve",
+										args: ["0xC92E8bdf79f0507f65a392b0ab4667716BFE0110", 1000000000000000000000n],
+									}),
+								],
+							),
+						],
+					}),
+					operation: 1,
+				}),
+			).toBe(true);
+		});
+
+		it("should not allow a multi-send with a valid delegate call to a call-only version", () => {
+			expect(
+				checkTransaction({
+					safe: "0x3850cd76006dc6CaCBCBB514995C47Ca8Ad0bb96",
+					to: "0xA83c336B20401Af773B6219BA5027174338D1836",
+					value: 0n,
+					data: encodeFunctionData({
+						abi: parseAbi(["function multiSend(bytes transactions)"]),
+						functionName: "multiSend",
+						args: [
+							encodePacked(
+								[
+									"uint8",
+									"address",
+									"uint256",
+									"uint256",
+									"bytes",
+									"uint8",
+									"address",
+									"uint256",
+									"uint256",
+									"bytes",
+								],
+								[
+									1,
+									"0x4FfeF8222648872B3dE295Ba1e49110E61f5b5aa",
+									0n,
+									100n,
+									encodeFunctionData({
+										abi: parseAbi(["function signMessage(bytes message)"]),
+										functionName: "signMessage",
+										args: [toHex("swap GNO for SAFE")],
+									}),
+									0,
+									"0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb",
+									0n,
+									68n,
+									encodeFunctionData({
+										abi: parseAbi(["function approve(address to, uint256 amount)"]),
+										functionName: "approve",
+										args: ["0xC92E8bdf79f0507f65a392b0ab4667716BFE0110", 1000000000000000000000n],
+									}),
+								],
+							),
+						],
+					}),
+					operation: 1,
+				}),
+			).toBe(false);
+		});
+
+		it("should not allow arbitrary self-calls", () => {
+			for (const multiSend of [
+				"0x218543288004CD07832472D464648173c77D7eB7",
+				"0x38869bf66a61cF6bDB996A6aE40D5853Fd43B526",
+				"0xA238CBeb142c10Ef7Ad8442C6D1f9E89e07e7761",
+				"0x998739BFdAAdde7C933B942a68053933098f9EDa",
+			] as const) {
+				expect(
+					checkTransaction({
+						safe: "0x1db92e2EeBC8E0c075a02BeA49a2935BcD2dFCF4",
+						to: multiSend,
+						value: 0n,
+						data: "0x8d80ff0a000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000990196221423681A6d52E184D440a8eFCEbB105C724200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000bdd077f651ebe7f7b3ce16fe5f2b025be2969516000000000000000000000000000000000000000000000000000000000000000000000000000000",
+						operation: 1,
+					}),
+				).toBe(false);
+			}
 		});
 	});
 });
