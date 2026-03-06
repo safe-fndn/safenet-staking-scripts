@@ -22,6 +22,23 @@ const envKey = (key: string): string => {
 	return key.replace(/([A-Z])/g, "_$1").toUpperCase();
 };
 
+const isBool = <Z extends z.ZodType>(field: Z): boolean => {
+	// Heuristically determine whether a field represents a boolean value.
+	return field.safeParse(true).data === true;
+};
+
+const envToBool = (s: string | undefined): boolean | undefined => {
+	if ((s ?? "") === "") {
+		return undefined;
+	} else if (s === "0" || s === "false") {
+		return false;
+	} else if (s === "1" || s === "true") {
+		return true;
+	} else {
+		throw new Error(`invalid boolean value ${s}`);
+	}
+};
+
 export type ArgsInfer<T> = T extends z.core.$ZodLooseShape
 	? z.infer<ReturnType<typeof SCHEMA.extend<T>>>
 	: z.infer<typeof SCHEMA>;
@@ -39,8 +56,10 @@ export function parseArgs<T extends z.core.$ZodLooseShape>(extraArgs: T | undefi
 	const schema = extraArgs === undefined ? SCHEMA : SCHEMA.extend(extraArgs);
 
 	const options = {} as ParseArgsOptionsConfig;
-	for (const key in schema.shape) {
-		options[key] = { type: "string", default: process.env[envKey(key)] };
+	for (const [key, field] of Object.entries(schema.shape)) {
+		options[key] = isBool(field)
+			? { type: "boolean", default: envToBool(process.env[envKey(key)]) }
+			: { type: "string", default: process.env[envKey(key)] };
 	}
 
 	const { values } = util.parseArgs({ options });

@@ -9,8 +9,9 @@ import { formatPercent } from "../utils/format.js";
 
 main(
 	{
-		rewardPeriodStart: z.bigint().optional(),
-		rewardPeriodEnd: z.bigint().optional(),
+		rewardPeriodStart: z.coerce.bigint().optional(),
+		rewardPeriodEnd: z.coerce.bigint().optional(),
+		approximate: z.coerce.boolean().optional(),
 	},
 	async (args) => {
 		const safenet = await Safenet.create(args);
@@ -18,7 +19,7 @@ main(
 
 		console.log(` Validator                                  | Participation`);
 		console.log(`--------------------------------------------+---------------`);
-		const { total, validators } = await safenet.participation(period);
+		const { total, validators } = await safenet.participation(period, args);
 		for (const [validator, count] of Object.entries(validators)) {
 			console.log(` ${validator} | ${formatPercent(count / total).padStart(13)}`);
 		}

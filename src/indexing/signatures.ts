@@ -3,6 +3,7 @@ import { type Address, getAbiItem, type Hex } from "viem";
 import { z } from "zod";
 import { COORDINATOR_ABI } from "../abi.js";
 import { jsonPreprocessor, jsonReplacer } from "../utils/json.js";
+import type { BlockRange, TimestampRange } from "../utils/ranges.js";
 import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
 
 const EVENTS = [
@@ -30,6 +31,11 @@ export type Packet = {
 	attestation?: Signature;
 };
 
+export type ParticipationSummary = {
+	total: number;
+	participants: Record<Address, number>;
+};
+
 type Group = {
 	gid: Hex;
 	count: number;
@@ -46,6 +52,7 @@ type SigningCeremony = {
 	sid: Hex;
 	gid: Hex;
 	message: Hex;
+	blockNumber: bigint;
 };
 
 type NoncesRevealed = {
@@ -63,6 +70,7 @@ type SignatureComplete = {
 	sid: Hex;
 	selectionRoot: Hex;
 	signature: string;
+	blockNumber: bigint;
 };
 
 type SigningParticipation = {
@@ -75,6 +83,11 @@ type SigningParticipation = {
 	participantSelectionRoot: Hex | null;
 };
 
+type ParticipationCount = {
+	participant: Address;
+	count: number;
+};
+
 export class Signatures extends EventIndexer<typeof EVENTS> {
 	#queries: {
 		upsertGroup: Statement<Group, number>;
@@ -84,6 +97,8 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 		upsertSigningParticipantShared: Statement<SignatureShare, number>;
 		updateSigningCeremonyCompleted: Statement<SignatureComplete, number>;
 		selectSigningParticipants: Statement<{ message: Hex }, SigningParticipation>;
+		selectTotalSignatureCount: Statement<BlockRange, number>;
+		selectApproximateParticipation: Statement<BlockRange, ParticipationCount>;
 	};
 
 	constructor(config: Configuration) {
@@ -117,10 +132,14 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				message TEXT NOT NULL,
 				selection_root TEXT,
 				signature TEXT,
+				started_block_number INTEGER NOT NULL,
+				completed_block_number INTEGER,
 				PRIMARY KEY(contract, sid)
 			);
 			CREATE INDEX IF NOT EXISTS signing_ceremony_message_idx
 			ON signing_ceremonies(message);
+			CREATE INDEX IF NOT EXISTS signing_ceremony_started_block_number_idx
+			ON signing_ceremonies(started_block_number);
 
 			CREATE TABLE IF NOT EXISTS signing_participants(
 				contract TEXT NOT NULL,
@@ -145,8 +164,8 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				DO NOTHING
 			`),
 			upsertSigningCeremony: this.db.prepare<SigningCeremony, number>(`
-				INSERT INTO signing_ceremonies(contract, sid, gid, message, selection_root, signature)
-				VALUES('${this.contract}', @sid, @gid, @message, NULL, NULL)
+				INSERT INTO signing_ceremonies(contract, sid, gid, message, selection_root, signature, started_block_number, completed_block_number)
+				VALUES('${this.contract}', @sid, @gid, @message, NULL, NULL, @blockNumber, NULL)
 				ON CONFLICT(contract, sid)
 				DO NOTHING
 			`),
@@ -166,6 +185,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				UPDATE signing_ceremonies
 				SET selection_root = @selectionRoot
 				, signature = @signature
+				, completed_block_number = @blockNumber
 				WHERE contract = '${this.contract}'
 				AND sid = @sid
 			`),
@@ -178,10 +198,10 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				, COALESCE(sp.nonces_revealed, FALSE) AS noncesRevealed
 				, sp.selection_root AS participantSelectionRoot
 				FROM signing_ceremonies AS s
-				LEFT JOIN groups AS g
+				INNER JOIN groups AS g
 				ON g.contract = s.contract
 				AND g.gid = s.gid
-				LEFT JOIN group_participants AS gp
+				INNER JOIN group_participants AS gp
 				ON gp.contract = s.contract
 				AND gp.gid = s.gid
 				LEFT JOIN signing_participants AS sp
@@ -190,6 +210,32 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				AND sp.identifier = gp.identifier
 				WHERE s.contract = '${this.contract}'
 				AND s.message = @message
+			`),
+			selectTotalSignatureCount: this.db.prepare<BlockRange, number>(`
+				SELECT COUNT(*) AS count
+				FROM signing_ceremonies
+				WHERE contract = '${this.contract}'
+				AND started_block_number >= @fromBlock
+				AND started_block_number <= @toBlock
+				AND signature IS NOT NULL
+			`),
+			selectApproximateParticipation: this.db.prepare<BlockRange, ParticipationCount>(`
+				SELECT gp.participant AS participant
+				, COUNT(*) AS count
+				FROM signing_ceremonies AS s
+				INNER JOIN group_participants AS gp
+				ON gp.contract = s.contract
+				AND gp.gid = s.gid
+				INNER JOIN signing_participants AS sp
+				ON sp.contract = s.contract
+				AND sp.sid = s.sid
+				AND sp.selection_root = s.selection_root
+				AND sp.identifier = gp.identifier
+				WHERE s.contract = '${this.contract}'
+				AND s.started_block_number >= @fromBlock
+				AND s.started_block_number <= @toBlock
+				AND s.selection_root IS NOT NULL
+				GROUP BY gp.participant
 			`),
 		};
 	}
@@ -217,6 +263,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 					sid: log.args.sid,
 					gid: log.args.gid,
 					message: log.args.message,
+					blockNumber: log.blockNumber,
 				});
 				break;
 			}
@@ -240,6 +287,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 					sid: log.args.sid,
 					selectionRoot: log.args.selectionRoot,
 					signature: JSON.stringify(log.args.signature, jsonReplacer),
+					blockNumber: log.blockNumber,
 				});
 				break;
 			}
@@ -345,5 +393,18 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				return revealed.map((p) => p.participant);
 			}
 		}
+	}
+
+	async approximateParticipation(period: TimestampRange): Promise<ParticipationSummary> {
+		const range = await this.blocks.blockRange(period);
+		const total = this.#queries.selectTotalSignatureCount.pluck().get(range) ?? 0;
+		const counts = this.#queries.selectApproximateParticipation.all(range);
+		const participants = Object.fromEntries(
+			counts.map(({ participant, count }) => [participant, count]),
+		);
+		return {
+			total,
+			participants,
+		};
 	}
 }
