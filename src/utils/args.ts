@@ -25,10 +25,10 @@ const envKey = (key: string): string => {
 const isBool = <Z extends z.ZodType>(field: Z): boolean => {
 	// Heuristically determine whether a field represents a boolean value.
 	return field.safeParse(true).data === true;
-}
+};
 
 const envToBool = (s: string | undefined): boolean | undefined => {
-	if (s ?? "" === "") {
+	if ((s ?? "") === "") {
 		return undefined;
 	} else if (s === "0" || s === "false") {
 		return false;
@@ -37,7 +37,7 @@ const envToBool = (s: string | undefined): boolean | undefined => {
 	} else {
 		throw new Error(`invalid boolean value ${s}`);
 	}
-}
+};
 
 export type ArgsInfer<T> = T extends z.core.$ZodLooseShape
 	? z.infer<ReturnType<typeof SCHEMA.extend<T>>>

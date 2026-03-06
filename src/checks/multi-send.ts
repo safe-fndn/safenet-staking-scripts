@@ -8,9 +8,15 @@ const makeCursor = (data: Hex) => {
 			return i >= size(data);
 		},
 		read(len: number): Hex {
-			const result = slice(data, i, i + len, { strict: true });
-			i += len;
-			return result;
+			// Viem doesn't like reading 0-length slices at the end of bytes in
+			// strict mode, so handle that case manually.
+			if (len === 0 && i <= size(data)) {
+				return "0x";
+			} else {
+				const result = slice(data, i, i + len, { strict: true });
+				i += len;
+				return result;
+			}
 		},
 	};
 };

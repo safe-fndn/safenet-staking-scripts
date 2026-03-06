@@ -198,10 +198,10 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				, COALESCE(sp.nonces_revealed, FALSE) AS noncesRevealed
 				, sp.selection_root AS participantSelectionRoot
 				FROM signing_ceremonies AS s
-				LEFT JOIN groups AS g
+				INNER JOIN groups AS g
 				ON g.contract = s.contract
 				AND g.gid = s.gid
-				LEFT JOIN group_participants AS gp
+				INNER JOIN group_participants AS gp
 				ON gp.contract = s.contract
 				AND gp.gid = s.gid
 				LEFT JOIN signing_participants AS sp
@@ -223,10 +223,10 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				SELECT gp.participant AS participant
 				, COUNT(*) AS count
 				FROM signing_ceremonies AS s
-				LEFT JOIN group_participants AS gp
+				INNER JOIN group_participants AS gp
 				ON gp.contract = s.contract
 				AND gp.gid = s.gid
-				LEFT JOIN signing_participants AS sp
+				INNER JOIN signing_participants AS sp
 				ON sp.contract = s.contract
 				AND sp.sid = s.sid
 				AND sp.selection_root = s.selection_root
