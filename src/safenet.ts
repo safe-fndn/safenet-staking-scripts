@@ -233,31 +233,48 @@ export class Safenet {
 		}
 	}
 
-	async participation(period: TimestampRange): Promise<Participation> {
+	async participation(
+		period: TimestampRange,
+		options: { approximate?: boolean } = {},
+	): Promise<Participation> {
 		await this.#debugPeriod(period);
 
 		// Get the validator registration periods, to make sure to only count
 		// participation when a validator is registered.
-		const validators = Object.fromEntries(
+		const registrations = Object.fromEntries(
 			(await this.#validatorRegistrations(period)).map(({ validator, registrations }) => [
 				validator,
 				registrations,
 			]),
 		);
 
-		const participation = { total: 0, validators: {} } as Participation;
-		for await (const { timestamp, ...packet } of this.#consensus.transactions.packets(period)) {
-			participation.total++;
-
-			const participants = this.#consensus.signatures.participants(packet);
-			for (const participant of participants) {
-				if ((validators[participant] ?? []).some((period) => rangeContains(period, timestamp))) {
-					participation.validators[participant] = (participation.validators[participant] ?? 0) + 1;
+		if (options.approximate === true) {
+			const { total, participants } =
+				await this.#consensus.signatures.approximateParticipation(period);
+			const validators = Object.fromEntries(
+				Object.keys(registrations).map((validator) => [
+					validator as Address,
+					participants[validator as Address] ?? 0,
+				]),
+			);
+			return { total, validators };
+		} else {
+			const participation = {
+				total: 0,
+				validators: Object.fromEntries(
+					Object.keys(registrations).map((validator) => [validator as Address, 0]),
+				),
+			};
+			for await (const { timestamp, ...packet } of this.#consensus.transactions.packets(period)) {
+				participation.total++;
+				for (const participant of this.#consensus.signatures.participants(packet)) {
+					if (registrations[participant]?.some((period) => rangeContains(period, timestamp))) {
+						participation.validators[participant] = participation.validators[participant] + 1;
+					}
 				}
 			}
+			return participation;
 		}
-
-		return participation;
 	}
 
 	static async create(params: {

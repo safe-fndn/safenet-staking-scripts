@@ -9,8 +9,8 @@ import { formatSafeToken } from "../utils/format.js";
 
 main(
 	{
-		rewardPeriodStart: z.bigint().optional(),
-		rewardPeriodEnd: z.bigint().optional(),
+		rewardPeriodStart: z.coerce.bigint().optional(),
+		rewardPeriodEnd: z.coerce.bigint().optional(),
 	},
 	async (args) => {
 		const safenet = await Safenet.create(args);
