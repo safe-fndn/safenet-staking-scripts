@@ -4,7 +4,7 @@
 
 import Sqlite3 from "better-sqlite3";
 import debug, { type Debugger } from "debug";
-import { type Address, type Client, getAddress } from "viem";
+import { type Address, type Client, getAddress, zeroAddress } from "viem";
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI } from "./abi.js";
 import { BlockTimestampCache } from "./indexing/block.js";
@@ -26,8 +26,14 @@ import {
 export type ValidatorStats = Record<
 	Address,
 	{
-		beneficiary: Address | null;
-		stake: bigint;
+		beneficiary: Address;
+		stake: {
+			self: {
+				amount: bigint;
+				stakers: Record<Address, bigint>;
+			};
+			total: bigint;
+		};
 	}
 >;
 
@@ -59,6 +65,12 @@ type ConsensusChain = {
 type ValidatorRegistrations = {
 	validator: Address;
 	registrations: TimestampRange[];
+};
+
+type ValidatorSelfStake = {
+	beneficiary: Address;
+	amount: bigint;
+	stakers: Record<Address, bigint>;
 };
 
 export class Safenet {
@@ -131,11 +143,12 @@ export class Safenet {
 	async #validatorSelfStake(
 		period: TimestampRange,
 		{ validator, registrations }: ValidatorRegistrations,
-	): Promise<{ beneficiary: Address | null; stake: bigint }> {
+	): Promise<ValidatorSelfStake> {
 		const result = {
-			beneficiary: null as Address | null,
-			stake: 0n,
-		};
+			beneficiary: zeroAddress,
+			amount: 0n,
+			stakers: {},
+		} as ValidatorSelfStake;
 
 		// Note that validator registrations can have holes in them, which
 		// matters when computing weighted time averages. In particular, we only
@@ -151,67 +164,77 @@ export class Safenet {
 				...registration,
 			});
 			for (const { staker, ...slice } of stakers) {
-				// Note that the staker that receives the commissions is defined
-				// to be the **last** staker set by the validator. Keep track of
-				// the last seen staker as we go over the time slices.
-				result.beneficiary = staker;
-				result.stake += await this.#staking.stake.timeWeightedStake({
+				const stake = await this.#staking.stake.timeWeightedStake({
 					staker,
 					validator,
 					...slice,
 				});
+
+				// Note that the staker that receives the commissions is defined
+				// to be the **last** staker set by the validator. Keep track of
+				// the last seen staker as we go over the time slices.
+				result.beneficiary = staker;
+				result.amount += stake;
+				result.stakers[staker] = (result.stakers[staker] ?? 0n) + stake;
 			}
 		}
 
-		result.stake /= rangeDuration(period);
+		const duration = rangeDuration(period);
+		result.amount /= duration;
+		for (const staker of addresses(result.stakers)) {
+			result.stakers[staker] /= duration;
+		}
+
 		return result;
 	}
 
-	/**
-	 * Compute stats about all active validators within a period.
-	 *
-	 * The stats include the average stake for the validator as well as their
-	 * participation rate. Along with the average stake, the beneficiary for
-	 * the commissions (defined to be the last set validator staker) is also
-	 * returned.
-	 */
-	async validatorStats(period: TimestampRange): Promise<ValidatorStats> {
-		await this.#debugPeriod(period);
+	async #validatorTotalStake(
+		period: TimestampRange,
+		{ validator, registrations }: ValidatorRegistrations,
+	): Promise<bigint> {
+		let total = 0n;
+		for (const registration of registrations) {
+			for await (const staker of this.#staking.stake.stakers(registration)) {
+				total += await this.#staking.stake.timeWeightedStake({
+					staker,
+					validator,
+					...registration,
+				});
+			}
+		}
+		return total / rangeDuration(period);
+	}
 
+	async #validatorStats(
+		period: TimestampRange,
+		validators: ValidatorRegistrations[],
+	): Promise<ValidatorStats> {
 		const stats = {} as ValidatorStats;
-		const validators = await this.#validatorRegistrations(period);
 		for (const { validator, registrations } of validators) {
-			const { beneficiary, stake } = await this.#validatorSelfStake(period, {
+			const { beneficiary, ...self } = await this.#validatorSelfStake(period, {
 				validator,
 				registrations,
 			});
+			const total = await this.#validatorTotalStake(period, { validator, registrations });
 			stats[validator] = {
 				beneficiary,
-				stake,
+				stake: { self, total },
 			};
 		}
-
 		return stats;
 	}
 
-	/**
-	 * Compute the average staked amounts per staker/validator pair over a
-	 * period.
-	 *
-	 * The staked amounts are provided as a streaming interface to avoid loading
-	 * staking data for all stakers into memory at once.
-	 */
-	async *staked(period: TimestampRange): AsyncGenerator<Staked> {
-		await this.#debugPeriod(period);
-
-		// We need to, even for computed average stake amounts, get the set of
-		// validators and their registration periods, because we only want any
-		// particular stake to count to the weighted average during a
-		// registration period.
-		const validators = await this.#validatorRegistrations(period);
-
+	async *#staked(
+		period: TimestampRange,
+		validators: ValidatorRegistrations[],
+	): AsyncGenerator<Staked> {
 		for await (const staker of this.#staking.stake.stakers(period)) {
 			const amounts = [] as Staked["amounts"];
+
+			// We need to, even for computed average stake amounts, compute them
+			// over the validator's registration periods, because we only want
+			// any particular stake to count to the weighted average during a
+			// registration period.
 			for (const { validator, registrations } of validators) {
 				let amount = 0n;
 				for (const registration of registrations) {
@@ -230,6 +253,35 @@ export class Safenet {
 				staker,
 				amounts,
 			};
+		}
+	}
+
+	/**
+	 * Compute stats about all active validators within a period.
+	 *
+	 * The stats include the average stake for the validator as well as their
+	 * participation rate. Along with the average stake, the beneficiary for
+	 * the commissions (defined to be the last set validator staker) is also
+	 * returned.
+	 */
+	async validatorStats(period: TimestampRange): Promise<ValidatorStats> {
+		await this.#debugPeriod(period);
+		const validators = await this.#validatorRegistrations(period);
+		return await this.#validatorStats(period, validators);
+	}
+
+	/**
+	 * Compute the average staked amounts per staker/validator pair over a
+	 * period.
+	 *
+	 * The staked amounts are provided as a streaming interface to avoid loading
+	 * staking data for all stakers into memory at once.
+	 */
+	async *staked(period: TimestampRange): AsyncGenerator<Staked> {
+		await this.#debugPeriod(period);
+		const validators = await this.#validatorRegistrations(period);
+		for await (const stake of this.#staked(period, validators)) {
+			yield stake;
 		}
 	}
 
@@ -252,17 +304,14 @@ export class Safenet {
 			const { total, participants } =
 				await this.#consensus.signatures.approximateParticipation(period);
 			const validators = Object.fromEntries(
-				Object.keys(registrations).map((validator) => [
-					validator as Address,
-					participants[validator as Address] ?? 0,
-				]),
+				[...addresses(registrations)].map((validator) => [validator, participants[validator] ?? 0]),
 			);
 			return { total, validators };
 		} else {
 			const participation = {
 				total: 0,
 				validators: Object.fromEntries(
-					Object.keys(registrations).map((validator) => [validator as Address, 0]),
+					[...addresses(registrations)].map((validator) => [validator, 0]),
 				),
 			};
 			for await (const { timestamp, ...packet } of this.#consensus.transactions.packets(period)) {
@@ -343,5 +392,11 @@ export class Safenet {
 				signatures: new Signatures(coordinatorConfig),
 			},
 		});
+	}
+}
+
+function* addresses<T>(record: Record<Address, T>): Generator<Address> {
+	for (const key in record) {
+		yield getAddress(key);
 	}
 }

@@ -16,11 +16,17 @@ main(
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 
-		console.log(` Validator                                  | Self Stake                    `);
-		console.log(`--------------------------------------------+-------------------------------`);
+		console.log(
+			` Validator                                  | Self Stake                    | Total Stake                   `,
+		);
+		console.log(
+			`--------------------------------------------+-------------------------------+-------------------------------`,
+		);
 		const validators = await safenet.validatorStats(period);
 		for (const [validator, { stake }] of Object.entries(validators)) {
-			console.log(` ${validator} | ${formatSafeToken(stake)}`);
+			console.log(
+				` ${validator} | ${formatSafeToken(stake.self.amount)} | ${formatSafeToken(stake.total)}`,
+			);
 		}
 	},
 );
