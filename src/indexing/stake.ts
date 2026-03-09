@@ -118,7 +118,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 					SELECT staker
 					, amount
 					, row_number() OVER (
-						PARTITION BY validator
+						PARTITION BY staker, validator
 						ORDER BY block_number DESC
 					) AS n
 					FROM stake
