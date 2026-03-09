@@ -107,7 +107,23 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 				AND validator = @validator
 			`),
 			selectStakeBlocks: this.db.prepare<BlockRange, number>(`
-				SELECT DISTINCT(block_number)
+				WITH starting_stake AS (
+					SELECT block_number
+					, amount
+					, row_number() OVER (
+						PARTITION BY staker, validator
+						ORDER BY block_number DESC
+					) AS n
+					FROM stake
+					WHERE contract = '${this.contract}'
+					AND block_number < @fromBlock
+				)
+				SELECT DISTINCT(block_number) AS blockNumber
+				FROM starting_stake
+				WHERE amount != '0'
+				AND n = 1
+				UNION ALL
+				SELECT DISTINCT(block_number) as blockNumber
 				FROM stake
 				WHERE contract = '${this.contract}'
 				AND block_number >= @fromBlock
