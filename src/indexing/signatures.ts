@@ -327,7 +327,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 			);
 			if (matching.size !== 1) {
 				throw new Error(
-					`expected exactly one signing ceremony to match attestation, got ${matching.size}`,
+					`expected exactly one signing ceremony to match attestation for ${message}, got ${matching.size}`,
 				);
 			}
 

@@ -7,6 +7,7 @@
 		"check": "biome check && tsc",
 		"cmd:index": "tsx src/cmd/index.ts",
 		"cmd:participation": "tsx src/cmd/participation.ts",
+		"cmd:rewards": "tsx src/cmd/rewards.ts",
 		"cmd:stake-stats": "tsx src/cmd/stake-stats.ts",
 		"cmd:stats": "tsx src/cmd/stats.ts",
 		"cmd:validator-stats": "tsx src/cmd/validator-stats.ts",
