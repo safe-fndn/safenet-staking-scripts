@@ -141,17 +141,21 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 					WHERE contract = '${this.contract}'
 					AND block_number < @fromBlock
 				)
+				, all_stakers AS (
+					SELECT staker
+					FROM starting_stake
+					WHERE amount != '0'
+					AND n = 1
+					UNION ALL
+					SELECT staker
+					FROM stake
+					WHERE contract = '${this.contract}'
+					AND block_number >= @fromBlock
+					AND block_number <= @toBlock
+					AND amount != '0'
+				)
 				SELECT DISTINCT(staker) AS staker
-				FROM starting_stake
-				WHERE amount != '0'
-				AND n = 1
-				UNION ALL
-				SELECT DISTINCT(staker) AS staker
-				FROM stake
-				WHERE contract = '${this.contract}'
-				AND block_number >= @fromBlock
-				AND block_number <= @toBlock
-				AND amount != '0'
+				FROM all_stakers
 				ORDER BY staker COLLATE NOCASE ASC
 			`),
 		};
