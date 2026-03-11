@@ -116,7 +116,7 @@ export class Safenet {
 		// we need to add a small grace period for indexing. This is because
 		// participation is computed for transactions proposed within a
 		// transaction period.
-		const attestTo = to;
+		const attestTo = { ...to };
 		if (attestTo.toTimestamp !== undefined) {
 			const ONE_HOUR = 60n * 60n;
 			const latest = await this.#consensus.blocks.getLatest();

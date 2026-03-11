@@ -10,5 +10,5 @@
 		"target": "ESNext",
 		"types": ["@types/node"]
 	},
-	"include": ["src/**/*.ts"]
+	"include": ["src/**/*.ts", "tests/**/*.ts"]
 }

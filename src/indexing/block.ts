@@ -29,6 +29,7 @@ export class BlockTimestampCache {
 	#debug: Debugger;
 	#db: Database;
 	#client: Client;
+	#chainId: number;
 	#backoff: Backoff;
 	#queries: {
 		selectTimestamp: Statement<{ blockNumber: bigint }, number>;
@@ -44,9 +45,10 @@ export class BlockTimestampCache {
 	};
 
 	constructor({ db, client, chainId }: Configuration) {
-		this.#debug = debug(`safenet:indexing:block`);
+		this.#debug = debug(`safenet:indexing:block:${chainId}`);
 		this.#db = db;
 		this.#client = client;
+		this.#chainId = chainId;
 		this.#backoff = backoff({
 			debug: this.#debug,
 		});
@@ -188,7 +190,9 @@ export class BlockTimestampCache {
 	async block({ timestamp }: Pick<BlockTimestamp, "timestamp">): Promise<BlockTimestamp> {
 		const block = await this.searchBlock({ timestamp });
 		if (block === null) {
-			throw new Error(`missing blocks for time ${formatTimestamp(timestamp)}`);
+			throw new Error(
+				`chain ${this.#chainId} missing blocks for time ${formatTimestamp(timestamp)}`,
+			);
 		}
 		return block;
 	}
@@ -216,7 +220,7 @@ export class BlockTimestampCache {
 	async blockRange(range: TimestampRange): Promise<BlockRange> {
 		const blocks = await this.searchBlockRange(range);
 		if (blocks === null) {
-			throw new Error(`missing blocks for time range ${formatRange(range)}`);
+			throw new Error(`chain ${this.#chainId} missing blocks for time range ${formatRange(range)}`);
 		}
 		return blocks;
 	}
