@@ -6,4 +6,4 @@ export const sortByAddress = <T>(items: T[], selector: (item: T) => Address): T[
 		const bb = selector(b).toLowerCase();
 		return aa === bb ? 0 : aa < bb ? -1 : 1;
 	});
-}
+};
