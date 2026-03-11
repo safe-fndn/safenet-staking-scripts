@@ -3,9 +3,7 @@ import {
 	encodeAbiParameters,
 	encodeEventTopics,
 	type Hex,
-	hashTypedData,
 	parseAbiParameters,
-	slice,
 	zeroAddress,
 	zeroHash,
 } from "viem";
@@ -18,32 +16,13 @@ import {
 	type LogSpec,
 	MockChain,
 } from "./chain.js";
-import { namedAddress } from "./utils.js";
-
-export type Point = {
-	x: bigint;
-	y: bigint;
-};
-
-export type Signature = {
-	r: Point;
-	z: bigint;
-};
-
-export type SafeTransaction = {
-	chainId: bigint;
-	safe: Address;
-	to: Address;
-	value: bigint;
-	data: Hex;
-	operation: 0 | 1;
-	safeTxGas: bigint;
-	baseGas: bigint;
-	gasPrice: bigint;
-	gasToken: Address;
-	refundReceiver: Address;
-	nonce: bigint;
-};
+import {
+	extractSignatureId,
+	namedAddress,
+	type SafeTransaction,
+	type Signature,
+	safeTxHash,
+} from "./utils.js";
 
 export type StakingChainEvent =
 	| {
@@ -120,7 +99,8 @@ export type TypedBlockSpec<E> = Omit<BlockSpec, "logs"> & {
 	events?: E[];
 };
 
-export type TypedChainSpec<E> = Omit<ChainSpec, "slots"> & {
+export type TypedChainSpec<E> = {
+	blockTime?: bigint;
 	slots: (TypedBlockSpec<E> | null)[];
 };
 
@@ -128,35 +108,6 @@ export type Scenario = {
 	staking: TypedChainSpec<StakingChainEvent>;
 	consensus: TypedChainSpec<ConsensusChainEvent>;
 };
-
-export const safeTxHash = ({ chainId, safe, ...message }: SafeTransaction): Hex =>
-	hashTypedData({
-		domain: {
-			chainId,
-			verifyingContract: safe,
-		},
-		types: {
-			SafeTx: [
-				{ type: "address", name: "to" },
-				{ type: "uint256", name: "value" },
-				{ type: "bytes", name: "data" },
-				{ type: "uint8", name: "operation" },
-				{ type: "uint256", name: "safeTxGas" },
-				{ type: "uint256", name: "baseGas" },
-				{ type: "uint256", name: "gasPrice" },
-				{ type: "address", name: "gasToken" },
-				{ type: "address", name: "refundReceiver" },
-				{ type: "uint256", name: "nonce" },
-			],
-		},
-		primaryType: "SafeTx",
-		message,
-	});
-
-const extractSignatureId = (sid: Hex): { gid: Hex; sequence: bigint } => ({
-	gid: sid.replace(/[0-9a-fA-F]{16}$/, "0000000000000000") as Hex,
-	sequence: BigInt(slice(sid, 24)),
-});
 
 const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
 	switch (event.name) {
@@ -365,22 +316,31 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 	}
 };
 
-const encodeChain = <E>(spec: TypedChainSpec<E>, encodeEvent: (event: E) => LogSpec): MockChain =>
+const encodeChain = <E>(
+	{ chainId, blockTime }: Pick<ChainSpec, "chainId" | "blockTime">,
+	spec: TypedChainSpec<E>,
+	encodeEvent: (event: E) => LogSpec,
+): MockChain =>
 	new MockChain({
+		chainId,
+		blockTime,
 		...spec,
 		slots: spec.slots.map((slot) =>
-			slot !== null
-				? {
-						...slot,
-						logs: slot.events?.map(encodeEvent),
-					}
-				: null,
+			slot !== null ? { logs: slot.events?.map(encodeEvent) } : null,
 		),
 	});
 
 export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
-	const stakingChain = encodeChain(scenario.staking, encodeStakingEvent);
-	const consensusChain = encodeChain(scenario.consensus, encodeConsensusEvent);
+	const stakingChain = encodeChain(
+		{ chainId: 1, blockTime: 12n },
+		scenario.staking,
+		encodeStakingEvent,
+	);
+	const consensusChain = encodeChain(
+		{ chainId: 100, blockTime: 5n },
+		scenario.consensus,
+		encodeConsensusEvent,
+	);
 
 	return Safenet.create({
 		databaseFile: ":memory:",

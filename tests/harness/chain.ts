@@ -28,6 +28,7 @@ export type LogSpec = {
 };
 
 export type BlockSpec = {
+	assertTimestamp?: bigint;
 	logs?: LogSpec[];
 };
 
@@ -75,6 +76,11 @@ const appendBlock = (
 	timestamp: bigint,
 	spec: BlockSpec,
 ): [bigint, Block][] => {
+	if (spec.assertTimestamp !== undefined && spec.assertTimestamp !== timestamp) {
+		throw new Error(
+			`expected block ${number}@${timestamp} to have timestamp ${spec.assertTimestamp}`,
+		);
+	}
 	const logs = spec.logs?.map((log, i) => makeRpcLog(number, BigInt(i), log)) ?? [];
 	blocks.push([number, { number, timestamp, logs }]);
 	return blocks;
@@ -216,7 +222,7 @@ export function createMockClient(chain: MockChain): Client {
 							.tuple([
 								z.object({
 									address: zAddress,
-									topics: zHex.array(),
+									topics: z.union([zHex, zHex.array()]).nullable().array(),
 									fromBlock: z.coerce.bigint(),
 									toBlock: z.coerce.bigint(),
 								}),
@@ -228,11 +234,13 @@ export function createMockClient(chain: MockChain): Client {
 					case "eth_call":
 						z.tuple([
 							z.object({
-								to: namedAddress("Consensus"),
-								data: encodeFunctionData({
-									abi: CONSENSUS_ABI,
-									functionName: "COORDINATOR",
-								}),
+								to: z.literal(namedAddress("Consensus")),
+								data: z.literal(
+									encodeFunctionData({
+										abi: CONSENSUS_ABI,
+										functionName: "COORDINATOR",
+									}),
+								),
 							}),
 							z.literal("latest"),
 						]).parse(params);
