@@ -13,8 +13,8 @@ import {
 	transactionProposalMessage,
 } from "./harness/utils.js";
 
-describe("rewards — single validator", () => {
-	it("distributes rewards between self-staker and delegate with commission", async () => {
+describe("single", () => {
+	it("distributes rewards between staker and delegate with commission", async () => {
 		const safenet = await createTestSafenet({
 			staking: {
 				slots: [
