@@ -2,14 +2,16 @@ import {
 	type Address,
 	encodeAbiParameters,
 	encodeEventTopics,
-	encodePacked,
 	type Hex,
 	hashTypedData,
-	keccak256,
-	toHex,
+	parseAbiParameters,
+	slice,
+	zeroAddress,
+	zeroHash,
 } from "viem";
 import { CONSENSUS_ABI, COORDINATOR_ABI, STAKING_ABI } from "../../src/abi.js";
-import type { LogSpec } from "./chain.js";
+import type { Safenet } from "../../src/safenet.js";
+import { type BlockSpec, type ChainSpec, type LogSpec, MockChain } from "./chain.js";
 import { namedAddress } from "./utils.js";
 
 export type Point = {
@@ -108,6 +110,19 @@ export type ConsensusChainEvent =
 			signature: Signature;
 	  };
 
+export type TypedBlockSpec<E> = Omit<BlockSpec, "logs"> & {
+	events?: E[];
+};
+
+export type TypedChainSpec<E> = Omit<ChainSpec, "slots"> & {
+	slots: (TypedBlockSpec<E> | null)[];
+};
+
+export type Scenario = {
+	staking: TypedChainSpec<StakingChainEvent>;
+	consensus: TypedChainSpec<ConsensusChainEvent>;
+};
+
 export const safeTxHash = ({ chainId, safe, ...message }: SafeTransaction): Hex =>
 	hashTypedData({
 		domain: {
@@ -132,11 +147,16 @@ export const safeTxHash = ({ chainId, safe, ...message }: SafeTransaction): Hex 
 		message,
 	});
 
+const extractSignatureId = (sid: Hex): { gid: Hex; sequence: bigint } => ({
+	gid: sid.replace(/[0-9a-fA-F]{16}$/, "0000000000000000") as Hex,
+	sequence: BigInt(slice(sid, 24)),
+});
+
 const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
 	switch (event.name) {
 		case "ValidatorUpdated": {
 			return {
-				address: namedAddress("Staking contract"),
+				address: namedAddress("Staking"),
 				topics: encodeEventTopics({
 					abi: STAKING_ABI,
 					eventName: "ValidatorUpdated",
@@ -144,12 +164,12 @@ const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
 						validator: event.validator,
 					},
 				}) as Hex[],
-				data: encodeAbiParameters([{ type: "bool" }], [event.isRegistered]),
+				data: encodeAbiParameters(parseAbiParameters("bool isRegistered"), [event.isRegistered]),
 			};
 		}
 		case "StakeIncreased": {
 			return {
-				address: namedAddress("Staking contract"),
+				address: namedAddress("Staking"),
 				topics: encodeEventTopics({
 					abi: STAKING_ABI,
 					eventName: "StakeIncreased",
@@ -158,12 +178,12 @@ const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
 						validator: event.validator,
 					},
 				}) as Hex[],
-				data: encodeAbiParameters([{ type: "uint256" }], [event.amount]),
+				data: encodeAbiParameters(parseAbiParameters("uint256 amount"), [event.amount]),
 			};
 		}
 		case "WithdrawalInitiated": {
 			return {
-				address: namedAddress("Staking contract"),
+				address: namedAddress("Staking"),
 				topics: encodeEventTopics({
 					abi: STAKING_ABI,
 					eventName: "WithdrawalInitiated",
@@ -173,151 +193,189 @@ const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
 						withdrawalId: 1337n, // ignored
 					},
 				}) as Hex[],
-				data: encodeAbiParameters([{ type: "uint256" }], [event.amount]),
+				data: encodeAbiParameters(parseAbiParameters("uint256 amount"), [event.amount]),
 			};
 		}
 	}
 };
 
-function encodeConsensusEvent(event: ConsensusChainEvent, defaultGid: Hex): LogSpec {
+const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 	switch (event.name) {
 		case "ValidatorStakerSet": {
-			const topics = encodeEventTopics({
-				abi: CONSENSUS_ABI,
-				eventName: "ValidatorStakerSet",
-				args: { validator: event.validator },
-			}) as Hex[];
-			const data = encodeAbiParameters([{ type: "address" }] as const, [event.staker]);
-			return makeRawLog(CONSENSUS_ADDRESS, topics, data, ctx);
+			return {
+				address: namedAddress("Consensus"),
+				topics: encodeEventTopics({
+					abi: CONSENSUS_ABI,
+					eventName: "ValidatorStakerSet",
+					args: {
+						validator: event.validator,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(parseAbiParameters("address"), [event.staker]),
+			};
 		}
 		case "TransactionProposed": {
-			const txHash = safeTxHash(event.transaction);
-			const topics = encodeEventTopics({
-				abi: CONSENSUS_ABI,
-				eventName: "TransactionProposed",
-				args: {
-					transactionHash: txHash,
-					chainId: event.transaction.chainId,
-					safe: event.transaction.safe,
-				},
-			}) as Hex[];
-			const data = encodeAbiParameters(
-				[{ type: "uint64", name: "epoch" }, ...SAFE_TX_TUPLE] as const,
-				[event.epoch, event.transaction],
-			);
-			return makeRawLog(CONSENSUS_ADDRESS, topics, data, ctx);
+			return {
+				address: namedAddress("Consensus"),
+				topics: encodeEventTopics({
+					abi: CONSENSUS_ABI,
+					eventName: "TransactionProposed",
+					args: {
+						transactionHash: safeTxHash(event.transaction),
+						chainId: event.transaction.chainId,
+						safe: event.transaction.safe,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters(
+						"uint64 epoch, (uint256 chainId, address safe, address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 nonce) transaction",
+					),
+					[event.epoch, event.transaction],
+				),
+			};
 		}
 		case "TransactionAttested": {
-			const topics = encodeEventTopics({
-				abi: CONSENSUS_ABI,
-				eventName: "TransactionAttested",
-				args: { transactionHash: event.transactionHash },
-			}) as Hex[];
-			const data = encodeAbiParameters(
-				[{ type: "uint64", name: "epoch" }, SIGNATURE_ABI] as const,
-				[event.epoch, event.attestation],
-			);
-			return makeRawLog(CONSENSUS_ADDRESS, topics, data, ctx);
+			return {
+				address: namedAddress("Consensus"),
+				topics: encodeEventTopics({
+					abi: CONSENSUS_ABI,
+					eventName: "TransactionAttested",
+					args: { transactionHash: event.safeTxHash },
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters("uint64 epoch, ((uint256 x, uint256 y) r, uint256 z) attestation"),
+					[event.epoch, event.attestation],
+				),
+			};
 		}
 		case "KeyGen": {
-			const topics = encodeEventTopics({
-				abi: COORDINATOR_ABI,
-				eventName: "KeyGen",
-				args: { gid: event.gid },
-			}) as Hex[];
-			const data = encodeAbiParameters(
-				[
-					{ type: "bytes32", name: "participants" },
-					{ type: "uint16", name: "count" },
-					{ type: "uint16", name: "threshold" },
-					{ type: "bytes32", name: "context" },
-				] as const,
-				[zeroHash, event.count, event.threshold, event.context ?? zeroHash],
-			);
-			return makeRawLog(COORDINATOR_ADDRESS, topics, data, ctx);
+			return {
+				address: namedAddress("FROSTCoordinator"),
+				topics: encodeEventTopics({
+					abi: COORDINATOR_ABI,
+					eventName: "KeyGen",
+					args: { gid: event.gid },
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters(
+						"bytes32 participants, uint16 count, uint16 threshold, bytes32 context",
+					),
+					[zeroHash, event.count, event.threshold, zeroHash],
+				),
+			};
 		}
 		case "KeyGenCommitted": {
-			const commitment: KeyGenCommitment = event.commitment ?? {
-				q: { x: 0n, y: 0n },
-				c: [],
-				r: { x: 0n, y: 0n },
-				mu: 0n,
+			return {
+				address: namedAddress("FROSTCoordinator"),
+				topics: encodeEventTopics({
+					abi: COORDINATOR_ABI,
+					eventName: "KeyGenCommitted",
+					args: { gid: event.gid },
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters(
+						"uint256 identifier, address participant, ((uint256 x, uint256 y) q, (uint256 x, uint256 y)[] c, (uint256 x, uint256 y) r, uint256 mu) commitment, bool committed",
+					),
+					[
+						event.identifier,
+						event.participant,
+						{ q: { x: 0n, y: 0n }, c: [], r: { x: 0n, y: 0n }, mu: 0n },
+						false,
+					],
+				),
 			};
-			const topics = encodeEventTopics({
-				abi: COORDINATOR_ABI,
-				eventName: "KeyGenCommitted",
-				args: { gid: event.gid },
-			}) as Hex[];
-			const data = encodeAbiParameters(
-				[
-					{ type: "uint256", name: "identifier" },
-					{ type: "address", name: "participant" },
-					COMMITMENT_ABI,
-					{ type: "bool", name: "committed" },
-				] as const,
-				[event.identifier, event.participant, commitment, event.committed ?? true],
-			);
-			return makeRawLog(COORDINATOR_ADDRESS, topics, data, ctx);
 		}
 		case "Sign": {
-			const gid = event.gid ?? defaultGid;
-			const topics = encodeEventTopics({
-				abi: COORDINATOR_ABI,
-				eventName: "Sign",
-				args: {
-					initiator: event.initiator ?? zeroAddress,
-					gid,
-					message: event.message,
-				},
-			}) as Hex[];
-			const data = encodeAbiParameters(
-				[
-					{ type: "bytes32", name: "sid" },
-					{ type: "uint64", name: "sequence" },
-				] as const,
-				[event.sid, event.sequence ?? 0n],
-			);
-			return makeRawLog(COORDINATOR_ADDRESS, topics, data, ctx);
+			const { gid, sequence } = extractSignatureId(event.sid);
+			return {
+				address: namedAddress("FROSTCoordinator"),
+				topics: encodeEventTopics({
+					abi: COORDINATOR_ABI,
+					eventName: "Sign",
+					args: {
+						initiator: zeroAddress,
+						gid,
+						message: event.message,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(parseAbiParameters("bytes32 sid, uint64 sequence"), [
+					event.sid,
+					sequence,
+				]),
+			};
 		}
 		case "SignRevealedNonces": {
-			const nonces: Nonces = event.nonces ?? {
-				d: { x: 0n, y: 0n },
-				e: { x: 0n, y: 0n },
+			return {
+				address: namedAddress("FROSTCoordinator"),
+				topics: encodeEventTopics({
+					abi: COORDINATOR_ABI,
+					eventName: "SignRevealedNonces",
+					args: {
+						sid: event.sid,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters(
+						"uint256 identifier, ((uint256 x, uint256 y) d, (uint256 x, uint256 y) e) nonces",
+					),
+					[event.identifier, { d: { x: 0n, y: 0n }, e: { x: 0n, y: 0n } }],
+				),
 			};
-			const topics = encodeEventTopics({
-				abi: COORDINATOR_ABI,
-				eventName: "SignRevealedNonces",
-				args: { sid: event.sid },
-			}) as Hex[];
-			const data = encodeAbiParameters(
-				[{ type: "uint256", name: "identifier" }, NONCES_ABI] as const,
-				[event.identifier, nonces],
-			);
-			return makeRawLog(COORDINATOR_ADDRESS, topics, data, ctx);
 		}
 		case "SignShared": {
-			const topics = encodeEventTopics({
-				abi: COORDINATOR_ABI,
-				eventName: "SignShared",
-				args: { sid: event.sid, selectionRoot: event.selectionRoot },
-			}) as Hex[];
-			const data = encodeAbiParameters(
-				[
-					{ type: "uint256", name: "identifier" },
-					{ type: "uint256", name: "z" },
-				] as const,
-				[event.identifier, event.z ?? 0n],
-			);
-			return makeRawLog(COORDINATOR_ADDRESS, topics, data, ctx);
+			return {
+				address: namedAddress("FROSTCoordinator"),
+				topics: encodeEventTopics({
+					abi: COORDINATOR_ABI,
+					eventName: "SignShared",
+					args: {
+						sid: event.sid,
+						selectionRoot: event.selectionRoot,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(parseAbiParameters("uint256 identifier, uint256 z"), [
+					event.identifier,
+					0n,
+				]),
+			};
 		}
 		case "SignCompleted": {
-			const topics = encodeEventTopics({
-				abi: COORDINATOR_ABI,
-				eventName: "SignCompleted",
-				args: { sid: event.sid, selectionRoot: event.selectionRoot },
-			}) as Hex[];
-			const data = encodeAbiParameters([SIGNATURE_ABI] as const, [event.signature]);
-			return makeRawLog(COORDINATOR_ADDRESS, topics, data, ctx);
+			return {
+				address: namedAddress("FROSTCoordinator"),
+				topics: encodeEventTopics({
+					abi: COORDINATOR_ABI,
+					eventName: "SignCompleted",
+					args: {
+						sid: event.sid,
+						selectionRoot: event.selectionRoot,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters("((uint256 x, uint256 y) r, uint256 z) signature"),
+					[event.signature],
+				),
+			};
 		}
 	}
-}
+};
+
+const encodeChain = <E>(spec: TypedChainSpec<E>, encodeEvent: (event: E) => LogSpec): MockChain =>
+	new MockChain({
+		...spec,
+		slots: spec.slots.map((slot) =>
+			slot !== null
+				? {
+						...slot,
+						logs: slot.events?.map(encodeEvent),
+					}
+				: null,
+		),
+	});
+
+export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
+	const stakingChain = encodeChain(scenario.staking, encodeStakingEvent);
+	const consensusChain = encodeChain(scenario.consensus, encodeConsensusEvent);
+	console.log(stakingChain, consensusChain);
+
+	return Promise.resolve({} as unknown as Safenet);
+};
