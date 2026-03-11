@@ -10,8 +10,14 @@ import {
 	zeroHash,
 } from "viem";
 import { CONSENSUS_ABI, COORDINATOR_ABI, STAKING_ABI } from "../../src/abi.js";
-import type { Safenet } from "../../src/safenet.js";
-import { type BlockSpec, type ChainSpec, type LogSpec, MockChain } from "./chain.js";
+import { Safenet } from "../../src/safenet.js";
+import {
+	type BlockSpec,
+	type ChainSpec,
+	createMockClient,
+	type LogSpec,
+	MockChain,
+} from "./chain.js";
 import { namedAddress } from "./utils.js";
 
 export type Point = {
@@ -375,7 +381,13 @@ const encodeChain = <E>(spec: TypedChainSpec<E>, encodeEvent: (event: E) => LogS
 export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
 	const stakingChain = encodeChain(scenario.staking, encodeStakingEvent);
 	const consensusChain = encodeChain(scenario.consensus, encodeConsensusEvent);
-	console.log(stakingChain, consensusChain);
 
-	return Promise.resolve({} as unknown as Safenet);
+	return Safenet.create({
+		databaseFile: ":memory:",
+		blockPageSize: 5n,
+		stakingClient: createMockClient(stakingChain),
+		stakingAddress: namedAddress("Staking"),
+		consensusClient: createMockClient(consensusChain),
+		consensusAddress: namedAddress("Consensus"),
+	});
 };
