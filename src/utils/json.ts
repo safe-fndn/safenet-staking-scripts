@@ -1,3 +1,4 @@
+import { promises as fs } from "node:fs";
 import { z } from "zod";
 
 /**
@@ -28,4 +29,20 @@ export const jsonReplacer = (_key: string, value: unknown): unknown => {
 		return value.toString();
 	}
 	return value;
+};
+
+/**
+ * Reads and parses a JSON file with Zod.
+ */
+export const readJsonFile = async <T>(path: string, schema: z.ZodType<T>): Promise<T> => {
+	const json = await fs.readFile(path, "utf8");
+	return z.preprocess(jsonPreprocessor, schema).parse(json);
+};
+
+/**
+ * Writes to a JSON file.
+ */
+export const writeJsonFile = async (path: string, value: unknown): Promise<void> => {
+	const json = `${JSON.stringify(value, jsonReplacer, "\t")}\n`;
+	await fs.writeFile(path, json, "utf8");
 };
