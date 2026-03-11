@@ -8,9 +8,8 @@
 		"cmd:index": "tsx src/cmd/index.ts",
 		"cmd:participation": "tsx src/cmd/participation.ts",
 		"cmd:rewards": "tsx src/cmd/rewards.ts",
-		"cmd:stake-stats": "tsx src/cmd/stake-stats.ts",
-		"cmd:stats": "tsx src/cmd/stats.ts",
-		"cmd:validator-stats": "tsx src/cmd/validator-stats.ts",
+		"cmd:stake": "tsx src/cmd/stake-stats.ts",
+		"cmd:validators": "tsx src/cmd/validators.ts",
 		"fix": "biome check --write",
 		"test": "vitest run",
 		"test:watch": "vitest watch"
