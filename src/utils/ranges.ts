@@ -1,4 +1,3 @@
-import { formatTimestamp } from "./format.js";
 import { maxBigInt } from "./math.js";
 
 export type BlockRange = {
@@ -17,7 +16,7 @@ export type ToTimestamp = Pick<TimestampRange, "toTimestamp">;
 
 export type Range = BlockRange | TimestampRange;
 
-const isBlockRange = (r: Range): r is BlockRange => {
+export const isBlockRange = (r: Range): r is BlockRange => {
 	return "fromBlock" in r;
 };
 
@@ -70,9 +69,6 @@ export const rangeContains = (range: Range, value: bigint): boolean =>
 		: range.fromTimestamp <= value && value < range.toTimestamp;
 
 /**
- * Formats a timestamp or block range.
+ * Converts a timestamp to a Date.
  */
-export const formatRange = (range: Range): string =>
-	isBlockRange(range)
-		? `${range.fromBlock}-${range.toBlock}`
-		: `${formatTimestamp(range.fromTimestamp)}-${formatTimestamp(range.toTimestamp)}`;
+export const timestampToDate = (timestamp: bigint): Date => new Date(Number(timestamp) * 1000);

@@ -4,6 +4,7 @@
 
 import { parseUnits } from "viem";
 import { z } from "zod";
+import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
 import { formatSafeToken } from "../utils/format.js";
@@ -14,6 +15,7 @@ main(
 		rewardPeriodEnd: z.coerce.bigint().optional(),
 		totalRewards: z.string().transform((v) => parseUnits(v, 18)),
 		approximate: z.coerce.boolean().optional(),
+		record: z.string().optional(),
 	},
 	async (args) => {
 		const safenet = await Safenet.create(args);
@@ -27,6 +29,18 @@ main(
 			console.log(` ${recipient} | ${formatSafeToken(amount)}`);
 		}
 		console.log(`--------------------------------------------+-------------------------------`);
-		console.log(` ${"Unpaid (carried forward)".padEnd(42)} | ${formatSafeToken(unpaid)}`);
+		console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)}`);
+
+		if (args.record) {
+			const db = new MerkleDb({ root: args.record });
+			const root = await db.distribute(period, payouts);
+
+			console.log();
+			if (root === null) {
+				console.warn("WARNING: skipped or already processed reward period, not recording.");
+			} else {
+				console.log(`Merkle Root: ${root}`);
+			}
+		}
 	},
 );

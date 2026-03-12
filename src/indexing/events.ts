@@ -20,8 +20,9 @@ import {
 } from "viem";
 import { getBlockNumber, getLogs } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
+import { formatRange } from "../utils/format.js";
 import { minBigInt } from "../utils/math.js";
-import { type BlockRange, formatRange, type ToBlock, type ToTimestamp } from "../utils/ranges.js";
+import type { BlockRange, ToBlock, ToTimestamp } from "../utils/ranges.js";
 import type { BlockTimestampCache } from "./block.js";
 
 export type Configuration = {
