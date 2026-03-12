@@ -1,10 +1,19 @@
 import { formatUnits } from "viem";
+import { isBlockRange, type Range, timestampToDate } from "./ranges.js";
 
 /**
  * Formats a timestamp.
  */
 export const formatTimestamp = (timestamp: bigint): string =>
-	new Date(Number(timestamp) * 1000).toISOString();
+	timestampToDate(timestamp).toISOString();
+
+/**
+ * Formats a timestamp or block range.
+ */
+export const formatRange = (range: Range): string =>
+	isBlockRange(range)
+		? `${range.fromBlock}-${range.toBlock}`
+		: `${formatTimestamp(range.fromTimestamp)}-${formatTimestamp(range.toTimestamp)}`;
 
 /**
  * Formats a SAFE token amount.

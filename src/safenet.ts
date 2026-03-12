@@ -14,9 +14,9 @@ import { Stake } from "./indexing/stake.js";
 import { Transactions } from "./indexing/transactions.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
+import { formatRange } from "./utils/format.js";
 import { minBigInt, sqrtBigInt } from "./utils/math.js";
 import {
-	formatRange,
 	rangeContains,
 	rangeDuration,
 	type TimestampRange,
