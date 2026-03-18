@@ -15,7 +15,7 @@ import { sortByAddress } from "../utils/sort.js";
 import { MerkleTreeMap } from "./treemap.js";
 
 export type MerkleDbConfiguration = {
-	root: string;
+	record: string;
 };
 
 type DistributionData = {
@@ -50,8 +50,8 @@ const zFileNotFoundError = z.object({ code: z.literal("ENOENT") });
 export class MerkleDb {
 	#root: string;
 
-	constructor({ root }: MerkleDbConfiguration) {
-		this.#root = root;
+	constructor({ record }: MerkleDbConfiguration) {
+		this.#root = path.join(record, "assets", "rewards");
 	}
 
 	#path(...segments: string[]): string {
@@ -61,11 +61,12 @@ export class MerkleDb {
 	#accountPath(account: Address): string {
 		// In order to not run into directory file count limits, split the
 		// acount files based on the leading 4 bytes.
-		const match = /^0x(..)(..)(..)(..)/.exec(account.toLowerCase());
+		const normalized = getAddress(account).toLowerCase();
+		const match = /^0x(..)(..)(..)(..)/.exec(normalized);
 		if (!match) {
 			throw new Error(`unexpected bad address '${account}'`);
 		}
-		return this.#path("proofs", ...match.slice(1, 5), `${account}.json`);
+		return this.#path("proofs", ...match.slice(1, 5), `${normalized}.json`);
 	}
 
 	async #locked<T>(thunk: () => Promise<T | null>): Promise<T | null> {
@@ -109,6 +110,10 @@ export class MerkleDb {
 	async *#allDistributions(): AsyncGenerator<Distribution> {
 		for await (const entry of fs.glob(this.#path("proofs", "*", "*", "*", "*", "*.json"))) {
 			const account = getAddress(path.basename(entry, ".json"));
+			if (entry !== this.#accountPath(account)) {
+				// Not an actual distribution entry, skip.
+				continue;
+			}
 			const data = await readJsonFile(entry, zDistributionData);
 			const update = (newData: DistributionData) => writeJsonFile(entry, newData);
 			yield { account, data, update };

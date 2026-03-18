@@ -32,7 +32,7 @@ main(
 		console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)}`);
 
 		if (args.record) {
-			const db = new MerkleDb({ root: args.record });
+			const db = new MerkleDb({ record: args.record });
 			const root = await db.distribute(period, payouts);
 
 			console.log();
