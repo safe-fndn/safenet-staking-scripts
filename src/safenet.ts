@@ -6,7 +6,7 @@ import Sqlite3 from "better-sqlite3";
 import debug, { type Debugger } from "debug";
 import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "viem";
 import { getChainId, readContract } from "viem/actions";
-import { CONSENSUS_ABI } from "./abi.js";
+import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { BlockTimestampCache } from "./indexing/block.js";
 import type { EventIndexer } from "./indexing/events.js";
 import { Signatures } from "./indexing/signatures.js";
@@ -59,11 +59,21 @@ export type Rewards = {
 	unpaid: bigint;
 };
 
+export type Totals = {
+	stake: bigint;
+	transactions: number;
+};
+
 type StakingChain = {
+	contract: {
+		address: Address;
+		client: Client;
+	};
 	blocks: BlockTimestampCache;
 	stake: Stake;
 	validators: Validators;
 };
+
 type ConsensusChain = {
 	blocks: BlockTimestampCache;
 	stakers: ValidatorStakers;
@@ -475,6 +485,19 @@ export class Safenet {
 		return { payouts, unpaid };
 	}
 
+	async totals(): Promise<Totals> {
+		const { blockNumber } = await this.#staking.blocks.getLatest();
+		await this.#consensus.transactions.update();
+		const stake = await readContract(this.#staking.contract.client, {
+			address: this.#staking.contract.address,
+			abi: STAKING_ABI,
+			functionName: "totalStakedAmount",
+			blockNumber,
+		});
+		const transactions = this.#consensus.transactions.count();
+		return { stake, transactions };
+	}
+
 	static async create(params: {
 		databaseFile: string;
 		blockPageSize: bigint;
@@ -528,6 +551,10 @@ export class Safenet {
 		};
 		return new Safenet({
 			staking: {
+				contract: {
+					client: params.stakingClient,
+					address: params.stakingAddress,
+				},
 				blocks: stakingBlocks,
 				stake: new Stake({
 					...stakingConfig,

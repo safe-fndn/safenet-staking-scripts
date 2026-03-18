@@ -157,14 +157,19 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	}
 
 	#nextPage(range: ToBlock): BlockRange | null {
-		const lastToBlock = BigInt(this.#queries.selectIndexer.pluck().get() ?? -1);
-		if (lastToBlock >= range.toBlock) {
+		const latest = this.latestBlock() ?? -1n;
+		if (latest >= range.toBlock) {
 			return null;
 		}
 
-		const fromBlock = lastToBlock + 1n;
+		const fromBlock = latest + 1n;
 		const toBlock = minBigInt(fromBlock + this.#blockPageSize - 1n, range.toBlock);
 		return { fromBlock, toBlock };
+	}
+
+	latestBlock(): bigint | null {
+		const latest = this.#queries.selectIndexer.pluck().get();
+		return latest !== undefined ? BigInt(latest) : null;
 	}
 
 	async update({ toTimestamp }: Partial<ToTimestamp> = {}, cancel?: () => boolean): Promise<void> {

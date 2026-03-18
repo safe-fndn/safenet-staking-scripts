@@ -4,6 +4,7 @@ export const STAKING_ABI = parseAbi([
 	"event StakeIncreased(address indexed staker, address indexed validator, uint256 amount)",
 	"event WithdrawalInitiated(address indexed staker, address indexed validator, uint64 indexed withdrawalId, uint256 amount)",
 	"event ValidatorUpdated(address indexed validator, bool isRegistered)",
+	"function totalStakedAmount() external view returns (uint256 amount)",
 ]);
 
 export const COORDINATOR_ABI = parseAbi([
