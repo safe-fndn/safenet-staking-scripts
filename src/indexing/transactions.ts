@@ -55,6 +55,7 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 		upsertTransactionAttestation: Statement<TransactionAttestation, number>;
 		selectTransactionBlocks: Statement<BlockRange, number>;
 		selectTransactions: Statement<BlockRange, Transaction>;
+		selectCountTransactions: Statement<[], number>;
 	};
 
 	constructor(config: Configuration) {
@@ -113,6 +114,11 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 				AND block_number >= @fromBlock
 				AND block_number <= @toBlock
 				AND "transaction" IS NOT NULL
+			`),
+			selectCountTransactions: this.db.prepare<[], number>(`
+				SELECT COUNT(*) AS count
+				FROM transactions
+				WHERE contract = '${this.contract}'
 			`),
 		};
 	}
@@ -176,5 +182,9 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 				timestamp,
 			};
 		}
+	}
+
+	count(): number {
+		return this.#queries.selectCountTransactions.pluck().get() ?? 0;
 	}
 }

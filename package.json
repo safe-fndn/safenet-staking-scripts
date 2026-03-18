@@ -9,6 +9,7 @@
 		"cmd:participation": "tsx src/cmd/participation.ts",
 		"cmd:rewards": "tsx src/cmd/rewards.ts",
 		"cmd:stake": "tsx src/cmd/stake-stats.ts",
+		"cmd:totals": "tsx src/cmd/totals.ts",
 		"cmd:validators": "tsx src/cmd/validators.ts",
 		"fix": "biome check --write",
 		"test": "vitest run",
