@@ -16,13 +16,7 @@ import {
 	type LogSpec,
 	MockChain,
 } from "./chain.js";
-import {
-	extractSignatureId,
-	namedAddress,
-	type SafeTransaction,
-	type Signature,
-	safeTxHash,
-} from "./utils.js";
+import { extractSignatureId, namedAddress, type SafeTransaction, safeTxHash } from "./utils.js";
 
 export type StakingChainEvent =
 	| {
@@ -56,21 +50,15 @@ export type ConsensusChainEvent =
 	  }
 	| {
 			name: "TransactionAttested";
-			safeTxHash: Hex;
 			epoch: bigint;
-			attestation: Signature;
+			transaction: SafeTransaction;
+			sid: Hex;
 	  }
 	| {
 			name: "KeyGen";
 			gid: Hex;
 			count: number;
 			threshold: number;
-	  }
-	| {
-			name: "KeyGenCommitted";
-			gid: Hex;
-			identifier: bigint;
-			participant: Address;
 	  }
 	| {
 			name: "Sign";
@@ -80,19 +68,18 @@ export type ConsensusChainEvent =
 	| {
 			name: "SignRevealedNonces";
 			sid: Hex;
-			identifier: bigint;
+			participant: Address;
 	  }
 	| {
 			name: "SignShared";
 			sid: Hex;
 			selectionRoot: Hex;
-			identifier: bigint;
+			participant: Address;
 	  }
 	| {
 			name: "SignCompleted";
 			sid: Hex;
 			selectionRoot: Hex;
-			signature: Signature;
 	  };
 
 export type TypedBlockSpec<E> = Omit<BlockSpec, "logs"> & {
@@ -178,7 +165,7 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 					abi: CONSENSUS_ABI,
 					eventName: "TransactionProposed",
 					args: {
-						transactionHash: safeTxHash(event.transaction),
+						safeTxHash: safeTxHash(event.transaction),
 						chainId: event.transaction.chainId,
 						safe: event.transaction.safe,
 					},
@@ -197,11 +184,17 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 				topics: encodeEventTopics({
 					abi: CONSENSUS_ABI,
 					eventName: "TransactionAttested",
-					args: { transactionHash: event.safeTxHash },
+					args: {
+						safeTxHash: safeTxHash(event.transaction),
+						chainId: event.transaction.chainId,
+						safe: event.transaction.safe,
+					},
 				}) as Hex[],
 				data: encodeAbiParameters(
-					parseAbiParameters("uint64 epoch, ((uint256 x, uint256 y) r, uint256 z) attestation"),
-					[event.epoch, event.attestation],
+					parseAbiParameters(
+						"uint64 epoch, bytes32 signatureId, ((uint256 x, uint256 y) r, uint256 z) attestation",
+					),
+					[event.epoch, event.sid, { r: { x: 0n, y: 0n }, z: 0n }],
 				),
 			};
 		}
@@ -211,34 +204,14 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 				topics: encodeEventTopics({
 					abi: COORDINATOR_ABI,
 					eventName: "KeyGen",
-					args: { gid: event.gid },
+					args: {
+						gid: event.gid,
+						context: zeroHash,
+					},
 				}) as Hex[],
 				data: encodeAbiParameters(
-					parseAbiParameters(
-						"bytes32 participants, uint16 count, uint16 threshold, bytes32 context",
-					),
-					[zeroHash, event.count, event.threshold, zeroHash],
-				),
-			};
-		}
-		case "KeyGenCommitted": {
-			return {
-				address: namedAddress("FROSTCoordinator"),
-				topics: encodeEventTopics({
-					abi: COORDINATOR_ABI,
-					eventName: "KeyGenCommitted",
-					args: { gid: event.gid },
-				}) as Hex[],
-				data: encodeAbiParameters(
-					parseAbiParameters(
-						"uint256 identifier, address participant, ((uint256 x, uint256 y) q, (uint256 x, uint256 y)[] c, (uint256 x, uint256 y) r, uint256 mu) commitment, bool committed",
-					),
-					[
-						event.identifier,
-						event.participant,
-						{ q: { x: 0n, y: 0n }, c: [], r: { x: 0n, y: 0n }, mu: 0n },
-						false,
-					],
+					parseAbiParameters("bytes32 participants, uint16 count, uint16 threshold"),
+					[zeroHash, event.count, event.threshold],
 				),
 			};
 		}
@@ -273,9 +246,9 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 				}) as Hex[],
 				data: encodeAbiParameters(
 					parseAbiParameters(
-						"uint256 identifier, ((uint256 x, uint256 y) d, (uint256 x, uint256 y) e) nonces",
+						"address participant, ((uint256 x, uint256 y) d, (uint256 x, uint256 y) e) nonces",
 					),
-					[event.identifier, { d: { x: 0n, y: 0n }, e: { x: 0n, y: 0n } }],
+					[event.participant, { d: { x: 0n, y: 0n }, e: { x: 0n, y: 0n } }],
 				),
 			};
 		}
@@ -290,8 +263,8 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 						selectionRoot: event.selectionRoot,
 					},
 				}) as Hex[],
-				data: encodeAbiParameters(parseAbiParameters("uint256 identifier, uint256 z"), [
-					event.identifier,
+				data: encodeAbiParameters(parseAbiParameters("address participant, uint256 z"), [
+					event.participant,
 					0n,
 				]),
 			};
@@ -309,7 +282,7 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 				}) as Hex[],
 				data: encodeAbiParameters(
 					parseAbiParameters("((uint256 x, uint256 y) r, uint256 z) signature"),
-					[event.signature],
+					[{ r: { x: 0n, y: 0n }, z: 0n }],
 				),
 			};
 		}

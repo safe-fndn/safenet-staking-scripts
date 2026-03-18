@@ -490,7 +490,7 @@ export class Safenet {
 		const coordinatorAddress = await readContract(params.consensusClient, {
 			address: params.consensusAddress,
 			abi: CONSENSUS_ABI,
-			functionName: "COORDINATOR",
+			functionName: "getCoordinator",
 		});
 
 		const db = new Sqlite3(params.databaseFile);

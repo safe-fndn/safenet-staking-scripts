@@ -6,7 +6,7 @@ import { checkTransaction } from "../checks/index.js";
 import { jsonPreprocessor, jsonReplacer } from "../utils/json.js";
 import type { BlockRange, TimestampRange } from "../utils/ranges.js";
 import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
-import { type Packet, SIGNATURE_SCHEMA } from "./signatures.js";
+import type { Packet } from "./signatures.js";
 
 const EVENTS = [
 	getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionProposed" }),
@@ -35,14 +35,14 @@ type TransactionProposal = {
 type TransactionAttestation = {
 	message: Hex;
 	blockNumber: bigint;
-	attestation: string;
+	attestation: Hex;
 };
 
 type Transaction = {
 	message: Hex;
 	blockNumber: number;
 	transaction: string;
-	attestation: string | null;
+	attestation: Hex | null;
 };
 
 export class Transactions extends EventIndexer<typeof EVENTS> {
@@ -129,7 +129,7 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 			primaryType: "TransactionProposal",
 			message: {
 				epoch: log.args.epoch,
-				safeTxHash: log.args.transactionHash,
+				safeTxHash: log.args.safeTxHash,
 			},
 		});
 
@@ -146,7 +146,7 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 				this.#queries.upsertTransactionAttestation.run({
 					message,
 					blockNumber: log.blockNumber,
-					attestation: JSON.stringify(log.args.attestation, jsonReplacer),
+					attestation: log.args.signatureId,
 				});
 				break;
 			}
@@ -172,10 +172,7 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 			yield {
 				message,
 				valid: checkTransaction(meta),
-				attestation:
-					attestation !== null
-						? z.preprocess(jsonPreprocessor, SIGNATURE_SCHEMA).parse(attestation)
-						: undefined,
+				attestation: attestation ?? undefined,
 				timestamp,
 			};
 		}
