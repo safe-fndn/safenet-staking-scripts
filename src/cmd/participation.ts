@@ -2,6 +2,7 @@
  * Command to print validator statistics for a given payout period.
  */
 
+import path from "node:path";
 import { getAddress } from "viem";
 import { z } from "zod";
 import { Safenet } from "../safenet.js";
@@ -29,8 +30,9 @@ main(
 		}
 
 		if (args.record !== undefined) {
+			const validatorsFile = path.join(args.record, "assets", "validator-info.json");
 			const data = await readJsonFile(
-				args.record,
+				validatorsFile,
 				z
 					.looseObject({
 						address: z.string().transform((s) => getAddress(s)),
@@ -53,7 +55,7 @@ main(
 			}
 
 			sortByAddress(data, (info) => info.address);
-			await writeJsonFile(args.record, data);
+			await writeJsonFile(validatorsFile, data);
 		}
 	},
 );
