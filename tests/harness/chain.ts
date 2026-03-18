@@ -238,7 +238,7 @@ export function createMockClient(chain: MockChain): Client {
 								data: z.literal(
 									encodeFunctionData({
 										abi: CONSENSUS_ABI,
-										functionName: "COORDINATOR",
+										functionName: "getCoordinator",
 									}),
 								),
 							}),

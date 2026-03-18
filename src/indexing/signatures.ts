@@ -1,34 +1,21 @@
 import type { Statement } from "better-sqlite3";
 import { type Address, getAbiItem, type Hex } from "viem";
-import { z } from "zod";
 import { COORDINATOR_ABI } from "../abi.js";
-import { jsonPreprocessor, jsonReplacer } from "../utils/json.js";
 import type { BlockRange, TimestampRange } from "../utils/ranges.js";
 import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: COORDINATOR_ABI, name: "KeyGen" }),
-	getAbiItem({ abi: COORDINATOR_ABI, name: "KeyGenCommitted" }),
 	getAbiItem({ abi: COORDINATOR_ABI, name: "Sign" }),
 	getAbiItem({ abi: COORDINATOR_ABI, name: "SignRevealedNonces" }),
 	getAbiItem({ abi: COORDINATOR_ABI, name: "SignShared" }),
 	getAbiItem({ abi: COORDINATOR_ABI, name: "SignCompleted" }),
 ];
 
-export const SIGNATURE_SCHEMA = z.object({
-	r: z.object({
-		x: z.coerce.bigint(),
-		y: z.coerce.bigint(),
-	}),
-	z: z.coerce.bigint(),
-});
-
-export type Signature = z.infer<typeof SIGNATURE_SCHEMA>;
-
 export type Packet = {
 	message: Hex;
 	valid: boolean;
-	attestation?: Signature;
+	attestation?: Hex;
 };
 
 export type ParticipationSummary = {
@@ -42,12 +29,6 @@ type Group = {
 	threshold: number;
 };
 
-type GroupParticipant = {
-	gid: Hex;
-	identifier: bigint;
-	participant: Address;
-};
-
 type SigningCeremony = {
 	sid: Hex;
 	gid: Hex;
@@ -57,26 +38,24 @@ type SigningCeremony = {
 
 type NoncesRevealed = {
 	sid: Hex;
-	identifier: bigint;
+	participant: Address;
 };
 
 type SignatureShare = {
 	sid: Hex;
-	identifier: bigint;
+	participant: Address;
 	selectionRoot: Hex;
 };
 
 type SignatureComplete = {
 	sid: Hex;
 	selectionRoot: Hex;
-	signature: string;
 	blockNumber: bigint;
 };
 
 type SigningParticipation = {
 	sid: Hex;
 	selectionRoot: Hex | null;
-	signature: string | null;
 	threshold: number;
 	participant: Address;
 	noncesRevealed: 0 | 1;
@@ -91,7 +70,6 @@ type ParticipationCount = {
 export class Signatures extends EventIndexer<typeof EVENTS> {
 	#queries: {
 		upsertGroup: Statement<Group, number>;
-		upsertGroupParticipant: Statement<GroupParticipant, number>;
 		upsertSigningCeremony: Statement<SigningCeremony, number>;
 		upsertSigningParticipantNoncesRevealed: Statement<NoncesRevealed, number>;
 		upsertSigningParticipantShared: Statement<SignatureShare, number>;
@@ -117,21 +95,12 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				PRIMARY KEY(contract, gid)
 			);
 
-			CREATE TABLE IF NOT EXISTS group_participants(
-				contract TEXT NOT NULL,
-				gid TEXT NOT NULL,
-				identifier INTEGER NOT NULL,
-				participant TEXT NOT NULL,
-				PRIMARY KEY(contract, gid, identifier)
-			);
-
 			CREATE TABLE IF NOT EXISTS signing_ceremonies(
 				contract TEXT NOT NULL,
 				sid TEXT NOT NULL,
 				gid TEXT NOT NULL,
 				message TEXT NOT NULL,
 				selection_root TEXT,
-				signature TEXT,
 				started_block_number INTEGER NOT NULL,
 				completed_block_number INTEGER,
 				PRIMARY KEY(contract, sid)
@@ -144,10 +113,10 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 			CREATE TABLE IF NOT EXISTS signing_participants(
 				contract TEXT NOT NULL,
 				sid TEXT NOT NULL,
-				identifier INTEGER NOT NULL,
+				participant TEXT NOT NULL,
 				nonces_revealed INTEGER NOT NULL,
 				selection_root TEXT,
-				PRIMARY KEY(contract, sid, identifier)
+				PRIMARY KEY(contract, sid, participant)
 			);
 		`);
 		this.#queries = {
@@ -157,34 +126,27 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				ON CONFLICT(contract, gid)
 				DO NOTHING
 			`),
-			upsertGroupParticipant: this.db.prepare<GroupParticipant, number>(`
-				INSERT INTO group_participants(contract, gid, identifier, participant)
-				VALUES('${this.contract}', @gid, @identifier, @participant)
-				ON CONFLICT(contract, gid, identifier)
-				DO NOTHING
-			`),
 			upsertSigningCeremony: this.db.prepare<SigningCeremony, number>(`
-				INSERT INTO signing_ceremonies(contract, sid, gid, message, selection_root, signature, started_block_number, completed_block_number)
-				VALUES('${this.contract}', @sid, @gid, @message, NULL, NULL, @blockNumber, NULL)
+				INSERT INTO signing_ceremonies(contract, sid, gid, message, selection_root, started_block_number, completed_block_number)
+				VALUES('${this.contract}', @sid, @gid, @message, NULL, @blockNumber, NULL)
 				ON CONFLICT(contract, sid)
 				DO NOTHING
 			`),
 			upsertSigningParticipantNoncesRevealed: this.db.prepare<NoncesRevealed, number>(`
-				INSERT INTO signing_participants(contract, sid, identifier, nonces_revealed, selection_root)
-				VALUES('${this.contract}', @sid, @identifier, TRUE, NULL)
-				ON CONFLICT(contract, sid, identifier)
+				INSERT INTO signing_participants(contract, sid, participant, nonces_revealed, selection_root)
+				VALUES('${this.contract}', @sid, @participant, TRUE, NULL)
+				ON CONFLICT(contract, sid, participant)
 				DO UPDATE SET nonces_revealed = EXCLUDED.nonces_revealed
 			`),
 			upsertSigningParticipantShared: this.db.prepare<SignatureShare, number>(`
-				INSERT INTO signing_participants(contract, sid, identifier, nonces_revealed, selection_root)
-				VALUES('${this.contract}', @sid, @identifier, FALSE, @selectionRoot)
-				ON CONFLICT(contract, sid, identifier)
+				INSERT INTO signing_participants(contract, sid, participant, nonces_revealed, selection_root)
+				VALUES('${this.contract}', @sid, @participant, FALSE, @selectionRoot)
+				ON CONFLICT(contract, sid, participant)
 				DO UPDATE SET selection_root = EXCLUDED.selection_root
 			`),
 			updateSigningCeremonyCompleted: this.db.prepare<SignatureComplete, number>(`
 				UPDATE signing_ceremonies
 				SET selection_root = @selectionRoot
-				, signature = @signature
 				, completed_block_number = @blockNumber
 				WHERE contract = '${this.contract}'
 				AND sid = @sid
@@ -192,22 +154,17 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 			selectSigningParticipants: this.db.prepare<{ message: Hex }, SigningParticipation>(`
 				SELECT s.sid AS sid
 				, s.selection_root AS selectionRoot
-				, s.signature AS signature
 				, g.threshold AS threshold
-				, gp.participant AS participant
-				, COALESCE(sp.nonces_revealed, FALSE) AS noncesRevealed
-				, sp.selection_root AS participantSelectionRoot
+				, p.participant AS participant
+				, COALESCE(p.nonces_revealed, FALSE) AS noncesRevealed
+				, p.selection_root AS participantSelectionRoot
 				FROM signing_ceremonies AS s
 				INNER JOIN groups AS g
 				ON g.contract = s.contract
 				AND g.gid = s.gid
-				INNER JOIN group_participants AS gp
-				ON gp.contract = s.contract
-				AND gp.gid = s.gid
-				LEFT JOIN signing_participants AS sp
-				ON sp.contract = s.contract
-				AND sp.sid = s.sid
-				AND sp.identifier = gp.identifier
+				INNER JOIN signing_participants AS p
+				ON p.contract = s.contract
+				AND p.sid = s.sid
 				WHERE s.contract = '${this.contract}'
 				AND s.message = @message
 			`),
@@ -217,25 +174,21 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				WHERE contract = '${this.contract}'
 				AND started_block_number >= @fromBlock
 				AND started_block_number <= @toBlock
-				AND signature IS NOT NULL
+				AND selection_root IS NOT NULL
 			`),
 			selectApproximateParticipation: this.db.prepare<BlockRange, ParticipationCount>(`
-				SELECT gp.participant AS participant
+				SELECT p.participant AS participant
 				, COUNT(*) AS count
 				FROM signing_ceremonies AS s
-				INNER JOIN group_participants AS gp
-				ON gp.contract = s.contract
-				AND gp.gid = s.gid
-				INNER JOIN signing_participants AS sp
-				ON sp.contract = s.contract
-				AND sp.sid = s.sid
-				AND sp.selection_root = s.selection_root
-				AND sp.identifier = gp.identifier
+				INNER JOIN signing_participants AS p
+				ON p.contract = s.contract
+				AND p.sid = s.sid
+				AND p.selection_root = s.selection_root
 				WHERE s.contract = '${this.contract}'
 				AND s.started_block_number >= @fromBlock
 				AND s.started_block_number <= @toBlock
 				AND s.selection_root IS NOT NULL
-				GROUP BY gp.participant
+				GROUP BY p.participant
 			`),
 		};
 	}
@@ -247,14 +200,6 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 					gid: log.args.gid,
 					count: log.args.count,
 					threshold: log.args.threshold,
-				});
-				break;
-			}
-			case "KeyGenCommitted": {
-				this.#queries.upsertGroupParticipant.run({
-					gid: log.args.gid,
-					identifier: log.args.identifier,
-					participant: log.args.participant,
 				});
 				break;
 			}
@@ -270,14 +215,14 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 			case "SignRevealedNonces": {
 				this.#queries.upsertSigningParticipantNoncesRevealed.run({
 					sid: log.args.sid,
-					identifier: log.args.identifier,
+					participant: log.args.participant,
 				});
 				break;
 			}
 			case "SignShared": {
 				this.#queries.upsertSigningParticipantShared.run({
 					sid: log.args.sid,
-					identifier: log.args.identifier,
+					participant: log.args.participant,
 					selectionRoot: log.args.selectionRoot,
 				});
 				break;
@@ -286,7 +231,6 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				this.#queries.updateSigningCeremonyCompleted.run({
 					sid: log.args.sid,
 					selectionRoot: log.args.selectionRoot,
-					signature: JSON.stringify(log.args.signature, jsonReplacer),
 					blockNumber: log.blockNumber,
 				});
 				break;
@@ -295,10 +239,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 	}
 
 	participants({ message, valid, attestation }: Packet): Address[] {
-		const participation = this.#queries.selectSigningParticipants.all({ message }).map((p) => ({
-			...p,
-			signature: z.preprocess(jsonPreprocessor, SIGNATURE_SCHEMA.nullable()).parse(p.signature),
-		}));
+		const participation = this.#queries.selectSigningParticipants.all({ message });
 
 		// We have a few different definitions of participation, depending on
 		// the outcompe of the packet:
@@ -315,24 +256,8 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 		} else if (attestation) {
 			// If an attestation was produced, then only consider those who
 			// participated in ceremony that produced the matching signature.
-			const matching = new Set(
-				participation
-					.filter(
-						(p) =>
-							p.signature?.r.x === attestation.r.x &&
-							p.signature?.r.y === attestation.r.y &&
-							p.signature?.z === attestation.z,
-					)
-					.map((p) => p.sid),
-			);
-			if (matching.size !== 1) {
-				throw new Error(
-					`expected exactly one signing ceremony to match attestation for ${message}, got ${matching.size}`,
-				);
-			}
-
 			return participation
-				.filter((p) => matching.has(p.sid) && p.selectionRoot === p.participantSelectionRoot)
+				.filter((p) => p.sid === attestation && p.selectionRoot === p.participantSelectionRoot)
 				.map((p) => p.participant);
 		} else {
 			// There is a valid packet, but no attestation was produced (for

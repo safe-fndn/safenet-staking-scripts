@@ -35,19 +35,6 @@ export type Point = {
 	y: bigint;
 };
 
-export type Signature = {
-	r: Point;
-	z: bigint;
-};
-
-export const signature = (seed: string): Signature => ({
-	r: {
-		x: BigInt(keccak256(toHex(`signature:r:x:${seed}`))),
-		y: BigInt(keccak256(toHex(`signature:r:y:${seed}`))),
-	},
-	z: BigInt(keccak256(toHex(`signature:z:${seed}`))),
-});
-
 export const selectionRoot = (seed: string): Hex => keccak256(toHex(`selectionroot:${seed}`));
 
 export type SafeTransaction = {
