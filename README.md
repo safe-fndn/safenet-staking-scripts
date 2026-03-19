@@ -69,7 +69,7 @@ npm run cmd:participation
 npm run cmd:participation -- --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 
 # Use approximate mode (faster, based on raw signature events rather than per-transaction lookup)
-npm run cmd:participation -- --approximate=true
+npm run cmd:participation -- --approximate
 
 # Write participation rates into a validator-info.json file inside a record directory
 npm run cmd:participation -- --record=./path/to/record
