@@ -81,7 +81,7 @@ The `--record` flag writes results to `<record>/assets/validator-info.json`, upd
 
 Computes and prints SAFE token reward payouts for each recipient over a reward period. Rewards are distributed proportionally to each validator's participation-weighted stake.
 
-Validators with less than 75% participation or below the 3.5M SAFE minimum self-stake threshold forfeit their self-stake earnings. Individual payouts below 1 SAFE are carried forward as unpaid.
+Validators with less than 75% participation generate no rewards for themselves or their delegators. Validators below the 3.5M SAFE minimum self-stake threshold forfeit their commission on delegated stake, but still receive rewards on their own self-stake. Individual payouts below 1 SAFE are carried forward as unpaid.
 
 ```sh
 npm run cmd:rewards -- --totalRewards=1000000
