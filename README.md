@@ -16,7 +16,7 @@ Instead of loading all consensus events into memory at once, the scripts first i
 
 ## Setup
 
-**Prerequisites:** Node.js 20+, npm.
+**Prerequisites:** Node.js v24+, npm.
 
 ```sh
 npm ci
