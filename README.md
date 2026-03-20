@@ -75,7 +75,7 @@ npm run cmd:participation -- --approximate
 npm run cmd:participation -- --record=./path/to/record
 ```
 
-The `--record` flag writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically — the file does not need to pre-list them.
+The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically.
 
 ### `cmd:rewards`
 
@@ -93,7 +93,7 @@ npm run cmd:rewards -- --totalRewards=1000000 --rewardPeriodStart=1700000000 --r
 npm run cmd:rewards -- --totalRewards=1000000 --record=./path/to/record
 ```
 
-The `--totalRewards` flag is required and takes the amount in whole SAFE tokens (18 decimal precision). The `--record` flag writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/` and updates the index at `<record>/assets/rewards/latest.json`.
+The `--totalRewards` flag is required and takes the amount in whole SAFE tokens (18 decimal precision). The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
 
 ### `cmd:validators`
 
@@ -128,7 +128,7 @@ npm run cmd:totals
 npm run cmd:totals -- --record=./path/to/record
 ```
 
-The `--record` flag writes results to `<record>/assets/network-info.json`.
+The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/network-info.json`.
 
 ## Tests
 
