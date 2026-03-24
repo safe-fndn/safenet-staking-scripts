@@ -30,17 +30,17 @@ cp .env.sample .env
 
 All scripts read configuration from environment variables (or from a `.env` file in the project root). The available variables are:
 
-| Variable                | Description                                                                                | Default in `.env.sample`              |
-| ----------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------- |
-| `DEBUG`                 | Debug log filter. All logs are under the `safenet:` prefix.                                | `safenet,safenet:*`                   |
-| `DATABASE_FILE`         | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence. | `:memory:`                            |
-| `BLOCK_PAGE_SIZE`       | Number of blocks to fetch logs for in a single RPC call.                                   | `50`                                  |
-| `STAKING_RPC_URL`       | RPC endpoint for the staking chain (Sepolia).                                              | `https://sepolia.gateway.tenderly.co` |
-| `STAKING_ADDRESS`       | Address of the staking contract.                                                           |                                       |
-| `STAKING_START_BLOCK`   | Block at which the staking contract was deployed.                                          |                                       |
-| `CONSENSUS_RPC_URL`     | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://rpc.gnosischain.com`         |
-| `CONSENSUS_ADDRESS`     | Address of the consensus contract.                                                         |                                       |
-| `CONSENSUS_START_BLOCK` | Block at which consensus began. Events before this block are ignored.                      |                                       |
+| Variable | Description | Default in `.env.sample` |
+|---|---|---|
+| `DEBUG` | Debug log filter. All logs are under the `safenet:` prefix. | `safenet,safenet:*` |
+| `DATABASE_FILE` | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence. | `:memory:` |
+| `BLOCK_PAGE_SIZE` | Number of blocks to fetch logs for in a single RPC call. | `50` |
+| `STAKING_RPC_URL` | RPC endpoint for the staking chain (Sepolia). | `https://sepolia.gateway.tenderly.co` |
+| `STAKING_ADDRESS` | Address of the staking contract. | |
+| `STAKING_START_BLOCK` | Block at which the staking contract was deployed. | |
+| `CONSENSUS_RPC_URL` | RPC endpoint for the consensus chain (Gnosis Chain). | `https://rpc.gnosischain.com` |
+| `CONSENSUS_ADDRESS` | Address of the consensus contract. | |
+| `CONSENSUS_START_BLOCK` | Block at which consensus began. Events before this block are ignored. | |
 
 Every variable can also be passed as a CLI flag using camelCase (e.g. `--databaseFile ./data.db`).
 
@@ -144,8 +144,8 @@ npm run test:watch
 
 ## Other Scripts
 
-| Script          | Description                                                   |
-| --------------- | ------------------------------------------------------------- |
+| Script | Description |
+|---|---|
 | `npm run build` | Compiles TypeScript to `dist/` using the production tsconfig. |
-| `npm run check` | Runs Biome linting and TypeScript type-checking.              |
-| `npm run fix`   | Runs Biome with auto-fix enabled.                             |
+| `npm run check` | Runs Biome linting and TypeScript type-checking. |
+| `npm run fix` | Runs Biome with auto-fix enabled. |
