@@ -25,7 +25,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/safe-research/safenet-staking-scripts
+          images: ghcr.io/safe-fndn/safenet-staking-scripts
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
