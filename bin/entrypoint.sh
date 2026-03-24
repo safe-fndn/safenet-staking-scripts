@@ -1,7 +1,13 @@
 #!/bin/sh
-set -e
 
-COMMAND=$1
+set -eu
+
+if [ $# -lt 1 ]; then
+	echo "ERROR: Missing command to execute." >&2
+	exit 1
+fi
+
+cmd="$1"
 shift
 
-exec node_modules/.bin/tsx "src/cmd/${COMMAND}.ts" "$@"
+exec node "/app/dist/cmd/$cmd.js" "$@"
