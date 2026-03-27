@@ -61,7 +61,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 				validator TEXT NOT NULL,
 				amount TEXT NOT NULL,
 				PRIMARY KEY(block_number, staker, validator)
-			);
+			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			selectLatestStake: this.db.prepare<StakeSelector, StakeAtBlock>(`

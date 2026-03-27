@@ -41,7 +41,7 @@ export class Validators extends EventIndexer<typeof EVENTS> {
 				validator TEXT NOT NULL,
 				is_registered INTEGER NOT NULL,
 				PRIMARY KEY(block_number, log_index)
-			);
+			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			upsertValidator: this.db.prepare<ValidatorUpdate, number>(`

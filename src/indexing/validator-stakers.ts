@@ -51,7 +51,7 @@ export class ValidatorStakers extends EventIndexer<typeof EVENTS> {
 				validator TEXT NOT NULL,
 				staker TEXT NOT NULL,
 				PRIMARY KEY(block_number, log_index)
-			);
+			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			upsertStaker: this.db.prepare<StakerUpdate, number>(`

@@ -60,7 +60,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				started_block_number INTEGER NOT NULL,
 				completed_block_number INTEGER,
 				PRIMARY KEY(sid)
-			);
+			) WITHOUT ROWID;
 			CREATE INDEX IF NOT EXISTS signing_ceremony_started_block_number_idx
 			ON signing_ceremonies(started_block_number);
 
@@ -69,7 +69,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				participant TEXT NOT NULL,
 				selection_root TEXT NOT NULL,
 				PRIMARY KEY(sid, participant)
-			);
+			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			upsertSigningCeremony: this.db.prepare<SigningCeremony, number>(`

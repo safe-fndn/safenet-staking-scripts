@@ -59,7 +59,7 @@ export class BlockTimestampCache {
 				block_number INTEGER NOT NULL,
 				timestamp INTEGER NOT NULL,
 				PRIMARY KEY(chain_id, block_number)
-			);
+			) WITHOUT ROWID;
 		`);
 
 		this.#queries = {
