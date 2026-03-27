@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { createTestSafenet } from "./harness/scenario.js";
 import {
 	emptyBlocks,
-	groupId,
 	namedAddress,
 	parseSafe,
 	safeTxHash,
@@ -51,10 +50,8 @@ describe("single", () => {
 								staker: namedAddress("staker"),
 							},
 							{
-								name: "KeyGen",
-								gid: groupId("1"),
-								count: 1,
-								threshold: 1,
+								name: "KeyGenConfirmed",
+								participant: namedAddress("validator"),
 							},
 						],
 					},
@@ -76,11 +73,6 @@ describe("single", () => {
 								}),
 							},
 							{
-								name: "SignRevealedNonces",
-								sid: signatureId("1", 1n),
-								participant: namedAddress("validator"),
-							},
-							{
 								name: "SignShared",
 								sid: signatureId("1", 1n),
 								selectionRoot: selectionRoot("1:1"),
@@ -90,12 +82,6 @@ describe("single", () => {
 								name: "SignCompleted",
 								sid: signatureId("1", 1n),
 								selectionRoot: selectionRoot("1:1"),
-							},
-							{
-								name: "TransactionAttested",
-								epoch: 1n,
-								transaction: transaction("valid"),
-								sid: signatureId("1", 1n),
 							},
 						],
 					},
