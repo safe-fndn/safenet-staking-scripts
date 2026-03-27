@@ -174,12 +174,17 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 					? await this.#blocks.blockBefore({ timestamp: toTimestamp })
 					: await getBlockNumber(this.#client),
 		};
+		let startBlock: bigint | null = null;
 		while (cancel?.() !== true) {
 			const page = this.#nextPage(range);
 			if (page === null) {
 				break;
 			}
-			this.#debug(`fetching block page ${formatRange(page)}`);
+
+			startBlock = startBlock ?? page.fromBlock;
+			const progress =
+				(100 * Number(page.toBlock - startBlock)) / Number(range.toBlock - startBlock);
+			this.#debug(`fetching block page ${formatRange(page)} (${progress.toFixed(2)}%)`);
 
 			const logs = await this.#backoff(() =>
 				getLogs(this.#client, {
