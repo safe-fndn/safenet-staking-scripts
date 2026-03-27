@@ -49,26 +49,13 @@ export type ConsensusChainEvent =
 			transaction: SafeTransaction;
 	  }
 	| {
-			name: "TransactionAttested";
-			epoch: bigint;
-			transaction: SafeTransaction;
-			sid: Hex;
-	  }
-	| {
-			name: "KeyGen";
-			gid: Hex;
-			count: number;
-			threshold: number;
+			name: "KeyGenConfirmed";
+			participant: Address;
 	  }
 	| {
 			name: "Sign";
 			sid: Hex;
 			message: Hex;
-	  }
-	| {
-			name: "SignRevealedNonces";
-			sid: Hex;
-			participant: Address;
 	  }
 	| {
 			name: "SignShared";
@@ -178,41 +165,20 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 				),
 			};
 		}
-		case "TransactionAttested": {
-			return {
-				address: namedAddress("Consensus"),
-				topics: encodeEventTopics({
-					abi: CONSENSUS_ABI,
-					eventName: "TransactionAttested",
-					args: {
-						safeTxHash: safeTxHash(event.transaction),
-						chainId: event.transaction.chainId,
-						safe: event.transaction.safe,
-					},
-				}) as Hex[],
-				data: encodeAbiParameters(
-					parseAbiParameters(
-						"uint64 epoch, bytes32 signatureId, ((uint256 x, uint256 y) r, uint256 z) attestation",
-					),
-					[event.epoch, event.sid, { r: { x: 0n, y: 0n }, z: 0n }],
-				),
-			};
-		}
-		case "KeyGen": {
+		case "KeyGenConfirmed": {
 			return {
 				address: namedAddress("FROSTCoordinator"),
 				topics: encodeEventTopics({
 					abi: COORDINATOR_ABI,
-					eventName: "KeyGen",
+					eventName: "KeyGenConfirmed",
 					args: {
-						gid: event.gid,
-						context: zeroHash,
+						gid: zeroHash,
 					},
 				}) as Hex[],
-				data: encodeAbiParameters(
-					parseAbiParameters("bytes32 participants, uint16 count, uint16 threshold"),
-					[zeroHash, event.count, event.threshold],
-				),
+				data: encodeAbiParameters(parseAbiParameters("address participant, bool confirmed"), [
+					event.participant,
+					false,
+				]),
 			};
 		}
 		case "Sign": {
@@ -232,24 +198,6 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 					event.sid,
 					sequence,
 				]),
-			};
-		}
-		case "SignRevealedNonces": {
-			return {
-				address: namedAddress("FROSTCoordinator"),
-				topics: encodeEventTopics({
-					abi: COORDINATOR_ABI,
-					eventName: "SignRevealedNonces",
-					args: {
-						sid: event.sid,
-					},
-				}) as Hex[],
-				data: encodeAbiParameters(
-					parseAbiParameters(
-						"address participant, ((uint256 x, uint256 y) d, (uint256 x, uint256 y) e) nonces",
-					),
-					[event.participant, { d: { x: 0n, y: 0n }, e: { x: 0n, y: 0n } }],
-				),
 			};
 		}
 		case "SignShared": {
