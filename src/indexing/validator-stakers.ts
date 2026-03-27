@@ -46,26 +46,24 @@ export class ValidatorStakers extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS validator_stakers(
-				contract TEXT NOT NULL,
 				block_number INTEGER NOT NULL,
 				log_index INTEGER NOT NULL,
 				validator TEXT NOT NULL,
 				staker TEXT NOT NULL,
-				PRIMARY KEY(contract, block_number, log_index)
+				PRIMARY KEY(block_number, log_index)
 			);
 		`);
 		this.#queries = {
 			upsertStaker: this.db.prepare<StakerUpdate, number>(`
-				INSERT INTO validator_stakers(contract, block_number, log_index, validator, staker)
-				VALUES('${this.contract}', @blockNumber, @logIndex, @validator, @staker)
-				ON CONFLICT(contract, block_number, log_index)
+				INSERT INTO validator_stakers(block_number, log_index, validator, staker)
+				VALUES(@blockNumber, @logIndex, @validator, @staker)
+				ON CONFLICT(block_number, log_index)
 				DO NOTHING
 			`),
 			selectStartingStaker: this.db.prepare<StakerRange, Address>(`
 				SELECT staker
 				FROM validator_stakers
-				WHERE contract = '${this.contract}'
-				AND block_number < @fromBlock
+				WHERE block_number < @fromBlock
 				AND validator = @validator
 				ORDER BY block_number DESC, log_index DESC
 				LIMIT 1
@@ -74,8 +72,7 @@ export class ValidatorStakers extends EventIndexer<typeof EVENTS> {
 				SELECT block_number AS blockNumber
 				, staker
 				FROM validator_stakers
-				WHERE contract = '${this.contract}'
-				AND block_number >= @fromBlock
+				WHERE block_number >= @fromBlock
 				AND block_number <= @toBlock
 				AND validator = @validator
 				ORDER BY block_number ASC, log_index ASC

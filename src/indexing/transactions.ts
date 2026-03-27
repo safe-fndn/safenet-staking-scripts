@@ -20,22 +20,23 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS transactions(
-				contract TEXT NOT NULL,
+				id TEXT NOT NULL,
 				cnt INTEGER NOT NULL,
-				PRIMARY KEY(contract)
+				PRIMARY KEY(id),
+				CHECK(id = 0)
 			);
 		`);
 		this.#queries = {
 			upsertIncrementTransactionCount: this.db.prepare<[], number>(`
-				INSERT INTO transactions(contract, cnt)
-				VALUES('${this.contract}', 1)
-				ON CONFLICT(contract)
+				INSERT INTO transactions(id, cnt)
+				VALUES(0, 1)
+				ON CONFLICT(id)
 				DO UPDATE SET cnt = cnt + 1
 			`),
 			selectTransactionCount: this.db.prepare<[], number>(`
 				SELECT cnt
 				FROM transactions
-				WHERE contract = '${this.contract}'
+				WHERE id = 0
 			`),
 		};
 	}

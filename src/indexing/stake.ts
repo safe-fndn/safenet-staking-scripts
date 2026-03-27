@@ -55,13 +55,12 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS stake(
-				contract TEXT NOT NULL,
 				block_number INTEGER NOT NULL,
 				log_index INTEGER NOT NULL,
 				staker TEXT NOT NULL,
 				validator TEXT NOT NULL,
 				amount TEXT NOT NULL,
-				PRIMARY KEY(contract, block_number, staker, validator)
+				PRIMARY KEY(block_number, staker, validator)
 			);
 		`);
 		this.#queries = {
@@ -70,16 +69,15 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 				, log_index as logIndex
 				, amount
 				FROM stake
-				WHERE contract = '${this.contract}'
-				AND staker = @staker
+				WHERE staker = @staker
 				AND validator = @validator
 				ORDER BY block_number DESC
 				LIMIT 1
 			`),
 			upsertStake: this.db.prepare<StakeChange, number>(`
-				INSERT INTO stake(contract, block_number, log_index, staker, validator, amount)
-				VALUES('${this.contract}', @blockNumber, @logIndex, @staker, @validator, @amount)
-				ON CONFLICT(contract, block_number, staker, validator)
+				INSERT INTO stake(block_number, log_index, staker, validator, amount)
+				VALUES(@blockNumber, @logIndex, @staker, @validator, @amount)
+				ON CONFLICT(block_number, staker, validator)
 				DO UPDATE SET log_index = EXCLUDED.log_index
 				, amount = EXCLUDED.amount
 			`),
@@ -88,8 +86,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 					SELECT block_number AS blockNumber
 					, amount
 					FROM stake
-					WHERE contract = '${this.contract}'
-					AND block_number < @fromBlock
+					WHERE block_number < @fromBlock
 					AND staker = @staker
 					AND validator = @validator
 					ORDER BY block_number DESC
@@ -100,8 +97,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 				SELECT block_number as blockNumber
 				, amount
 				FROM stake
-				WHERE contract = '${this.contract}'
-				AND block_number >= @fromBlock
+				WHERE block_number >= @fromBlock
 				AND block_number <= @toBlock
 				AND staker = @staker
 				AND validator = @validator
@@ -115,8 +111,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 						ORDER BY block_number DESC
 					) AS n
 					FROM stake
-					WHERE contract = '${this.contract}'
-					AND block_number < @fromBlock
+					WHERE block_number < @fromBlock
 				)
 				SELECT DISTINCT(block_number) AS blockNumber
 				FROM starting_stake
@@ -125,8 +120,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 				UNION ALL
 				SELECT DISTINCT(block_number) as blockNumber
 				FROM stake
-				WHERE contract = '${this.contract}'
-				AND block_number >= @fromBlock
+				WHERE block_number >= @fromBlock
 				AND block_number <= @toBlock
 			`),
 			selectStakers: this.db.prepare<BlockRange, Address>(`
@@ -138,8 +132,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 						ORDER BY block_number DESC
 					) AS n
 					FROM stake
-					WHERE contract = '${this.contract}'
-					AND block_number < @fromBlock
+					WHERE block_number < @fromBlock
 				)
 				, all_stakers AS (
 					SELECT staker
@@ -149,8 +142,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 					UNION ALL
 					SELECT staker
 					FROM stake
-					WHERE contract = '${this.contract}'
-					AND block_number >= @fromBlock
+					WHERE block_number >= @fromBlock
 					AND block_number <= @toBlock
 					AND amount != '0'
 				)
