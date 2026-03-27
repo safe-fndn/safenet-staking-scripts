@@ -36,19 +36,18 @@ export class Validators extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS validators(
-				contract TEXT NOT NULL,
 				block_number INTEGER NOT NULL,
 				log_index INTEGER NOT NULL,
 				validator TEXT NOT NULL,
 				is_registered INTEGER NOT NULL,
-				PRIMARY KEY(contract, block_number, log_index)
-			);
+				PRIMARY KEY(block_number, log_index)
+			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			upsertValidator: this.db.prepare<ValidatorUpdate, number>(`
-				INSERT INTO validators(contract, block_number, log_index, validator, is_registered)
-				VALUES('${this.contract}', @blockNumber, @logIndex, @validator, @isRegistered)
-				ON CONFLICT(contract, block_number, log_index)
+				INSERT INTO validators(block_number, log_index, validator, is_registered)
+				VALUES(@blockNumber, @logIndex, @validator, @isRegistered)
+				ON CONFLICT(block_number, log_index)
 				DO NOTHING
 			`),
 			selectRegisteredValidators: this.db.prepare<FromBlock, Address>(`
@@ -60,8 +59,7 @@ export class Validators extends EventIndexer<typeof EVENTS> {
 						ORDER BY block_number DESC, log_index DESC
 					) AS n
 					FROM validators
-					WHERE contract = '${this.contract}'
-					AND block_number < @fromBlock
+					WHERE block_number < @fromBlock
 				)
 				SELECT validator
 				FROM validator_registrations
@@ -74,8 +72,7 @@ export class Validators extends EventIndexer<typeof EVENTS> {
 				, validator
 				, is_registered AS isRegistered
 				FROM validators
-				WHERE contract = '${this.contract}'
-				AND block_number >= @fromBlock
+				WHERE block_number >= @fromBlock
 				AND block_number <= @toBlock
 				ORDER BY block_number ASC, log_index ASC
 			`),

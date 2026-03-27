@@ -55,64 +55,58 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS signing_ceremonies(
-				contract TEXT NOT NULL,
 				sid TEXT NOT NULL,
 				selection_root TEXT,
 				started_block_number INTEGER NOT NULL,
 				completed_block_number INTEGER,
-				PRIMARY KEY(contract, sid)
-			);
+				PRIMARY KEY(sid)
+			) WITHOUT ROWID;
 			CREATE INDEX IF NOT EXISTS signing_ceremony_started_block_number_idx
 			ON signing_ceremonies(started_block_number);
 
 			CREATE TABLE IF NOT EXISTS signing_participants(
-				contract TEXT NOT NULL,
 				sid TEXT NOT NULL,
 				participant TEXT NOT NULL,
 				selection_root TEXT NOT NULL,
-				PRIMARY KEY(contract, sid, participant)
-			);
+				PRIMARY KEY(sid, participant)
+			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			upsertSigningCeremony: this.db.prepare<SigningCeremony, number>(`
-				INSERT INTO signing_ceremonies(contract, sid, selection_root, started_block_number, completed_block_number)
-				VALUES('${this.contract}', @sid, NULL, @blockNumber, NULL)
-				ON CONFLICT(contract, sid)
+				INSERT INTO signing_ceremonies(sid, selection_root, started_block_number, completed_block_number)
+				VALUES(@sid, NULL, @blockNumber, NULL)
+				ON CONFLICT(sid)
 				DO NOTHING
 			`),
 			upsertSigningParticipantShared: this.db.prepare<SignatureShare, number>(`
-				INSERT INTO signing_participants(contract, sid, participant, selection_root)
-				VALUES('${this.contract}', @sid, @participant, @selectionRoot)
-				ON CONFLICT(contract, sid, participant)
+				INSERT INTO signing_participants(sid, participant, selection_root)
+				VALUES(@sid, @participant, @selectionRoot)
+				ON CONFLICT(sid, participant)
 				DO NOTHING
 			`),
 			updateSigningCeremonyCompleted: this.db.prepare<SignatureComplete, number>(`
 				UPDATE signing_ceremonies
 				SET selection_root = @selectionRoot
 				, completed_block_number = @blockNumber
-				WHERE contract = '${this.contract}'
-				AND sid = @sid
+				WHERE sid = @sid
 			`),
 			selectTotalSignatureCount: this.db.prepare<BlockRange, number>(`
 				SELECT COUNT(*) AS count
 				FROM signing_ceremonies
-				WHERE contract = '${this.contract}'
+				WHERE selection_root IS NOT NULL
 				AND started_block_number >= @fromBlock
 				AND started_block_number <= @toBlock
-				AND selection_root IS NOT NULL
 			`),
 			selectParticipation: this.db.prepare<BlockRange, ParticipationCount>(`
 				SELECT p.participant AS participant
 				, COUNT(*) AS count
 				FROM signing_ceremonies AS s
 				INNER JOIN signing_participants AS p
-				ON p.contract = s.contract
-				AND p.sid = s.sid
+				ON p.sid = s.sid
 				AND p.selection_root = s.selection_root
-				WHERE s.contract = '${this.contract}'
+				WHERE s.selection_root IS NOT NULL
 				AND s.started_block_number >= @fromBlock
 				AND s.started_block_number <= @toBlock
-				AND s.selection_root IS NOT NULL
 				GROUP BY p.participant
 			`),
 		};

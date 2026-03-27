@@ -8,16 +8,7 @@
 
 import type { Database, Statement, Transaction } from "better-sqlite3";
 import debug, { type Debugger } from "debug";
-import {
-	type AbiEvent,
-	type Address,
-	type Client,
-	getAddress,
-	type Hex,
-	type Log,
-	toEventSelector,
-	toHex,
-} from "viem";
+import { type AbiEvent, type Address, type Client, getAddress, type Log } from "viem";
 import { getBlockNumber, getLogs } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
 import { formatRange } from "../utils/format.js";
@@ -56,8 +47,6 @@ export type ParsedLog<Events extends AbiEvent[]> = Log<
 
 export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	#debug: Debugger;
-	#contract: string;
-	#uid: string;
 	#blocks: BlockTimestampCache;
 	#client: Client;
 	#blockPageSize: bigint;
@@ -70,7 +59,7 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	#db: Database;
 	#queries: {
 		selectIndexer: Statement<[], number>;
-		upsertIndexer: Statement<{ toBlock: bigint }, number>;
+		updateIndexer: Statement<{ toBlock: bigint }, number>;
 		addEvents: Transaction<(args: { page: BlockRange; logs: ParsedLog<Events>[] }) => void>;
 	};
 
@@ -86,8 +75,7 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		startBlock,
 	}: Parameters<Events>) {
 		this.#debug = debug(`safenet:indexing:${name}`);
-		this.#contract = `${chainId}:${getAddress(address)}`;
-		this.#uid = `${name}/${this.#contract}/${combineSelectors(events)}`;
+		//this.#selector = `${name}/`;
 		this.#blocks = blocks;
 		this.#client = client;
 		this.#filter = {
@@ -103,28 +91,45 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		this.#db = db;
 		this.#db.exec(`
 			CREATE TABLE IF NOT EXISTS event_indexers(
-				uid TEXT NOT NULL,
+				name TEXT NOT NULL,
+				contract TEXT NOT NULL,
 				to_block INTEGER NOT NULL,
-				PRIMARY KEY(uid)
-			);
+				PRIMARY KEY(name)
+			) WITHOUT ROWID;
 		`);
+
+		// Initialize the indexer based on the starting block. We also detect
+		// if the indexer was created with a different "identifier" to prevent
+		// issues where the same configuration is used for indexing multiple
+		// Safenet instances (which would corrupt our data).
+		const contract = `${chainId}:${getAddress(address)}`;
+		const insert = this.#db
+			.prepare(`
+				INSERT INTO event_indexers(name, contract, to_block)
+				VALUES ('${name}', '${contract}', @toBlock)
+				ON CONFLICT(name)
+				DO UPDATE SET to_block = MAX(to_block, EXCLUDED.to_block)
+				WHERE contract = '${contract}'
+			`)
+			.run({ toBlock: (startBlock ?? 0n) - 1n });
+		if (insert.changes === 0) {
+			throw new Error("event indexer connected to the wrong database");
+		}
 
 		this.#queries = {
 			selectIndexer: this.#db.prepare<[], number>(`
 				SELECT to_block
 				FROM event_indexers
-				WHERE uid = '${this.#uid}'
+				WHERE name = '${name}'
 			`),
-			upsertIndexer: this.#db.prepare<{ toBlock: bigint }, number>(`
-				INSERT INTO event_indexers(uid, to_block)
-				VALUES('${this.#uid}', @toBlock)
-				ON CONFLICT(uid)
-				DO UPDATE SET to_block = excluded.to_block
-				WHERE excluded.to_block > event_indexers.to_block
+			updateIndexer: this.#db.prepare<{ toBlock: bigint }, number>(`
+				UPDATE event_indexers
+				SET to_block = @toBlock
+				WHERE name = '${name}'
 			`),
 			addEvents: this.#db.transaction(
 				({ page, logs }: { page: BlockRange; logs: ParsedLog<Events>[] }) => {
-					this.#queries.upsertIndexer.run(page);
+					this.#queries.updateIndexer.run(page);
 					for (const log of logs) {
 						this.insertEvent(log);
 
@@ -136,16 +141,6 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 				},
 			),
 		};
-
-		// If we have a starting block specified, then we can mark that we have
-		// effectively indexed all events prior to that block.
-		if (startBlock) {
-			this.#queries.upsertIndexer.run({ toBlock: startBlock - 1n });
-		}
-	}
-
-	protected get contract(): string {
-		return this.#contract;
 	}
 
 	protected get db(): Database {
@@ -200,9 +195,3 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 
 	protected abstract insertEvent(log: ParsedLog<Events>): void;
 }
-
-const combineSelectors = (events: AbiEvent[]): Hex =>
-	toHex(
-		events.reduce((acc, event) => acc ^ BigInt(toEventSelector(event)), 0n),
-		{ size: 32 },
-	);
