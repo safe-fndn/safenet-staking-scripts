@@ -16,12 +16,7 @@ import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
 import { formatRange } from "./utils/format.js";
 import { minBigInt, sqrtBigInt } from "./utils/math.js";
-import {
-	rangeContains,
-	rangeDuration,
-	type TimestampRange,
-	type ToTimestamp,
-} from "./utils/ranges.js";
+import { rangeDuration, type TimestampRange, type ToTimestamp } from "./utils/ranges.js";
 
 export type ValidatorStats = Record<
 	Address,
@@ -43,10 +38,6 @@ export type Staked = {
 		validator: Address;
 		amount: bigint;
 	}[];
-};
-
-export type ParticipationOptions = {
-	approximate?: boolean;
 };
 
 export type Participation = {
@@ -278,36 +269,16 @@ export class Safenet {
 	async #participation(
 		period: TimestampRange,
 		validators: ValidatorRegistrations[],
-		options: ParticipationOptions,
 	): Promise<Participation> {
 		const registrations = Object.fromEntries(
 			validators.map(({ validator, registrations }) => [validator, registrations]),
 		);
 
-		if (options.approximate === true) {
-			const { total, participants } =
-				await this.#consensus.signatures.approximateParticipation(period);
-			const validators = Object.fromEntries(
-				[...addresses(registrations)].map((validator) => [validator, participants[validator] ?? 0]),
-			);
-			return { total, validators };
-		} else {
-			const participation = {
-				total: 0,
-				validators: Object.fromEntries(
-					[...addresses(registrations)].map((validator) => [validator, 0]),
-				),
-			};
-			for await (const { timestamp, ...packet } of this.#consensus.transactions.packets(period)) {
-				participation.total++;
-				for (const participant of this.#consensus.signatures.participants(packet)) {
-					if (registrations[participant]?.some((period) => rangeContains(period, timestamp))) {
-						participation.validators[participant] = participation.validators[participant] + 1;
-					}
-				}
-			}
-			return participation;
-		}
+		const { total, participants } = await this.#consensus.signatures.participation(period);
+		const participations = Object.fromEntries(
+			[...addresses(registrations)].map((validator) => [validator, participants[validator] ?? 0]),
+		);
+		return { total, validators: participations };
 	}
 
 	/**
@@ -339,13 +310,10 @@ export class Safenet {
 		}
 	}
 
-	async participation(
-		period: TimestampRange,
-		options: ParticipationOptions = {},
-	): Promise<Participation> {
+	async participation(period: TimestampRange): Promise<Participation> {
 		await this.#debugPeriod(period);
 		const validators = await this.#validatorRegistrations(period);
-		return await this.#participation(period, validators, options);
+		return await this.#participation(period, validators);
 	}
 
 	/**
@@ -359,11 +327,7 @@ export class Safenet {
 	 * Based on the rewards calculation specification from:
 	 * <https://docs.safefoundation.org/safenet/staking/rewards>
 	 */
-	async rewards(
-		period: TimestampRange,
-		totalRewards: bigint,
-		options: ParticipationOptions = {},
-	): Promise<Rewards> {
+	async rewards(period: TimestampRange, totalRewards: bigint): Promise<Rewards> {
 		await this.#debugPeriod(period);
 		const validators = await this.#validatorRegistrations(period);
 
@@ -376,7 +340,7 @@ export class Safenet {
 
 		const [stats, participation] = await Promise.all([
 			this.#validatorStats(period, validators),
-			this.#participation(period, validators, options),
+			this.#participation(period, validators),
 		]);
 
 		// Compute the linear reward threshold `T` for each valiator and the

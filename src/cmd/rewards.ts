@@ -14,14 +14,13 @@ main(
 		rewardPeriodStart: z.coerce.bigint().optional(),
 		rewardPeriodEnd: z.coerce.bigint().optional(),
 		totalRewards: z.string().transform((v) => parseUnits(v, 18)),
-		approximate: z.coerce.boolean().optional(),
 		record: z.string().optional(),
 	},
 	async (args) => {
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 
-		const { payouts, unpaid } = await safenet.rewards(period, args.totalRewards, args);
+		const { payouts, unpaid } = await safenet.rewards(period, args.totalRewards);
 
 		console.log(` Recipient                                  | Payout                        `);
 		console.log(`--------------------------------------------+-------------------------------`);
