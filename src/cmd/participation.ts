@@ -15,7 +15,6 @@ main(
 	{
 		rewardPeriodStart: z.coerce.bigint().optional(),
 		rewardPeriodEnd: z.coerce.bigint().optional(),
-		approximate: z.coerce.boolean().optional(),
 		record: z.string().optional(),
 	},
 	async (args) => {
@@ -24,7 +23,7 @@ main(
 
 		console.log(` Validator                                  | Participation`);
 		console.log(`--------------------------------------------+---------------`);
-		const { total, validators } = await safenet.participation(period, args);
+		const { total, validators } = await safenet.participation(period);
 		for (const [validator, count] of Object.entries(validators)) {
 			console.log(` ${validator} | ${formatPercent(count / total).padStart(13)}`);
 		}
