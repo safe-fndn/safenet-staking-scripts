@@ -7,6 +7,7 @@ import debug, { type Debugger } from "debug";
 import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "viem";
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
+import { Attestations } from "./indexing/attestations.js";
 import { BlockTimestampCache } from "./indexing/block.js";
 import type { EventIndexer } from "./indexing/events.js";
 import { Signatures } from "./indexing/signatures.js";
@@ -67,6 +68,7 @@ type StakingChain = {
 
 type ConsensusChain = {
 	blocks: BlockTimestampCache;
+	attestations: Attestations;
 	stakers: ValidatorStakers;
 	transactions: Transactions;
 	signatures: Signatures;
@@ -274,7 +276,7 @@ export class Safenet {
 			validators.map(({ validator, registrations }) => [validator, registrations]),
 		);
 
-		const { total, participants } = await this.#consensus.signatures.participation(period);
+		const { total, participants } = await this.#consensus.attestations.participation(period);
 		const participations = Object.fromEntries(
 			[...addresses(registrations)].map((validator) => [validator, participants[validator] ?? 0]),
 		);
@@ -458,7 +460,7 @@ export class Safenet {
 			functionName: "totalStakedAmount",
 			blockNumber,
 		});
-		const transactions = this.#consensus.transactions.count();
+		const transactions = this.#consensus.attestations.transactionCount();
 		return { stake, transactions };
 	}
 
@@ -500,6 +502,10 @@ export class Safenet {
 			client: params.consensusClient,
 			chainId: consensusChain,
 		});
+		const attestations = new Attestations({
+			db,
+			blocks: consensusBlocks,
+		});
 		const consensusConfig = {
 			db,
 			blocks: consensusBlocks,
@@ -528,8 +534,9 @@ export class Safenet {
 			consensus: {
 				blocks: consensusBlocks,
 				stakers: new ValidatorStakers(consensusConfig),
-				transactions: new Transactions(consensusConfig),
-				signatures: new Signatures(coordinatorConfig),
+				attestations,
+				transactions: new Transactions({ attestations, ...consensusConfig }),
+				signatures: new Signatures({ attestations, ...coordinatorConfig }),
 			},
 		});
 	}
