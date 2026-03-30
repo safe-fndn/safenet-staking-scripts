@@ -38,7 +38,6 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 			case "Sign": {
 				this.#attestations.registerSigningCeremony({
 					sid: log.args.sid,
-					blockNumber: log.blockNumber,
 				});
 				break;
 			}

@@ -83,6 +83,10 @@ describe("single", () => {
 								sid: signatureId("1", 1n),
 								selectionRoot: selectionRoot("1:1"),
 							},
+							{
+								name: "TransactionAttested",
+								sid: signatureId("1", 1n),
+							},
 						],
 					},
 					...emptyBlocks(12, { assertTimestamp: 120n }),

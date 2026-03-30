@@ -17,5 +17,6 @@ export const COORDINATOR_ABI = parseAbi([
 export const CONSENSUS_ABI = parseAbi([
 	"event ValidatorStakerSet(address indexed validator, address staker)",
 	"event TransactionProposed(bytes32 indexed safeTxHash, uint256 indexed chainId, address indexed safe, uint64 epoch, (uint256 chainId, address safe, address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 nonce) transaction)",
+	"event TransactionAttested(bytes32 indexed safeTxHash, uint256 indexed chainId, address indexed safe, uint64 epoch, bytes32 signatureId, ((uint256 x, uint256 y) r, uint256 z) attestation)",
 	"function getCoordinator() external view returns (address coordinator)",
 ]);

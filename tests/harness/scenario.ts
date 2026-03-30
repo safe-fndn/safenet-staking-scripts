@@ -49,6 +49,10 @@ export type ConsensusChainEvent =
 			transaction: SafeTransaction;
 	  }
 	| {
+			name: "TransactionAttested";
+			sid: Hex;
+	  }
+	| {
 			name: "KeyGenConfirmed";
 			participant: Address;
 	  }
@@ -162,6 +166,26 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 						"uint64 epoch, (uint256 chainId, address safe, address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 nonce) transaction",
 					),
 					[event.epoch, event.transaction],
+				),
+			};
+		}
+		case "TransactionAttested": {
+			return {
+				address: namedAddress("Consensus"),
+				topics: encodeEventTopics({
+					abi: CONSENSUS_ABI,
+					eventName: "TransactionAttested",
+					args: {
+						safeTxHash: zeroHash,
+						chainId: 0n,
+						safe: zeroAddress,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters(
+						"uint64 epoch, bytes32 signatureId, ((uint256 x, uint256 y) r, uint256 z) attestation",
+					),
+					[0n, event.sid, { r: { x: 0n, y: 0n }, z: 0n }],
 				),
 			};
 		}
