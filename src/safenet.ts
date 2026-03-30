@@ -16,7 +16,7 @@ import { Transactions } from "./indexing/transactions.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
 import { formatRange } from "./utils/format.js";
-import { minBigInt, sqrtBigInt } from "./utils/math.js";
+import { sqrtBigInt } from "./utils/math.js";
 import { rangeDuration, type TimestampRange, type ToTimestamp } from "./utils/ranges.js";
 
 export type ValidatorStats = Record<
@@ -107,7 +107,7 @@ export class Safenet {
 		// a particular indexer, we want to stop the others. This prevents large
 		// block ranges that take a long time to index hide early errors.
 		let failedEarly = false;
-		const update = (indexer: Pick<EventIndexer, "update">, to: Partial<ToTimestamp>) =>
+		const update = (indexer: Pick<EventIndexer, "update">) =>
 			indexer
 				.update(to, () => failedEarly)
 				.catch((err) => {
@@ -115,23 +115,12 @@ export class Safenet {
 					throw err;
 				});
 
-		// For attestations (transaction attestations and signing ceremonies),
-		// we need to add a small grace period for indexing. This is because
-		// participation is computed for transactions proposed within a
-		// transaction period.
-		const attestTo = { ...to };
-		if (attestTo.toTimestamp !== undefined) {
-			const ONE_HOUR = 60n * 60n;
-			const latest = await this.#consensus.blocks.getLatest();
-			attestTo.toTimestamp = minBigInt(attestTo.toTimestamp + ONE_HOUR, latest.timestamp);
-		}
-
 		await Promise.all([
-			update(this.#staking.stake, to),
-			update(this.#staking.validators, to),
-			update(this.#consensus.stakers, to),
-			update(this.#consensus.transactions, attestTo),
-			update(this.#consensus.signatures, attestTo),
+			update(this.#staking.stake),
+			update(this.#staking.validators),
+			update(this.#consensus.stakers),
+			update(this.#consensus.transactions),
+			update(this.#consensus.signatures),
 		]);
 	}
 
@@ -344,6 +333,11 @@ export class Safenet {
 			this.#validatorStats(period, validators),
 			this.#participation(period, validators),
 		]);
+
+		if (participation.total === 0) {
+			// There were no transactions in that period, so nothing to do!
+			return { payouts: {}, unpaid: totalRewards };
+		}
 
 		// Compute the linear reward threshold `T` for each valiator and the
 		// stake weighting for each validator. Weights are scaled by 1e18 in

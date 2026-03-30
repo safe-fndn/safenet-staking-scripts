@@ -3,7 +3,10 @@ import { CONSENSUS_ABI } from "../abi.js";
 import type { Attestations, AttestationsIndexerConfiguration } from "./attestations.js";
 import { EventIndexer, type ParsedLog } from "./events.js";
 
-const EVENTS = [getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionProposed" })];
+const EVENTS = [
+	getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionProposed" }),
+	getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionAttested" }),
+];
 
 export class Transactions extends EventIndexer<typeof EVENTS> {
 	#attestations: Attestations;
@@ -21,6 +24,12 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 		switch (log.eventName) {
 			case "TransactionProposed": {
 				this.#attestations.registerTransactionProposal();
+				break;
+			}
+			case "TransactionAttested": {
+				this.#attestations.registerTransactionAttestation({
+					sid: log.args.signatureId,
+				});
 				break;
 			}
 		}

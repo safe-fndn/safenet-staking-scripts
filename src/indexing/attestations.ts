@@ -24,13 +24,16 @@ export type Participant = {
 
 export type SigningCeremony = {
 	sid: Hex;
-	blockNumber: bigint;
 };
 
 export type SignatureShare = {
 	sid: Hex;
 	participant: Address;
 	selectionRoot: Hex;
+};
+
+type SigningCeremonyDetails = SigningCeremony & {
+	isTransactionAttestation: 0 | 1 | null;
 };
 
 type SignatureComplete = {
@@ -57,7 +60,7 @@ export class Attestations {
 		upsertParticipant: Statement<Participant, number>;
 		upsertSelection: Statement<Selection, number>;
 		deleteSelection: Statement<Selection, number>;
-		insertSigningCeremony: Statement<SigningCeremony, number>;
+		upsertSigningCeremony: Statement<SigningCeremonyDetails, number>;
 		insertSigningParticipant: Statement<SignatureShare, number>;
 		updateSigningCeremonyCompleted: Statement<SignatureComplete, number>;
 		selectTotalSignatureCount: Statement<BlockRange, number>;
@@ -93,13 +96,15 @@ export class Attestations {
 				id INTEGER NOT NULL,
 				sid TEXT NOT NULL,
 				selection INTEGER,
-				started_block_number INTEGER NOT NULL,
 				completed_block_number INTEGER,
+				is_transaction_attestation INTEGER NOT NULL,
 				PRIMARY KEY(id),
 				UNIQUE(sid)
 			);
-			CREATE INDEX IF NOT EXISTS signing_ceremony_started_block_number_idx
-			ON signing_ceremonies(started_block_number);
+			CREATE INDEX IF NOT EXISTS signing_ceremony_completed_block_number_idx
+			ON signing_ceremonies(completed_block_number);
+			CREATE INDEX IF NOT EXISTS signing_ceremony_is_transaction_attestation_idx
+			ON signing_ceremonies(is_transaction_attestation);
 
 			CREATE TABLE IF NOT EXISTS signing_participants(
 				ceremony INTEGER NOT NULL,
@@ -114,11 +119,6 @@ export class Attestations {
 				VALUES(0, 1)
 				ON CONFLICT(id)
 				DO UPDATE SET cnt = cnt + 1
-			`),
-			selectTransactionCount: this.#db.prepare<[], number>(`
-				SELECT cnt
-				FROM transactions
-				WHERE id = 0
 			`),
 			upsertParticipant: this.#db.prepare<Participant, number>(`
 				INSERT INTO participants(address)
@@ -138,9 +138,11 @@ export class Attestations {
 				DELETE FROM selections
 				WHERE root = @root
 			`),
-			insertSigningCeremony: this.#db.prepare<SigningCeremony, number>(`
-				INSERT INTO signing_ceremonies(sid, selection, started_block_number, completed_block_number)
-				VALUES(@sid, NULL, @blockNumber, NULL)
+			upsertSigningCeremony: this.#db.prepare<SigningCeremonyDetails, number>(`
+				INSERT INTO signing_ceremonies(sid, selection, completed_block_number, is_transaction_attestation)
+				VALUES(@sid, NULL, NULL, COALESCE(@isTransactionAttestation, FALSE))
+				ON CONFLICT DO UPDATE
+				SET is_transaction_attestation = COALESCE(@isTransactionAttestation, is_transaction_attestation)
 			`),
 			insertSigningParticipant: this.#db.prepare<SignatureShare, number>(`
 				INSERT INTO signing_participants(ceremony, participant, selection)
@@ -154,12 +156,18 @@ export class Attestations {
 				, completed_block_number = @blockNumber
 				WHERE sid = @sid
 			`),
+			selectTransactionCount: this.#db.prepare<[], number>(`
+				SELECT cnt
+				FROM transactions
+				WHERE id = 0
+			`),
 			selectTotalSignatureCount: this.#db.prepare<BlockRange, number>(`
 				SELECT COUNT(*) AS count
 				FROM signing_ceremonies
 				WHERE selection IS NOT NULL
-				AND started_block_number >= @fromBlock
-				AND started_block_number <= @toBlock
+				AND completed_block_number >= @fromBlock
+				AND completed_block_number <= @toBlock
+				AND is_transaction_attestation = TRUE
 			`),
 			selectParticipation: this.#db.prepare<BlockRange, ParticipationCount>(`
 				SELECT a.address AS participant
@@ -171,8 +179,9 @@ export class Attestations {
 				INNER JOIN participants AS a
 				ON a.id = p.participant
 				WHERE s.selection IS NOT NULL
-				AND s.started_block_number >= @fromBlock
-				AND s.started_block_number <= @toBlock
+				AND s.completed_block_number >= @fromBlock
+				AND s.completed_block_number <= @toBlock
+				AND is_transaction_attestation = TRUE
 				GROUP BY p.participant
 			`),
 		};
@@ -186,8 +195,11 @@ export class Attestations {
 		this.#queries.upsertParticipant.run({ address });
 	}
 
-	registerSigningCeremony({ sid, blockNumber }: SigningCeremony): void {
-		this.#queries.insertSigningCeremony.run({ sid, blockNumber });
+	registerSigningCeremony({ sid }: SigningCeremony): void {
+		this.#queries.upsertSigningCeremony.run({
+			sid,
+			isTransactionAttestation: null,
+		});
 	}
 
 	registerSignatureShare({ sid, participant, selectionRoot }: SignatureShare): void {
@@ -206,6 +218,16 @@ export class Attestations {
 		// up with dangling `selection` foreign keys, but this is OK since we
 		// never care about the selection root value!
 		this.#queries.deleteSelection.run({ root: selectionRoot });
+	}
+
+	registerTransactionAttestation({ sid }: SigningCeremony) {
+		// Note that we upsert here instead of just `UPDATE`-ing the row, these
+		// events are driven by different indexers which means that it may come
+		// out of order with the corresponding `registerSigningCeremony`.
+		this.#queries.upsertSigningCeremony.run({
+			sid,
+			isTransactionAttestation: 1,
+		});
 	}
 
 	transactionCount(): number {
