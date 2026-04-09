@@ -13,7 +13,7 @@ import { getBlockNumber, getLogs } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
 import { formatRange } from "../utils/format.js";
 import { minBigInt } from "../utils/math.js";
-import type { BlockRange, ToBlock, ToTimestamp } from "../utils/ranges.js";
+import type { BlockRange, FromBlock, ToBlock, ToTimestamp } from "../utils/ranges.js";
 import type { BlockTimestampCache } from "./block.js";
 
 export type Configuration = {
@@ -47,6 +47,7 @@ export type ParsedLog<Events extends AbiEvent[]> = Log<
 
 export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	#debug: Debugger;
+	#contract: string;
 	#blocks: BlockTimestampCache;
 	#client: Client;
 	#blockPageSize: bigint;
@@ -75,7 +76,7 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		startBlock,
 	}: Parameters<Events>) {
 		this.#debug = debug(`safenet:indexing:${name}`);
-		//this.#selector = `${name}/`;
+		this.#contract = `${chainId}:${getAddress(address)}`;
 		this.#blocks = blocks;
 		this.#client = client;
 		this.#filter = {
@@ -102,14 +103,13 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		// if the indexer was created with a different "identifier" to prevent
 		// issues where the same configuration is used for indexing multiple
 		// Safenet instances (which would corrupt our data).
-		const contract = `${chainId}:${getAddress(address)}`;
 		const insert = this.#db
 			.prepare(`
 				INSERT INTO event_indexers(name, contract, to_block)
-				VALUES ('${name}', '${contract}', @toBlock)
+				VALUES ('${name}', '${this.#contract}', @toBlock)
 				ON CONFLICT(name)
 				DO UPDATE SET to_block = MAX(to_block, EXCLUDED.to_block)
-				WHERE contract = '${contract}'
+				WHERE contract = '${this.#contract}'
 			`)
 			.run({ toBlock: (startBlock ?? 0n) - 1n });
 		if (insert.changes === 0) {
@@ -151,6 +151,15 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		return this.#blocks;
 	}
 
+	#seed(): void {
+		const latest = this.latestBlock() ?? -1n;
+		const fromBlock = latest + 1n;
+		const to = this.seed(this.#contract, { fromBlock });
+		if (to !== null) {
+			this.#queries.updateIndexer.run(to);
+		}
+	}
+
 	#nextPage(range: ToBlock): BlockRange | null {
 		const latest = this.latestBlock() ?? -1n;
 		if (latest >= range.toBlock) {
@@ -168,6 +177,13 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	}
 
 	async update({ toTimestamp }: Partial<ToTimestamp> = {}, cancel?: () => boolean): Promise<void> {
+		// Allow the indexer to seed themselves with the latest data. This will
+		// permit us to skip indexing specific block ranges for certain events
+		// (in particular the sancions list). We do this in update to ensure
+		// that updated seed data gets reflected in storage even if the DB was
+		// already initialized but on an old block.
+		this.#seed();
+
 		const range = {
 			toBlock:
 				toTimestamp !== undefined
@@ -198,5 +214,8 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		}
 	}
 
+	protected seed(_contract: string, _from: FromBlock): ToBlock | null {
+		return null;
+	}
 	protected abstract insertEvent(log: ParsedLog<Events>): void;
 }

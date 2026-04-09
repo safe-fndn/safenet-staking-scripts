@@ -289,10 +289,12 @@ export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
 
 	return Safenet.create({
 		databaseFile: ":memory:",
-		blockPageSize: 5n,
 		stakingClient: createMockClient(stakingChain),
+		stakingBlockPageSize: 5n,
 		stakingAddress: namedAddress("Staking"),
+		sanctionsListAddress: namedAddress("SanctionsList"),
 		consensusClient: createMockClient(consensusChain),
+		consensusBlockPageSize: 5n,
 		consensusAddress: namedAddress("Consensus"),
 	});
 };

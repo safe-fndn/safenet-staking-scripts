@@ -8,12 +8,15 @@ import type { TimestampRange } from "../utils/ranges.js";
 const SCHEMA = z.object({
 	databaseFile: z.string().min(1),
 	stakingRpcUrl: z.url(),
+	stakingBlockPageSize: z.coerce.bigint(),
 	stakingAddress: z.string().transform((a) => getAddress(a)),
 	stakingStartBlock: z.coerce.bigint(),
+	sanctionsListAddress: z.string().transform((a) => getAddress(a)),
+	sanctionsListStartBlock: z.coerce.bigint(),
 	consensusRpcUrl: z.url(),
 	consensusAddress: z.string().transform((a) => getAddress(a)),
 	consensusStartBlock: z.coerce.bigint(),
-	blockPageSize: z.coerce.bigint(),
+	consensusBlockPageSize: z.coerce.bigint(),
 });
 
 const envKey = (key: string): string => {

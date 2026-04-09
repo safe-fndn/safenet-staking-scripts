@@ -10,6 +10,7 @@ import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { Attestations } from "./indexing/attestations.js";
 import { BlockTimestampCache } from "./indexing/block.js";
 import type { EventIndexer } from "./indexing/events.js";
+import { Sanctions } from "./indexing/sanctions.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
 import { Transactions } from "./indexing/transactions.js";
@@ -64,6 +65,7 @@ type StakingChain = {
 	blocks: BlockTimestampCache;
 	stake: Stake;
 	validators: Validators;
+	sanctions: Sanctions;
 };
 
 type ConsensusChain = {
@@ -118,6 +120,7 @@ export class Safenet {
 		await Promise.all([
 			update(this.#staking.stake),
 			update(this.#staking.validators),
+			update(this.#staking.sanctions),
 			update(this.#consensus.stakers),
 			update(this.#consensus.transactions),
 			update(this.#consensus.signatures),
@@ -445,6 +448,19 @@ export class Safenet {
 		return { payouts, unpaid };
 	}
 
+	async sanctionedAccounts({ toTimestamp }: Partial<ToTimestamp> = {}): Promise<Address[]> {
+		let to: ToTimestamp;
+		if (toTimestamp === undefined) {
+			const { timestamp } = await this.#staking.blocks.getLatest();
+			to = { toTimestamp: timestamp };
+		} else {
+			to = { toTimestamp };
+		}
+
+		await this.#staking.sanctions.update(to);
+		return this.#staking.sanctions.sanctionedAccounts(to);
+	}
+
 	async totals(): Promise<Totals> {
 		const { blockNumber } = await this.#staking.blocks.getLatest();
 		await this.#consensus.transactions.update();
@@ -460,11 +476,14 @@ export class Safenet {
 
 	static async create(params: {
 		databaseFile: string;
-		blockPageSize: bigint;
 		stakingClient: Client;
+		stakingBlockPageSize: bigint;
 		stakingAddress: Address;
 		stakingStartBlock?: bigint;
+		sanctionsListAddress: Address;
+		sanctionsListStartBlock?: bigint;
 		consensusClient: Client;
+		consensusBlockPageSize: bigint;
 		consensusAddress: Address;
 		consensusStartBlock?: bigint;
 	}): Promise<Safenet> {
@@ -486,10 +505,15 @@ export class Safenet {
 			db,
 			blocks: stakingBlocks,
 			client: params.stakingClient,
-			blockPageSize: params.blockPageSize,
+			blockPageSize: params.stakingBlockPageSize,
 			chainId: stakingChain,
 			address: params.stakingAddress,
 			startBlock: params.stakingStartBlock,
+		};
+		const sanctionsConfig = {
+			...stakingConfig,
+			address: params.sanctionsListAddress,
+			startBlock: params.sanctionsListStartBlock,
 		};
 		const consensusBlocks = new BlockTimestampCache({
 			db,
@@ -504,7 +528,7 @@ export class Safenet {
 			db,
 			blocks: consensusBlocks,
 			client: params.consensusClient,
-			blockPageSize: params.blockPageSize,
+			blockPageSize: params.consensusBlockPageSize,
 			chainId: consensusChain,
 			address: params.consensusAddress,
 			startBlock: params.consensusStartBlock,
@@ -524,6 +548,7 @@ export class Safenet {
 					...stakingConfig,
 				}),
 				validators: new Validators(stakingConfig),
+				sanctions: new Sanctions(sanctionsConfig),
 			},
 			consensus: {
 				blocks: consensusBlocks,
