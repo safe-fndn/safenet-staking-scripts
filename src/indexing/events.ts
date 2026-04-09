@@ -197,7 +197,7 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 				break;
 			}
 
-			startBlock = startBlock ?? (page.fromBlock - 1n);
+			startBlock = startBlock ?? page.fromBlock - 1n;
 			const progress =
 				(100 * Number(page.toBlock - startBlock)) / Number(range.toBlock - startBlock);
 			this.#debug(`fetching block page ${formatRange(page)} (${progress.toFixed(2)}%)`);
