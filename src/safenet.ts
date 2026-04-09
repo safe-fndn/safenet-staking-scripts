@@ -8,7 +8,6 @@ import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "
 import { getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { Attestations } from "./indexing/attestations.js";
-import { BlockTimestampCache } from "./indexing/block.js";
 import type { EventIndexer } from "./indexing/events.js";
 import { Sanctions } from "./indexing/sanctions.js";
 import { Signatures } from "./indexing/signatures.js";
@@ -62,14 +61,12 @@ type StakingChain = {
 		address: Address;
 		client: Client;
 	};
-	blocks: BlockTimestampCache;
 	stake: Stake;
 	validators: Validators;
 	sanctions: Sanctions;
 };
 
 type ConsensusChain = {
-	blocks: BlockTimestampCache;
 	attestations: Attestations;
 	stakers: ValidatorStakers;
 	transactions: Transactions;
@@ -127,17 +124,10 @@ export class Safenet {
 		]);
 	}
 
-	async #debugPeriod(period: TimestampRange): Promise<void> {
-		this.#debug(`using period ${formatRange(period)}`);
-		const staking = await this.#staking.blocks.blockRange(period);
-		this.#debug(`staking chain block range ${formatRange(staking)}`);
-		const consensus = await this.#consensus.blocks.blockRange(period);
-		this.#debug(`consensus chain block range ${formatRange(consensus)}`);
-	}
-
 	async #validatorRegistrations(period: TimestampRange): Promise<ValidatorRegistrations[]> {
+		this.#debug(`using period ${formatRange(period)}`);
 		await this.index(period);
-		const set = await this.#staking.validators.validatorSet(period);
+		const set = this.#staking.validators.validatorSet(period);
 		return Object.entries(set).map(([key, registrations]) => ({
 			validator: getAddress(key),
 			registrations,
@@ -163,12 +153,12 @@ export class Safenet {
 		// over those sub-ranges.
 
 		for (const registration of registrations) {
-			const stakers = await this.#consensus.stakers.validatorStakers({
+			const stakers = this.#consensus.stakers.validatorStakers({
 				validator,
 				...registration,
 			});
 			for (const { staker, ...slice } of stakers) {
-				const stake = await this.#staking.stake.timeWeightedStake({
+				const stake = this.#staking.stake.timeWeightedStake({
 					staker,
 					validator,
 					...slice,
@@ -198,8 +188,8 @@ export class Safenet {
 	): Promise<bigint> {
 		let total = 0n;
 		for (const registration of registrations) {
-			for await (const staker of this.#staking.stake.stakers(registration)) {
-				total += await this.#staking.stake.timeWeightedStake({
+			for (const staker of this.#staking.stake.stakers(registration)) {
+				total += this.#staking.stake.timeWeightedStake({
 					staker,
 					validator,
 					...registration,
@@ -242,7 +232,7 @@ export class Safenet {
 			for (const { validator, registrations } of validators) {
 				let amount = 0n;
 				for (const registration of registrations) {
-					amount += await this.#staking.stake.timeWeightedStake({
+					amount += this.#staking.stake.timeWeightedStake({
 						staker,
 						validator,
 						...registration,
@@ -268,7 +258,7 @@ export class Safenet {
 			validators.map(({ validator, registrations }) => [validator, registrations]),
 		);
 
-		const { total, participants } = await this.#consensus.attestations.participation(period);
+		const { total, participants } = this.#consensus.attestations.participation(period);
 		const participations = Object.fromEntries(
 			[...addresses(registrations)].map((validator) => [validator, participants[validator] ?? 0]),
 		);
@@ -284,7 +274,6 @@ export class Safenet {
 	 * returned.
 	 */
 	async validatorStats(period: TimestampRange): Promise<ValidatorStats> {
-		await this.#debugPeriod(period);
 		const validators = await this.#validatorRegistrations(period);
 		return await this.#validatorStats(period, validators);
 	}
@@ -297,7 +286,6 @@ export class Safenet {
 	 * staking data for all stakers into memory at once.
 	 */
 	async *staked(period: TimestampRange): AsyncGenerator<Staked> {
-		await this.#debugPeriod(period);
 		const validators = await this.#validatorRegistrations(period);
 		for await (const stake of this.#staked(period, validators)) {
 			yield stake;
@@ -305,7 +293,6 @@ export class Safenet {
 	}
 
 	async participation(period: TimestampRange): Promise<Participation> {
-		await this.#debugPeriod(period);
 		const validators = await this.#validatorRegistrations(period);
 		return await this.#participation(period, validators);
 	}
@@ -322,7 +309,6 @@ export class Safenet {
 	 * <https://docs.safefoundation.org/safenet/staking/rewards>
 	 */
 	async rewards(period: TimestampRange, totalRewards: bigint): Promise<Rewards> {
-		await this.#debugPeriod(period);
 		const validators = await this.#validatorRegistrations(period);
 
 		if (validators.length === 0) {
@@ -448,27 +434,20 @@ export class Safenet {
 		return { payouts, unpaid };
 	}
 
-	async sanctionedAccounts({ toTimestamp }: Partial<ToTimestamp> = {}): Promise<Address[]> {
-		let to: ToTimestamp;
-		if (toTimestamp === undefined) {
-			const { timestamp } = await this.#staking.blocks.getLatest();
-			to = { toTimestamp: timestamp };
-		} else {
-			to = { toTimestamp };
-		}
-
-		await this.#staking.sanctions.update(to);
-		return this.#staking.sanctions.sanctionedAccounts(to);
+	async sanctionedAccounts(to: Partial<ToTimestamp> = {}): Promise<Address[]> {
+		const block = await this.#staking.sanctions.update(to);
+		return this.#staking.sanctions.sanctionedAccounts({
+			toTimestamp: to.toTimestamp ?? block.timestamp,
+		});
 	}
 
 	async totals(): Promise<Totals> {
-		const { blockNumber } = await this.#staking.blocks.getLatest();
-		await this.#consensus.transactions.update();
+		const block = await this.#consensus.transactions.update();
 		const stake = await readContract(this.#staking.contract.client, {
 			address: this.#staking.contract.address,
 			abi: STAKING_ABI,
 			functionName: "totalStakedAmount",
-			blockNumber,
+			blockNumber: block.number,
 		});
 		const transactions = this.#consensus.attestations.transactionCount();
 		return { stake, transactions };
@@ -496,14 +475,8 @@ export class Safenet {
 		});
 
 		const db = new Sqlite3(params.databaseFile);
-		const stakingBlocks = new BlockTimestampCache({
-			db,
-			client: params.stakingClient,
-			chainId: stakingChain,
-		});
 		const stakingConfig = {
 			db,
-			blocks: stakingBlocks,
 			client: params.stakingClient,
 			blockPageSize: params.stakingBlockPageSize,
 			chainId: stakingChain,
@@ -515,18 +488,9 @@ export class Safenet {
 			address: params.sanctionsListAddress,
 			startBlock: params.sanctionsListStartBlock,
 		};
-		const consensusBlocks = new BlockTimestampCache({
-			db,
-			client: params.consensusClient,
-			chainId: consensusChain,
-		});
-		const attestations = new Attestations({
-			db,
-			blocks: consensusBlocks,
-		});
+		const attestations = new Attestations({ db });
 		const consensusConfig = {
 			db,
-			blocks: consensusBlocks,
 			client: params.consensusClient,
 			blockPageSize: params.consensusBlockPageSize,
 			chainId: consensusChain,
@@ -543,7 +507,6 @@ export class Safenet {
 					client: params.stakingClient,
 					address: params.stakingAddress,
 				},
-				blocks: stakingBlocks,
 				stake: new Stake({
 					...stakingConfig,
 				}),
@@ -551,7 +514,6 @@ export class Safenet {
 				sanctions: new Sanctions(sanctionsConfig),
 			},
 			consensus: {
-				blocks: consensusBlocks,
 				stakers: new ValidatorStakers(consensusConfig),
 				attestations,
 				transactions: new Transactions({ attestations, ...consensusConfig }),

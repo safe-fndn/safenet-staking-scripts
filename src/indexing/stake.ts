@@ -2,8 +2,8 @@ import type { Statement } from "better-sqlite3";
 import { type Address, getAbiItem } from "viem";
 import { STAKING_ABI } from "../abi.js";
 import { maxBigInt } from "../utils/math.js";
-import { type BlockRange, rangeDuration, type TimestampRange } from "../utils/ranges.js";
-import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
+import { rangeDuration, type TimestampRange } from "../utils/ranges.js";
+import { type Configuration, EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: STAKING_ABI, name: "StakeIncreased" }),
@@ -17,33 +17,28 @@ export type StakeSelector = {
 
 export type AverageStakeSelector = StakeSelector & TimestampRange;
 
-type StakeAtBlock = {
-	blockNumber: number;
-	logIndex: number;
+type StakeTimestamp<I = bigint> = {
+	blockTimestamp: I;
 	amount: string;
 };
 
-type StakeChange = StakeSelector & {
-	blockNumber: bigint;
-	logIndex: number;
-	amount: string;
-};
+type StakeChange = StakeSelector & StakeTimestamp;
 
 type StakeAmount = {
-	blockNumber: number;
+	blockTimestamp: number;
 	validator: Address;
 	amount: string;
 };
 
-type SelectStakeAmounts = StakeSelector & BlockRange;
+type SelectStakeAmounts = StakeSelector & TimestampRange;
 
 export class Stake extends EventIndexer<typeof EVENTS> {
 	#queries: {
-		selectLatestStake: Statement<StakeSelector, StakeAtBlock>;
+		selectLatestStake: Statement<StakeSelector, StakeTimestamp>;
 		upsertStake: Statement<StakeChange, number>;
 		selectStakeAmounts: Statement<SelectStakeAmounts, StakeAmount>;
-		selectStakeBlocks: Statement<BlockRange, number>;
-		selectStakers: Statement<BlockRange, Address>;
+		selectStakeBlocks: Statement<TimestampRange, number>;
+		selectStakers: Statement<TimestampRange, Address>;
 	};
 
 	constructor(config: Configuration) {
@@ -55,84 +50,81 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS stake(
-				block_number INTEGER NOT NULL,
-				log_index INTEGER NOT NULL,
+				block_timestamp INTEGER NOT NULL,
 				staker TEXT NOT NULL,
 				validator TEXT NOT NULL,
 				amount TEXT NOT NULL,
-				PRIMARY KEY(block_number, staker, validator)
+				PRIMARY KEY(block_timestamp, staker, validator)
 			) WITHOUT ROWID;
 		`);
 		this.#queries = {
-			selectLatestStake: this.db.prepare<StakeSelector, StakeAtBlock>(`
-				SELECT block_number as blockNumber
-				, log_index as logIndex
+			selectLatestStake: this.db.prepare<StakeSelector, StakeTimestamp>(`
+				SELECT block_timestamp as blockTimestamp
 				, amount
 				FROM stake
 				WHERE staker = @staker
 				AND validator = @validator
-				ORDER BY block_number DESC
+				ORDER BY block_timestamp DESC
 				LIMIT 1
 			`),
 			upsertStake: this.db.prepare<StakeChange, number>(`
-				INSERT INTO stake(block_number, log_index, staker, validator, amount)
-				VALUES(@blockNumber, @logIndex, @staker, @validator, @amount)
-				ON CONFLICT(block_number, staker, validator)
-				DO UPDATE SET log_index = EXCLUDED.log_index
-				, amount = EXCLUDED.amount
+				INSERT INTO stake(block_timestamp, staker, validator, amount)
+				VALUES(@blockTimestamp, @staker, @validator, @amount)
+				ON CONFLICT(block_timestamp, staker, validator)
+				DO UPDATE SET amount = EXCLUDED.amount
 			`),
 			selectStakeAmounts: this.db.prepare<SelectStakeAmounts, StakeAmount>(`
 				WITH starting_stake AS (
-					SELECT block_number AS blockNumber
+					SELECT block_timestamp AS blockTimestamp
 					, amount
 					FROM stake
-					WHERE block_number < @fromBlock
+					WHERE block_timestamp < @fromTimestamp
 					AND staker = @staker
 					AND validator = @validator
-					ORDER BY block_number DESC
+					ORDER BY block_timestamp DESC
 					LIMIT 1
 				)
 				SELECT * FROM starting_stake
 				UNION ALL
-				SELECT block_number as blockNumber
+				SELECT block_timestamp as blockTimestamp
 				, amount
 				FROM stake
-				WHERE block_number >= @fromBlock
-				AND block_number <= @toBlock
+				WHERE block_timestamp >= @fromTimestamp
+				AND block_timestamp <= @toTimestamp
 				AND staker = @staker
 				AND validator = @validator
 			`),
-			selectStakeBlocks: this.db.prepare<BlockRange, number>(`
+			selectStakeBlocks: this.db.prepare<TimestampRange, number>(`
 				WITH starting_stake AS (
-					SELECT block_number
+					SELECT block_timestamp
 					, amount
 					, row_number() OVER (
 						PARTITION BY staker, validator
-						ORDER BY block_number DESC
+						ORDER BY block_timestamp DESC
 					) AS n
 					FROM stake
-					WHERE block_number < @fromBlock
+					WHERE block_timestamp < @fromTimestamp
 				)
-				SELECT DISTINCT(block_number) AS blockNumber
+				SELECT DISTINCT(block_timestamp) AS blockTimestamp
 				FROM starting_stake
 				WHERE amount != '0'
 				AND n = 1
 				UNION ALL
-				SELECT DISTINCT(block_number) as blockNumber
+				SELECT DISTINCT(block_timestamp) as blockTimestamp
 				FROM stake
-				WHERE block_number >= @fromBlock
-				AND block_number <= @toBlock
+				WHERE block_timestamp >= @fromTimestamp
+				AND block_timestamp <= @toTimestamp
 			`),
-			selectStakers: this.db.prepare<BlockRange, Address>(`
+			selectStakers: this.db.prepare<TimestampRange, Address>(`
 				WITH starting_stake AS (
 					SELECT staker
 					, amount
 					, row_number() OVER (
 						PARTITION BY staker, validator
-						ORDER BY block_number DESC
+						ORDER BY block_timestamp DESC
 					) AS n
 					FROM stake
-					WHERE block_number < @fromBlock
+					WHERE block_timestamp < @fromTimestamp
 				)
 				, all_stakers AS (
 					SELECT staker
@@ -142,8 +134,8 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 					UNION ALL
 					SELECT staker
 					FROM stake
-					WHERE block_number >= @fromBlock
-					AND block_number <= @toBlock
+					WHERE block_timestamp >= @fromTimestamp
+					AND block_timestamp <= @toTimestamp
 					AND amount != '0'
 				)
 				SELECT DISTINCT(staker) AS staker
@@ -153,21 +145,17 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 		};
 	}
 
-	protected insertEvent(log: ParsedLog<typeof EVENTS>): void {
+	protected insertEvent(log: Log<typeof EVENTS>): void {
 		// Ideally, we would update the amount in a single query. However,
 		// unfortunately, `better-sqlite3` does not build the `decimal`
 		// extension into its `sqlite3` bundle, meaning we cannot do arbitrary
 		// precision math. Note that `insertEvent` is always executed within a
 		// transaction.
-		const { blockNumber, logIndex, amount } = this.#queries.selectLatestStake.get(log.args) ?? {
-			blockNumber: 0,
-			logIndex: 0,
+		const { blockTimestamp, amount } = this.#queries.selectLatestStake.get(log.args) ?? {
+			blockTimestamp: 0,
 			amount: "0",
 		};
-		if (
-			BigInt(blockNumber) > log.blockNumber ||
-			(BigInt(blockNumber) === log.blockNumber && logIndex >= log.logIndex)
-		) {
+		if (BigInt(blockTimestamp) > log.blockTimestamp) {
 			throw new Error("event out of order");
 		}
 
@@ -178,30 +166,25 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 		}
 
 		this.#queries.upsertStake.run({
-			blockNumber: log.blockNumber,
-			logIndex: log.logIndex,
+			blockTimestamp: log.blockTimestamp,
 			staker: log.args.staker,
 			validator: log.args.validator,
 			amount: `${newAmount}`,
 		});
 	}
 
-	async timeWeightedStake({ staker, validator, ...period }: AverageStakeSelector): Promise<bigint> {
-		const range = await this.blocks.blockRange(period);
+	timeWeightedStake({ staker, validator, ...period }: AverageStakeSelector): bigint {
 		const amounts = this.#queries.selectStakeAmounts.all({
 			staker,
 			validator,
-			...range,
+			...period,
 		});
-		amounts.sort((a, b) => a.blockNumber - b.blockNumber);
+		amounts.sort((a, b) => a.blockTimestamp - b.blockTimestamp);
 
 		let weighted = 0n;
 		let last = { amount: 0n, timestamp: 0n };
-		for (const { blockNumber, amount } of amounts) {
-			const timestamp = maxBigInt(
-				await this.blocks.mustGetTimestamp({ blockNumber: BigInt(blockNumber) }),
-				period.fromTimestamp,
-			);
+		for (const { amount, blockTimestamp } of amounts) {
+			const timestamp = maxBigInt(BigInt(blockTimestamp), period.fromTimestamp);
 			weighted += last.amount * (timestamp - last.timestamp);
 			last = { amount: BigInt(amount), timestamp };
 		}
@@ -210,23 +193,13 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 		return weighted;
 	}
 
-	async averageStake(params: AverageStakeSelector): Promise<bigint> {
-		const weighted = await this.timeWeightedStake(params);
+	averageStake(params: AverageStakeSelector): bigint {
+		const weighted = this.timeWeightedStake(params);
 		return weighted / rangeDuration(params);
 	}
 
-	async *stakers(period: TimestampRange): AsyncGenerator<Address> {
-		const range = await this.blocks.blockRange(period);
-
-		// Prefetch missing block timestamps for the range. We will need these
-		// for computing the average stake anyway, and cannot update the cache
-		// while we are iterating over results.
-		const blocks = this.#queries.selectStakeBlocks.pluck().all(range);
-		for (const block of blocks) {
-			await this.blocks.mustGetTimestamp({ blockNumber: BigInt(block) });
-		}
-
-		const stakers = this.#queries.selectStakers.pluck().iterate(range);
+	*stakers(period: TimestampRange): Generator<Address> {
+		const stakers = this.#queries.selectStakers.pluck().iterate(period);
 		for (const staker of stakers) {
 			yield staker;
 		}

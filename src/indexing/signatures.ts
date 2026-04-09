@@ -1,7 +1,7 @@
 import { type Address, getAbiItem } from "viem";
 import { COORDINATOR_ABI } from "../abi.js";
 import type { Attestations, AttestationsIndexerConfiguration } from "./attestations.js";
-import { EventIndexer, type ParsedLog } from "./events.js";
+import { EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: COORDINATOR_ABI, name: "KeyGenConfirmed" }),
@@ -27,7 +27,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 		this.#attestations = attestations;
 	}
 
-	protected insertEvent(log: ParsedLog<typeof EVENTS>): void {
+	protected insertEvent(log: Log<typeof EVENTS>): void {
 		switch (log.eventName) {
 			case "KeyGenConfirmed": {
 				this.#attestations.registerParticipant({
@@ -53,7 +53,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				this.#attestations.registerSignatureCompleted({
 					sid: log.args.sid,
 					selectionRoot: log.args.selectionRoot,
-					blockNumber: log.blockNumber,
+					blockTimestamp: log.blockTimestamp,
 				});
 				break;
 			}

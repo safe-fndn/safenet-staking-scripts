@@ -5,9 +5,14 @@
 import type { Address, Hex } from "viem";
 
 export type SanctionsListSeedData = {
-	lastUpdatedBlock: bigint;
+	lastUpdatedBlock: {
+		number: bigint;
+		timestamp: bigint;
+	};
 	events: {
 		blockNumber: bigint;
+		blockTimestamp: bigint;
+		logIndex: number;
 		transactionHash: Hex;
 		eventName: "SanctionedAddressesAdded" | "SanctionedAddressesRemoved";
 		args: { addrs: Address[] };
@@ -16,10 +21,15 @@ export type SanctionsListSeedData = {
 
 export const SANCTIONS_LIST_SEED_DATA = {
 	"1:0x40C57923924B5c5c5455c48D93317139ADDaC8fb": {
-		lastUpdatedBlock: 24841000n,
+		lastUpdatedBlock: {
+			number: 24841000n,
+			timestamp: 1775723771n,
+		},
 		events: [
 			{
 				blockNumber: 14356555n,
+				blockTimestamp: 1646881811n,
+				logIndex: 398,
 				transactionHash: "0x1d3d64b26cfdaeb328d01d09b407f3a806d3254109e4476461b3960592eae902",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -51,6 +61,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 14527954n,
+				blockTimestamp: 1649188723n,
+				logIndex: 455,
 				transactionHash: "0xe3c89f573682122446749d87286096bbe66f3efccde1480f58e61ce4273726fa",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -59,6 +71,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 14584749n,
+				blockTimestamp: 1649955447n,
+				logIndex: 306,
 				transactionHash: "0xf7da9ad1dc31c0a5ad771ee8ef93f36ec9b4edce6e6cbc273b0e900ebe898800",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -67,6 +81,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 14637076n,
+				blockTimestamp: 1650663019n,
+				logIndex: 324,
 				transactionHash: "0x05aa41b16c7a863e5497ab9bf3273154ac7fdb80370035d624e32198e2e1277f",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -79,6 +95,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 14724006n,
+				blockTimestamp: 1651846539n,
+				logIndex: 376,
 				transactionHash: "0xc9d7b45c94a5b78e940c98d1f25818788decaa583042f229f97a9cea194d5e18",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -92,6 +110,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15302392n,
+				blockTimestamp: 1659973067n,
+				logIndex: 11,
 				transactionHash: "0x9e4adac535ea92cd81ef33a9571629dd8ab2ca1a0042c3f21a2e3e76901791b1",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -146,6 +166,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15542818n,
+				blockTimestamp: 1663290287n,
+				logIndex: 438,
 				transactionHash: "0xfc6b06392e8e1431e2c9d987b0fda7bc5c8a4e2e4b99ec986174d6935f822f6b",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -157,6 +179,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15928251n,
+				blockTimestamp: 1667945951n,
+				logIndex: 393,
 				transactionHash: "0xb3754ca28e49008e869da4495a196b974e5a3bdce5ca05deaff1737f606d5bdb",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -168,6 +192,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15928263n,
+				blockTimestamp: 1667946095n,
+				logIndex: 160,
 				transactionHash: "0x3bae678feffd8a95e96df42b7eec557e9c390373d2929a2f2214fb5bb603206c",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -176,6 +202,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934045n,
+				blockTimestamp: 1668015983n,
+				logIndex: 240,
 				transactionHash: "0x421b8ea7301bec4cad40a13f5ff288f61bd21c57c9bf4a21258d8b0974a94490",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -192,6 +220,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934045n,
+				blockTimestamp: 1668015983n,
+				logIndex: 241,
 				transactionHash: "0x17ed5a4113a651cc2306314ddaea276d08f37268a49232b94b7a0d17f60486eb",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -208,6 +238,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934045n,
+				blockTimestamp: 1668015983n,
+				logIndex: 242,
 				transactionHash: "0x42e0c20aa1607afab649fe4834c2c96ae205c67196f138f281234028d494ac98",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -224,6 +256,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934045n,
+				blockTimestamp: 1668015983n,
+				logIndex: 243,
 				transactionHash: "0xe99daa5bf045919eb74f79e7f1831c00016d380e8749e7d07d5f0299a0ab7833",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -232,6 +266,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934045n,
+				blockTimestamp: 1668015983n,
+				logIndex: 244,
 				transactionHash: "0x97f990a89bce879cacfb196a54737bad8a0cb3136cde6eca283890ceb2fe4a51",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -240,6 +276,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934048n,
+				blockTimestamp: 1668016019n,
+				logIndex: 229,
 				transactionHash: "0x2f938ecf08677602bd4cd2b7d43da934f839fea746cb3c8e95ed135efb7a4258",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -248,6 +286,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934050n,
+				blockTimestamp: 1668016043n,
+				logIndex: 261,
 				transactionHash: "0x15882c6f3ea8d9be435385b6a37e633e0b6381eb6c3a71d3f72d8271ec8638ea",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -256,6 +296,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934056n,
+				blockTimestamp: 1668016115n,
+				logIndex: 237,
 				transactionHash: "0x50f2b4936ca0dcc5baacfc2add6e842b7b9f246629cdb9df8a924c708fccd130",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -264,6 +306,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934056n,
+				blockTimestamp: 1668016115n,
+				logIndex: 238,
 				transactionHash: "0x624f722fe728d3ee244801e691108f2fa7a15209fa197b7973af523b948fabd8",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -272,6 +316,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934056n,
+				blockTimestamp: 1668016115n,
+				logIndex: 239,
 				transactionHash: "0x3676d144ce86481668650f1c60da3f78cbf85f5862c6b0409a44035f971f55a8",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -280,6 +326,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934062n,
+				blockTimestamp: 1668016187n,
+				logIndex: 143,
 				transactionHash: "0x4430bf9af79d9b9c403ab47a0526d53fb0faa7340cb5916763b3699122e7c729",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -288,6 +336,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934071n,
+				blockTimestamp: 1668016295n,
+				logIndex: 278,
 				transactionHash: "0x4c49c6a62d701983bd21cc143d26f1195671aa3d6902043c83ee0755937e2973",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -296,6 +346,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934071n,
+				blockTimestamp: 1668016295n,
+				logIndex: 279,
 				transactionHash: "0xccb787381b01b390d82a651714eb58711bd69d27a4494d366416b31fde0804c5",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -304,6 +356,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934072n,
+				blockTimestamp: 1668016307n,
+				logIndex: 117,
 				transactionHash: "0xdfc79b3fbe6e4ea7929ff44cdbede3ef6cba497b1c8f9fd4012403100efebc49",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -312,6 +366,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15934074n,
+				blockTimestamp: 1668016343n,
+				logIndex: 683,
 				transactionHash: "0x7bab67582117fb64d6f3926da2af55206f972cef3dd68640501ad0e6d8c50920",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -320,6 +376,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15971371n,
+				blockTimestamp: 1668466199n,
+				logIndex: 237,
 				transactionHash: "0x4afc7154e2c48183667979ea2c88bada74228bc4dc6f8e2f5e65509caf0f30c5",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -335,6 +393,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 15971419n,
+				blockTimestamp: 1668466787n,
+				logIndex: 219,
 				transactionHash: "0x79e496c2dae0219175583fd4cfad08c1650c92fb8a726b496b81dee077d01f50",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -391,6 +451,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177377n,
+				blockTimestamp: 1670953859n,
+				logIndex: 250,
 				transactionHash: "0x94234d073184e11a8da55e9ce4c7684dacc046c1a9eb674ca0195ba7c3fb0b53",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -399,6 +461,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177393n,
+				blockTimestamp: 1670954051n,
+				logIndex: 437,
 				transactionHash: "0x9a421191f7ca5a22b4a166886370917d019e148c0356900de12047a734da0561",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -407,6 +471,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177393n,
+				blockTimestamp: 1670954051n,
+				logIndex: 438,
 				transactionHash: "0x76b9656a96e713f0aa207acb184530a508a97e0cfcad1540d594d4a45de484e7",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -415,6 +481,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177393n,
+				blockTimestamp: 1670954051n,
+				logIndex: 439,
 				transactionHash: "0x92a731f698d9c61ad43ef35675e81aba410075452126ff419201fd104c480473",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -423,6 +491,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177393n,
+				blockTimestamp: 1670954051n,
+				logIndex: 440,
 				transactionHash: "0xeb1a810d440175c61fe529394cfed0b558614ee191a9cd90c3c39af6d876e5ab",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -431,6 +501,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177393n,
+				blockTimestamp: 1670954051n,
+				logIndex: 441,
 				transactionHash: "0xee7de52ba88f098337845c96a5c98a2ca3dbdb22018299c6f43a8b286ffd4a77",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -439,6 +511,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177393n,
+				blockTimestamp: 1670954051n,
+				logIndex: 442,
 				transactionHash: "0x1bded7ec8753315d49ff688d16e283d110730690c7f8f5526f634aeeabc0006b",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -447,6 +521,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177396n,
+				blockTimestamp: 1670954087n,
+				logIndex: 311,
 				transactionHash: "0xbb8ab9c56cb51727cdf1046a7a998d2b25ae831dfef014e108b5d6eaffef3ac0",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -455,6 +531,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177396n,
+				blockTimestamp: 1670954087n,
+				logIndex: 312,
 				transactionHash: "0x1dcdc6b09194503b1426b94564310ebcaad2c3ddaf3951b331b8834f734ba3e0",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -463,6 +541,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16177399n,
+				blockTimestamp: 1670954123n,
+				logIndex: 210,
 				transactionHash: "0xd7051c81ef81174d2f2ab0fde95bd0a3d5c79a3d8d08b72dbe5553b7186d3b27",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -471,6 +551,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16499173n,
+				blockTimestamp: 1674834851n,
+				logIndex: 293,
 				transactionHash: "0xd6b9396fea05e5ee1ad819002871e7ab54478dea89c16ce0491915bbf94dfea9",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -485,6 +567,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16499173n,
+				blockTimestamp: 1674834851n,
+				logIndex: 294,
 				transactionHash: "0xa2145df140a932f355c52c3be9b674afb1d3068679c69915603db11738f1f5b9",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -499,6 +583,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16499173n,
+				blockTimestamp: 1674834851n,
+				logIndex: 295,
 				transactionHash: "0x9cfbcab760ea4fd685034c253ddadca55036280505121d7f2aa89d650308b875",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -513,6 +599,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535245n,
+				blockTimestamp: 1675269971n,
+				logIndex: 406,
 				transactionHash: "0x7a61100f5b06d1a9b0e4556630986823f9ef97f9a1cea14caf28e2989a5db3e8",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -521,6 +609,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535248n,
+				blockTimestamp: 1675270007n,
+				logIndex: 180,
 				transactionHash: "0x0f1f18899f5a0d7bcaaf2aa6babf5d0d1f59a62ecd14ddc2881227bf523c16b0",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -529,6 +619,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535250n,
+				blockTimestamp: 1675270031n,
+				logIndex: 132,
 				transactionHash: "0xc4d350f935bd44176db6596b42e9e2a340c9d1bccb465e2d765d287e6ded0ece",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -537,6 +629,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535253n,
+				blockTimestamp: 1675270067n,
+				logIndex: 337,
 				transactionHash: "0x5df2467e5ea076c25890434b92eeb59c642fe708c6717b714319edf6eac16f07",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -545,6 +639,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535255n,
+				blockTimestamp: 1675270091n,
+				logIndex: 279,
 				transactionHash: "0x1fb6ae1af08aa0924be39ed86007f3e582947aec5ee911e8d0485b8c35afe7ad",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -553,6 +649,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535260n,
+				blockTimestamp: 1675270151n,
+				logIndex: 242,
 				transactionHash: "0xf35549298445c2ec40b98e7e6c50f9d4926d3950e23e0b76cedcd0c8b7ffd1cf",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -561,6 +659,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535260n,
+				blockTimestamp: 1675270151n,
+				logIndex: 243,
 				transactionHash: "0x92e6c67478412c7c6c480976dfc1236adf84ab30e253bbb520aca2e95669280c",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -569,6 +669,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535263n,
+				blockTimestamp: 1675270187n,
+				logIndex: 467,
 				transactionHash: "0xf5190c48999aad2945ae356b6b9069aea9dd2d6286fb60bd966cb5042c8bca85",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -577,6 +679,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535266n,
+				blockTimestamp: 1675270223n,
+				logIndex: 300,
 				transactionHash: "0x4a3e8be99262156e3e20c7bf79d57b1acd973845a4153bd7f88e4ed375bd57ad",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -585,6 +689,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16535268n,
+				blockTimestamp: 1675270247n,
+				logIndex: 137,
 				transactionHash: "0xf5e2734393ee064a51b13e4ad717128b7fafead7ee975455107d6cb945e24011",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -593,6 +699,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16537355n,
+				blockTimestamp: 1675295387n,
+				logIndex: 200,
 				transactionHash: "0x1c6ff0f3228460a35595ba73aef70ec7df5063fca24d1567bc3127490931cda7",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -601,6 +709,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16734670n,
+				blockTimestamp: 1677684647n,
+				logIndex: 247,
 				transactionHash: "0x4ecadd3313e1e8c5db0ea45143b47986c90f1b86372e4a559bbca4cfb92ddc4c",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -609,6 +719,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16734673n,
+				blockTimestamp: 1677684683n,
+				logIndex: 181,
 				transactionHash: "0xaef4af4268d9ee47fb03e7c28fb4cf1c9f9d2055952703c0c2c8c16cbbce00e6",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -617,6 +729,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16734675n,
+				blockTimestamp: 1677684707n,
+				logIndex: 110,
 				transactionHash: "0xdff7a51378b999af1f425b25fe1500f53afe78d693b6597af2e16ddd6334c604",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -625,6 +739,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870929n,
+				blockTimestamp: 1679340059n,
+				logIndex: 132,
 				transactionHash: "0x2e08049dc7b9204b11403dfd80d987e4a47d2e1fad529eaa968d8b130e93dcee",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -633,6 +749,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870934n,
+				blockTimestamp: 1679340119n,
+				logIndex: 100,
 				transactionHash: "0xd74753339659e94d44b45658f15880b531e5396f6138e099528ae51468895084",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -641,6 +759,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870934n,
+				blockTimestamp: 1679340119n,
+				logIndex: 101,
 				transactionHash: "0xc2b3e53f0fddb82cbd1dc68413e1216e7a355ca42aa978a2dfb6d1f010fb4334",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -649,6 +769,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870936n,
+				blockTimestamp: 1679340143n,
+				logIndex: 130,
 				transactionHash: "0x8459bd82b0a2b46fcaa843c33d5217bd983314b03432031e2be9fb515610f3f9",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -657,6 +779,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870969n,
+				blockTimestamp: 1679340539n,
+				logIndex: 182,
 				transactionHash: "0x37ef4ce0525091f884c00abc7c86ea7c2488ea370328742f249b850ae41feef7",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -665,6 +789,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870969n,
+				blockTimestamp: 1679340539n,
+				logIndex: 183,
 				transactionHash: "0x2b0e99821e1d0d3f1e75c103c6276565cf45a34b933b52411051d1b7fb779188",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -673,6 +799,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870969n,
+				blockTimestamp: 1679340539n,
+				logIndex: 184,
 				transactionHash: "0x83d6e9d224a6bb9ab0627258bacd1ee0b7a595f9993e4e79f5700bc5ffecb445",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -681,6 +809,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870969n,
+				blockTimestamp: 1679340539n,
+				logIndex: 185,
 				transactionHash: "0xab4383f727fb5945be0b75531270df254a45c33e1cbf8b12f55dba0d14913fae",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -689,6 +819,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870969n,
+				blockTimestamp: 1679340539n,
+				logIndex: 186,
 				transactionHash: "0x0708a30a4099ae82d0c9d90092849cf5f806b86238ca2f1d5d3beaf857cf89af",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -697,6 +829,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 16870969n,
+				blockTimestamp: 1679340539n,
+				logIndex: 187,
 				transactionHash: "0x128c422516d683a9dfc9e917abaa9500179757270824d9c0e5940dbce00784eb",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -705,6 +839,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080812n,
+				blockTimestamp: 1681909319n,
+				logIndex: 282,
 				transactionHash: "0x0c3335cd81db77e89c5265ac9758c1f904181d8924260fbfe57f1fe99bc18dee",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -716,6 +852,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080812n,
+				blockTimestamp: 1681909319n,
+				logIndex: 283,
 				transactionHash: "0x31c89eddb2190abed62b17e6a2a9f56a409898498658f42e7c8fa4b48195809f",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -727,6 +865,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080812n,
+				blockTimestamp: 1681909319n,
+				logIndex: 284,
 				transactionHash: "0x869b776f3d6f1263f3ea238d6b247e1e7e9eb891a8c17bb2202af3d80d5ab54a",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -738,6 +878,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080812n,
+				blockTimestamp: 1681909319n,
+				logIndex: 285,
 				transactionHash: "0x8d923cad83c33ee0492f29d896b99f59183534b972060dfd168e59d6b16c3b49",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -749,6 +891,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080814n,
+				blockTimestamp: 1681909343n,
+				logIndex: 125,
 				transactionHash: "0x87f66624b6174d0f4274353cbd93a217383d17f3da62c0594315a9bb45b3fa78",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -760,6 +904,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080862n,
+				blockTimestamp: 1681909931n,
+				logIndex: 280,
 				transactionHash: "0x82e81e00ae25ca89d23f726709b827056addd11f40231b2e24f8e097f7687af9",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -771,6 +917,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080862n,
+				blockTimestamp: 1681909931n,
+				logIndex: 281,
 				transactionHash: "0x4e164e83e17fa8e44918a1bcde5db04113362e28d05749398bc9097650b4d1cc",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -782,6 +930,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17080862n,
+				blockTimestamp: 1681909931n,
+				logIndex: 282,
 				transactionHash: "0x12dac0c42dc782c2b19171414712ffa3ab838e79b5b2c86ab7fbf004e1ccf9b5",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -793,6 +943,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17117184n,
+				blockTimestamp: 1682351903n,
+				logIndex: 138,
 				transactionHash: "0x8eab4d9cf47d10b0c3075c01cd9300d2461090e35dd5255c6ffb084baa2298b2",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -849,6 +1001,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17117191n,
+				blockTimestamp: 1682351987n,
+				logIndex: 125,
 				transactionHash: "0x2f003383cf9edbdaeead05c80788da5894db438401793708af4b1b7005da3c8a",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -857,6 +1011,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17117207n,
+				blockTimestamp: 1682352179n,
+				logIndex: 77,
 				transactionHash: "0x57f4cdef020828cdc81db1c988c391dc2bfe4da1e419d21eae25899fea8c8912",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -865,6 +1021,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17117268n,
+				blockTimestamp: 1682352923n,
+				logIndex: 68,
 				transactionHash: "0x68303aa14e6e32deb044cdfe15f034f060f85aa971e07f98c90c00ddb283ef2e",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -873,6 +1031,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 17118381n,
+				blockTimestamp: 1682366447n,
+				logIndex: 190,
 				transactionHash: "0xa7b9cff7f34bc3642ec27513c70fb1f28dcd1de9b40a9297065ee7176b6deed5",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -885,6 +1045,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 18042792n,
+				blockTimestamp: 1693584455n,
+				logIndex: 320,
 				transactionHash: "0x7cc995252a9da4ce4f08d32a2b9a6ceede7258412b025fad07067c47b5110c55",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -902,6 +1064,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 18222796n,
+				blockTimestamp: 1695765719n,
+				logIndex: 274,
 				transactionHash: "0x9da9c2d5033200548dc370fca21506f47bf3e987b4cda5e372952c3be132460c",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -910,6 +1074,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 18272728n,
+				blockTimestamp: 1696369031n,
+				logIndex: 172,
 				transactionHash: "0x7e1771f3798da1980840bb8c66524667bdb5be1e1447c7127c6b631f2fcfacb0",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -918,6 +1084,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 19562392n,
+				blockTimestamp: 1711991615n,
+				logIndex: 154,
 				transactionHash: "0xa2c14db7f1a255fbb6434b9a829b5cf2759d1637ef46e4ad2d1cd9391f4ae263",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -938,6 +1106,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 19783740n,
+				blockTimestamp: 1714668623n,
+				logIndex: 366,
 				transactionHash: "0x4acf430775d025f18b53f77a2a9d962ad6aae85e99c7ab2e801e6204831be807",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -946,6 +1116,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 20463655n,
+				blockTimestamp: 1722876443n,
+				logIndex: 217,
 				transactionHash: "0x5d5f9971c3ce1f2cce81bff936a64e117846e41f960534fb979098e2cbb25728",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -954,6 +1126,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 20864353n,
+				blockTimestamp: 1727709947n,
+				logIndex: 443,
 				transactionHash: "0xde9959ccafb8e3282a85aebad93dbeb72d19b94deb7accbde78caf701d59d27c",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -962,6 +1136,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 21331994n,
+				blockTimestamp: 1733349755n,
+				logIndex: 518,
 				transactionHash: "0x9fcf8b1942c0d21a1794d61f4833988ce84ce1f58a6c9cac75206c9f8771b769",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -970,6 +1146,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 21918916n,
+				blockTimestamp: 1740433115n,
+				logIndex: 95,
 				transactionHash: "0xeca25e73a3637f73f742441966e9fecb5bb76bfa2be999d7b2247d0405d473f9",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -981,6 +1159,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 22097863n,
+				blockTimestamp: 1742591603n,
+				logIndex: 409,
 				transactionHash: "0x75f213aa421ca2bf728b1b90f9e08dba038708d5483dac1292a501e9406251d4",
 				eventName: "SanctionedAddressesRemoved",
 				args: {
@@ -1080,6 +1260,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 22597967n,
+				blockTimestamp: 1748637299n,
+				logIndex: 654,
 				transactionHash: "0xe545b60e07fa17e4d1f60a75792c3e0e5b3a5534fd0f88bff73d960922352301",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -1088,6 +1270,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 22782345n,
+				blockTimestamp: 1750865291n,
+				logIndex: 354,
 				transactionHash: "0x149024732f2aa0d0b8aa2a6b027575e49e1d86164772bae2197baac6e96638ba",
 				eventName: "SanctionedAddressesRemoved",
 				args: {
@@ -1096,6 +1280,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 23199109n,
+				blockTimestamp: 1755895727n,
+				logIndex: 397,
 				transactionHash: "0x7af621eac1384afac8e4134251a7eecaf1383b2c66f812e3cd4736b3ad3aa50b",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -1104,6 +1290,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 23199126n,
+				blockTimestamp: 1755895931n,
+				logIndex: 340,
 				transactionHash: "0x9af8f9b5506799122f2ddf3617a2e7aa144293a90c9b5f6b36f1af6ee00b942e",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -1112,6 +1300,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 23420862n,
+				blockTimestamp: 1758571787n,
+				logIndex: 331,
 				transactionHash: "0x39872c5f5e6c224a10d438bfc69ac95d103fb628493c9e65c15b3bbfa30b8afd",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -1120,6 +1310,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 23421049n,
+				blockTimestamp: 1758574043n,
+				logIndex: 264,
 				transactionHash: "0x62e64f973499d579edf48c506b8f979f1930f121646b146257e8b09d254423f1",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -1128,6 +1320,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 23421215n,
+				blockTimestamp: 1758576047n,
+				logIndex: 155,
 				transactionHash: "0x5f8963c687687e833dafad78645b050680b65751bd9d3e4772bf985b8f99812a",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -1139,6 +1333,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 23421231n,
+				blockTimestamp: 1758576239n,
+				logIndex: 300,
 				transactionHash: "0x58a452f263c52c006aa3b1d0255a57c99ad4e27b83dd81545a36f833dc2b16dd",
 				eventName: "SanctionedAddressesAdded",
 				args: {
@@ -1150,6 +1346,8 @@ export const SANCTIONS_LIST_SEED_DATA = {
 			},
 			{
 				blockNumber: 24687198n,
+				blockTimestamp: 1773871031n,
+				logIndex: 120,
 				transactionHash: "0x5446ac44bc6aa4558911d71b95627a7dedf97d7ebc248bdd9644a617e15cd72f",
 				eventName: "SanctionedAddressesAdded",
 				args: {

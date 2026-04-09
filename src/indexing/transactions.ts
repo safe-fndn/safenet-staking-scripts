@@ -1,7 +1,7 @@
 import { getAbiItem } from "viem";
 import { CONSENSUS_ABI } from "../abi.js";
 import type { Attestations, AttestationsIndexerConfiguration } from "./attestations.js";
-import { EventIndexer, type ParsedLog } from "./events.js";
+import { EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionProposed" }),
@@ -20,7 +20,7 @@ export class Transactions extends EventIndexer<typeof EVENTS> {
 		this.#attestations = attestations;
 	}
 
-	protected insertEvent(log: ParsedLog<typeof EVENTS>): void {
+	protected insertEvent(log: Log<typeof EVENTS>): void {
 		switch (log.eventName) {
 			case "TransactionProposed": {
 				this.#attestations.registerTransactionProposal();

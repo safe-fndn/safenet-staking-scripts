@@ -7,7 +7,7 @@ import {
 	zeroAddress,
 	zeroHash,
 } from "viem";
-import { CONSENSUS_ABI, COORDINATOR_ABI, STAKING_ABI } from "../../src/abi.js";
+import { CONSENSUS_ABI, COORDINATOR_ABI, SANCTIONS_LIST_ABI, STAKING_ABI } from "../../src/abi.js";
 import { Safenet } from "../../src/safenet.js";
 import {
 	type BlockSpec,
@@ -35,6 +35,14 @@ export type StakingChainEvent =
 			staker: Address;
 			validator: Address;
 			amount: bigint;
+	  }
+	| {
+			name: "SanctionedAddressesAdded";
+			addresses: Address[];
+	  }
+	| {
+			name: "SanctionedAddressesRemoved";
+			addresses: Address[];
 	  };
 
 export type ConsensusChainEvent =
@@ -129,6 +137,17 @@ const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
 					},
 				}) as Hex[],
 				data: encodeAbiParameters(parseAbiParameters("uint256 amount"), [event.amount]),
+			};
+		}
+		case "SanctionedAddressesAdded":
+		case "SanctionedAddressesRemoved": {
+			return {
+				address: namedAddress("SanctionsList"),
+				topics: encodeEventTopics({
+					abi: SANCTIONS_LIST_ABI,
+					eventName: event.name,
+				}) as Hex[],
+				data: encodeAbiParameters(parseAbiParameters("address[] addrs"), [event.addresses]),
 			};
 		}
 	}
