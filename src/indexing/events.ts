@@ -8,17 +8,22 @@
 
 import type { Database, Statement, Transaction } from "better-sqlite3";
 import debug, { type Debugger } from "debug";
-import { type AbiEvent, type Address, type Client, getAddress, type Log } from "viem";
-import { getBlockNumber, getLogs } from "viem/actions";
+import {
+	type AbiEvent,
+	type Address,
+	type Client,
+	getAddress,
+	type UnionPick,
+	type Log as ViemLog,
+} from "viem";
+import { getBlock, getLogs } from "viem/actions";
 import { type Backoff, backoff } from "../utils/backoff.js";
 import { formatRange } from "../utils/format.js";
 import { minBigInt } from "../utils/math.js";
-import type { BlockRange, FromBlock, ToBlock, ToTimestamp } from "../utils/ranges.js";
-import type { BlockTimestampCache } from "./block.js";
+import type { BlockRange, FromBlock, ToTimestamp } from "../utils/ranges.js";
 
 export type Configuration = {
 	db: Database;
-	blocks: BlockTimestampCache;
 	client: Client;
 	blockPageSize: bigint;
 	chainId: number;
@@ -31,24 +36,21 @@ export type Parameters<Events> = {
 	events: Events;
 } & Configuration;
 
-export type UpdateBlockRange = {
-	toBlock?: BlockRange["toBlock"];
-	blockPageSize: bigint;
+type ParsedLog<Events extends AbiEvent[]> = ViemLog<bigint, number, false, undefined, true, Events>;
+export type Log<Events extends AbiEvent[]> = UnionPick<ParsedLog<Events>, "eventName" | "args"> & {
+	blockTimestamp: bigint;
 };
 
-export type ParsedLog<Events extends AbiEvent[]> = Log<
-	bigint,
-	number,
-	false,
-	undefined,
-	true,
-	Events
->;
+export type BlockTimestamp<I = bigint> = {
+	number: I;
+	timestamp: I;
+};
+
+type BlockPage = BlockRange & ToTimestamp;
 
 export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	#debug: Debugger;
 	#contract: string;
-	#blocks: BlockTimestampCache;
 	#client: Client;
 	#blockPageSize: bigint;
 	#filter: {
@@ -59,16 +61,15 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	#backoff: Backoff;
 	#db: Database;
 	#queries: {
-		selectIndexer: Statement<[], number>;
-		updateIndexer: Statement<{ toBlock: bigint }, number>;
-		addEvents: Transaction<(args: { page: BlockRange; logs: ParsedLog<Events>[] }) => void>;
+		selectIndexer: Statement<[], BlockTimestamp<number>>;
+		updateIndexer: Statement<BlockTimestamp<bigint>, number>;
+		addEvents: Transaction<(args: { block: BlockTimestamp; logs: Log<Events>[] }) => void>;
 	};
 
 	protected constructor({
 		name,
 		events,
 		db,
-		blocks,
 		client,
 		blockPageSize,
 		chainId,
@@ -77,7 +78,6 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	}: Parameters<Events>) {
 		this.#debug = debug(`safenet:indexing:${name}`);
 		this.#contract = `${chainId}:${getAddress(address)}`;
-		this.#blocks = blocks;
 		this.#client = client;
 		this.#filter = {
 			address,
@@ -94,7 +94,8 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 			CREATE TABLE IF NOT EXISTS event_indexers(
 				name TEXT NOT NULL,
 				contract TEXT NOT NULL,
-				to_block INTEGER NOT NULL,
+				last_block_number INTEGER NOT NULL,
+				last_block_timestamp INTEGER NOT NULL,
 				PRIMARY KEY(name)
 			) WITHOUT ROWID;
 		`);
@@ -105,38 +106,35 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		// Safenet instances (which would corrupt our data).
 		const insert = this.#db
 			.prepare(`
-				INSERT INTO event_indexers(name, contract, to_block)
-				VALUES ('${name}', '${this.#contract}', @toBlock)
+				INSERT INTO event_indexers(name, contract, last_block_number, last_block_timestamp)
+				VALUES ('${name}', '${this.#contract}', @number, 0)
 				ON CONFLICT(name)
-				DO UPDATE SET to_block = MAX(to_block, EXCLUDED.to_block)
+				DO UPDATE SET last_block_number = MAX(last_block_number, EXCLUDED.last_block_number)
 				WHERE contract = '${this.#contract}'
 			`)
-			.run({ toBlock: (startBlock ?? 0n) - 1n });
+			.run({ number: (startBlock ?? 0n) - 1n });
 		if (insert.changes === 0) {
 			throw new Error("event indexer connected to the wrong database");
 		}
 
 		this.#queries = {
-			selectIndexer: this.#db.prepare<[], number>(`
-				SELECT to_block
+			selectIndexer: this.#db.prepare<[], BlockTimestamp<number>>(`
+				SELECT last_block_number as number
+				, last_block_timestamp as timestamp
 				FROM event_indexers
 				WHERE name = '${name}'
 			`),
-			updateIndexer: this.#db.prepare<{ toBlock: bigint }, number>(`
+			updateIndexer: this.#db.prepare<BlockTimestamp, number>(`
 				UPDATE event_indexers
-				SET to_block = @toBlock
+				SET last_block_number = @number
+				, last_block_timestamp = @timestamp
 				WHERE name = '${name}'
 			`),
 			addEvents: this.#db.transaction(
-				({ page, logs }: { page: BlockRange; logs: ParsedLog<Events>[] }) => {
-					this.#queries.updateIndexer.run(page);
+				({ block, logs }: { block: BlockTimestamp; logs: Log<Events>[] }) => {
+					this.#queries.updateIndexer.run(block);
 					for (const log of logs) {
 						this.insertEvent(log);
-
-						// Some RPC nodes return events with block timestamps
-						// that we can record directly in our block timestamp
-						// cache, which saves us an RPC request later.
-						this.#blocks.recordLog(log);
 					}
 				},
 			),
@@ -147,36 +145,45 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		return this.#db;
 	}
 
-	protected get blocks(): BlockTimestampCache {
-		return this.#blocks;
+	#lastBlock(): BlockTimestamp {
+		const latest = this.#queries.selectIndexer.get();
+		if (latest === undefined) {
+			throw new Error("Event indexer not initialized");
+		}
+		return {
+			number: BigInt(latest.number),
+			timestamp: BigInt(latest.timestamp),
+		};
 	}
 
 	#seed(): void {
-		const latest = this.latestBlock() ?? -1n;
-		const fromBlock = latest + 1n;
+		const last = this.#lastBlock();
+		const fromBlock = last.number + 1n;
 		const to = this.seed(this.#contract, { fromBlock });
 		if (to !== null) {
 			this.#queries.updateIndexer.run(to);
 		}
 	}
 
-	#nextPage(range: ToBlock): BlockRange | null {
-		const latest = this.latestBlock() ?? -1n;
-		if (latest >= range.toBlock) {
+	async #nextPage(range: {
+		toTimestamp: bigint;
+		latest: BlockTimestamp;
+	}): Promise<BlockPage | null> {
+		const last = this.#lastBlock();
+		if (last.timestamp >= range.toTimestamp) {
 			return null;
 		}
 
-		const fromBlock = latest + 1n;
-		const toBlock = minBigInt(fromBlock + this.#blockPageSize - 1n, range.toBlock);
-		return { fromBlock, toBlock };
+		const fromBlock = last.number + 1n;
+		const toBlock = minBigInt(fromBlock + this.#blockPageSize - 1n, range.latest.number);
+		const { timestamp } =
+			toBlock === range.latest.number
+				? range.latest
+				: await getBlock(this.#client, { blockNumber: toBlock });
+		return { fromBlock, toBlock, toTimestamp: timestamp };
 	}
 
-	latestBlock(): bigint | null {
-		const latest = this.#queries.selectIndexer.pluck().get();
-		return latest !== undefined ? BigInt(latest) : null;
-	}
-
-	async update({ toTimestamp }: Partial<ToTimestamp> = {}, cancel?: () => boolean): Promise<void> {
+	async update(to: Partial<ToTimestamp> = {}, cancel?: () => boolean): Promise<BlockTimestamp> {
 		// Allow the indexer to seed themselves with the latest data. This will
 		// permit us to skip indexing specific block ranges for certain events
 		// (in particular the sancions list). We do this in update to ensure
@@ -184,38 +191,74 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		// already initialized but on an old block.
 		this.#seed();
 
+		const start = this.#lastBlock();
+		if (start.number >= 0n && start.timestamp === 0n) {
+			// On startup we set the timestamp to 0, fetch it from the block
+			// chain on first update.
+			const { timestamp } = await getBlock(this.#client, { blockNumber: start.number });
+			start.timestamp = timestamp;
+			this.#queries.updateIndexer.run(start);
+		}
+
+		if (to.toTimestamp !== undefined && to.toTimestamp <= start.timestamp) {
+			return start;
+		}
+
+		const latest = await getBlock(this.#client, { blockTag: "latest" });
 		const range = {
-			toBlock:
-				toTimestamp !== undefined
-					? await this.#blocks.blockBefore({ timestamp: toTimestamp })
-					: await getBlockNumber(this.#client),
+			latest,
+			toTimestamp: to.toTimestamp ?? latest.timestamp,
 		};
-		let startBlock: bigint | null = null;
+		const timeSpan = Number(range.toTimestamp - start.timestamp);
+
 		while (cancel?.() !== true) {
-			const page = this.#nextPage(range);
+			const page = await this.#nextPage(range);
 			if (page === null) {
 				break;
 			}
 
-			startBlock = startBlock ?? page.fromBlock - 1n;
-			const progress =
-				(100 * Number(page.toBlock - startBlock)) / Number(range.toBlock - startBlock);
-			this.#debug(`fetching block page ${formatRange(page)} (${progress.toFixed(2)}%)`);
+			const { toTimestamp, ...blocks } = page;
+			const progress = 100 * Math.min(Number(toTimestamp - start.timestamp) / timeSpan, 1);
+			this.#debug(`fetching block page ${formatRange(blocks)} (${progress.toFixed(2)}%)`);
 
 			const logs = await this.#backoff(() =>
 				getLogs(this.#client, {
 					...this.#filter,
-					...page,
+					...blocks,
 				}),
 			);
 
-			this.#queries.addEvents({ page, logs });
+			this.#queries.addEvents({
+				block: { number: blocks.toBlock, timestamp: toTimestamp },
+				logs: sortLogs(logs),
+			});
 			this.#debug(`indexed ${logs.length} logs`);
 		}
+
+		return this.#lastBlock();
 	}
 
-	protected seed(_contract: string, _from: FromBlock): ToBlock | null {
+	protected seed(_contract: string, _from: FromBlock): BlockTimestamp | null {
 		return null;
 	}
-	protected abstract insertEvent(log: ParsedLog<Events>): void;
+	protected abstract insertEvent(log: Log<Events>): void;
 }
+
+const sortLogs = <Events extends AbiEvent[]>(logs: ParsedLog<Events>[]): Log<Events>[] => {
+	return logs
+		.sort((a, b) =>
+			a.blockNumber < b.blockNumber
+				? -1
+				: a.blockNumber > b.blockNumber
+					? 1
+					: a.logIndex - b.logIndex,
+		)
+		.map(({ blockTimestamp, eventName, args }) => {
+			if (blockTimestamp === undefined) {
+				throw new Error(
+					"Indexing requires logs with block timestamps, use a different node provider",
+				);
+			}
+			return { blockTimestamp, eventName, args };
+		}) as unknown as Log<Events>[];
+};

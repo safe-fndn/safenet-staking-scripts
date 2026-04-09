@@ -53,6 +53,7 @@ type Block = {
 
 const makeRpcLog = (
 	blockNumber: bigint,
+	blockTimestamp: bigint,
 	logIndex: bigint,
 	{ address, topics, data }: LogSpec,
 ): RpcLog => ({
@@ -64,6 +65,7 @@ const makeRpcLog = (
 	data,
 	blockNumber: toHex(blockNumber),
 	blockHash: keccak256(toHex(blockNumber, { size: 8 })),
+	blockTimestamp: toHex(blockTimestamp),
 	transactionHash: keccak256(encodePacked(["uint64", "uint64"], [blockNumber, logIndex])),
 	transactionIndex: toHex(logIndex),
 	logIndex: toHex(logIndex),
@@ -81,7 +83,7 @@ const appendBlock = (
 			`expected block ${number}@${timestamp} to have timestamp ${spec.assertTimestamp}`,
 		);
 	}
-	const logs = spec.logs?.map((log, i) => makeRpcLog(number, BigInt(i), log)) ?? [];
+	const logs = spec.logs?.map((log, i) => makeRpcLog(number, timestamp, BigInt(i), log)) ?? [];
 	blocks.push([number, { number, timestamp, logs }]);
 	return blocks;
 };

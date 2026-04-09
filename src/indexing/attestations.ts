@@ -1,13 +1,7 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { Address, Hex } from "viem";
-import type { BlockRange, TimestampRange } from "../utils/ranges.js";
-import type { BlockTimestampCache } from "./block.js";
+import type { TimestampRange } from "../utils/ranges.js";
 import type { Configuration } from "./events.js";
-
-export type AttestationsConfiguration = {
-	blocks: BlockTimestampCache;
-	db: Database;
-};
 
 export type AttestationsIndexerConfiguration = {
 	attestations: Attestations;
@@ -39,7 +33,7 @@ type SigningCeremonyDetails = SigningCeremony & {
 type SignatureComplete = {
 	sid: Hex;
 	selectionRoot: Hex;
-	blockNumber: bigint;
+	blockTimestamp: bigint;
 };
 
 type Selection = {
@@ -52,7 +46,6 @@ type ParticipationCount = {
 };
 
 export class Attestations {
-	#blocks: BlockTimestampCache;
 	#db: Database;
 	#queries: {
 		upsertIncrementTransactionCount: Statement<[], number>;
@@ -63,12 +56,11 @@ export class Attestations {
 		upsertSigningCeremony: Statement<SigningCeremonyDetails, number>;
 		insertSigningParticipant: Statement<SignatureShare, number>;
 		updateSigningCeremonyCompleted: Statement<SignatureComplete, number>;
-		selectTotalSignatureCount: Statement<BlockRange, number>;
-		selectParticipation: Statement<BlockRange, ParticipationCount>;
+		selectTotalSignatureCount: Statement<TimestampRange, number>;
+		selectParticipation: Statement<TimestampRange, ParticipationCount>;
 	};
 
-	constructor({ blocks, db }: AttestationsConfiguration) {
-		this.#blocks = blocks;
+	constructor({ db }: { db: Database }) {
 		this.#db = db;
 		this.#db.exec(`
 			CREATE TABLE IF NOT EXISTS transactions(
@@ -96,13 +88,13 @@ export class Attestations {
 				id INTEGER NOT NULL,
 				sid TEXT NOT NULL,
 				selection INTEGER,
-				completed_block_number INTEGER,
+				completed_block_timestamp INTEGER,
 				is_transaction_attestation INTEGER NOT NULL,
 				PRIMARY KEY(id),
 				UNIQUE(sid)
 			);
-			CREATE INDEX IF NOT EXISTS signing_ceremony_completed_block_number_idx
-			ON signing_ceremonies(completed_block_number);
+			CREATE INDEX IF NOT EXISTS signing_ceremony_completed_block_timestamp_idx
+			ON signing_ceremonies(completed_block_timestamp);
 			CREATE INDEX IF NOT EXISTS signing_ceremony_is_transaction_attestation_idx
 			ON signing_ceremonies(is_transaction_attestation);
 
@@ -139,7 +131,7 @@ export class Attestations {
 				WHERE root = @root
 			`),
 			upsertSigningCeremony: this.#db.prepare<SigningCeremonyDetails, number>(`
-				INSERT INTO signing_ceremonies(sid, selection, completed_block_number, is_transaction_attestation)
+				INSERT INTO signing_ceremonies(sid, selection, completed_block_timestamp, is_transaction_attestation)
 				VALUES(@sid, NULL, NULL, COALESCE(@isTransactionAttestation, FALSE))
 				ON CONFLICT DO UPDATE
 				SET is_transaction_attestation = COALESCE(@isTransactionAttestation, is_transaction_attestation)
@@ -153,7 +145,7 @@ export class Attestations {
 			updateSigningCeremonyCompleted: this.#db.prepare<SignatureComplete, number>(`
 				UPDATE signing_ceremonies
 				SET selection = (SELECT id FROM selections WHERE root = @selectionRoot)
-				, completed_block_number = @blockNumber
+				, completed_block_timestamp = @blockTimestamp
 				WHERE sid = @sid
 			`),
 			selectTransactionCount: this.#db.prepare<[], number>(`
@@ -161,15 +153,15 @@ export class Attestations {
 				FROM transactions
 				WHERE id = 0
 			`),
-			selectTotalSignatureCount: this.#db.prepare<BlockRange, number>(`
+			selectTotalSignatureCount: this.#db.prepare<TimestampRange, number>(`
 				SELECT COUNT(*) AS count
 				FROM signing_ceremonies
 				WHERE selection IS NOT NULL
-				AND completed_block_number >= @fromBlock
-				AND completed_block_number <= @toBlock
+				AND completed_block_timestamp >= @fromTimestamp
+				AND completed_block_timestamp <= @toTimestamp
 				AND is_transaction_attestation = TRUE
 			`),
-			selectParticipation: this.#db.prepare<BlockRange, ParticipationCount>(`
+			selectParticipation: this.#db.prepare<TimestampRange, ParticipationCount>(`
 				SELECT a.address AS participant
 				, COUNT(*) AS count
 				FROM signing_ceremonies AS s
@@ -179,8 +171,8 @@ export class Attestations {
 				INNER JOIN participants AS a
 				ON a.id = p.participant
 				WHERE s.selection IS NOT NULL
-				AND s.completed_block_number >= @fromBlock
-				AND s.completed_block_number <= @toBlock
+				AND s.completed_block_timestamp >= @fromTimestamp
+				AND s.completed_block_timestamp <= @toTimestamp
 				AND is_transaction_attestation = TRUE
 				GROUP BY p.participant
 			`),
@@ -207,8 +199,8 @@ export class Attestations {
 		this.#queries.insertSigningParticipant.run({ sid, participant, selectionRoot });
 	}
 
-	registerSignatureCompleted({ sid, selectionRoot, blockNumber }: SignatureComplete): void {
-		this.#queries.updateSigningCeremonyCompleted.run({ sid, selectionRoot, blockNumber });
+	registerSignatureCompleted({ sid, selectionRoot, blockTimestamp }: SignatureComplete): void {
+		this.#queries.updateSigningCeremonyCompleted.run({ sid, selectionRoot, blockTimestamp });
 
 		// We only care about whether or not a signing participant's selection
 		// root matches the signatures, and not its actual value. This allows us
@@ -234,10 +226,9 @@ export class Attestations {
 		return this.#queries.selectTransactionCount.pluck().get() ?? 0;
 	}
 
-	async participation(period: TimestampRange): Promise<ParticipationSummary> {
-		const range = await this.#blocks.blockRange(period);
-		const total = this.#queries.selectTotalSignatureCount.pluck().get(range) ?? 0;
-		const counts = this.#queries.selectParticipation.all(range);
+	participation(period: TimestampRange): ParticipationSummary {
+		const total = this.#queries.selectTotalSignatureCount.pluck().get(period) ?? 0;
+		const counts = this.#queries.selectParticipation.all(period);
 		const participants = Object.fromEntries(
 			counts.map(({ participant, count }) => [participant, count]),
 		);

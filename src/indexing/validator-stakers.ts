@@ -1,8 +1,8 @@
 import type { Statement } from "better-sqlite3";
 import { type Address, getAbiItem, zeroAddress } from "viem";
 import { CONSENSUS_ABI } from "../abi.js";
-import type { BlockRange, TimestampRange } from "../utils/ranges.js";
-import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
+import type { TimestampRange } from "../utils/ranges.js";
+import { type Configuration, EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [getAbiItem({ abi: CONSENSUS_ABI, name: "ValidatorStakerSet" })];
 
@@ -15,18 +15,17 @@ export type ValidatorStaker = {
 } & TimestampRange;
 
 type StakerUpdate = {
-	blockNumber: bigint | number;
-	logIndex: number;
+	blockTimestamp: bigint;
 	validator: Address;
 	staker: Address;
 };
 
 type StakerRange = {
 	validator: Address;
-} & BlockRange;
+} & TimestampRange;
 
 type StakerChange = {
-	blockNumber: number;
+	blockTimestamp: number;
 	staker: Address;
 };
 
@@ -46,56 +45,50 @@ export class ValidatorStakers extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS validator_stakers(
-				block_number INTEGER NOT NULL,
-				log_index INTEGER NOT NULL,
+				block_timestamp INTEGER NOT NULL,
 				validator TEXT NOT NULL,
 				staker TEXT NOT NULL,
-				PRIMARY KEY(block_number, log_index)
+				PRIMARY KEY(block_timestamp, validator)
 			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			upsertStaker: this.db.prepare<StakerUpdate, number>(`
-				INSERT INTO validator_stakers(block_number, log_index, validator, staker)
-				VALUES(@blockNumber, @logIndex, @validator, @staker)
-				ON CONFLICT(block_number, log_index)
-				DO NOTHING
+				INSERT INTO validator_stakers(block_timestamp, validator, staker)
+				VALUES(@blockTimestamp, @validator, @staker)
+				ON CONFLICT(block_timestamp, validator)
+				DO UPDATE SET staker = EXCLUDED.staker
 			`),
 			selectStartingStaker: this.db.prepare<StakerRange, Address>(`
 				SELECT staker
 				FROM validator_stakers
-				WHERE block_number < @fromBlock
+				WHERE block_timestamp < @fromTimestamp
 				AND validator = @validator
-				ORDER BY block_number DESC, log_index DESC
+				ORDER BY block_timestamp DESC
 				LIMIT 1
 			`),
 			selectStakerChanges: this.db.prepare<StakerRange, StakerChange>(`
-				SELECT block_number AS blockNumber
+				SELECT block_timestamp AS blockTimestamp
 				, staker
 				FROM validator_stakers
-				WHERE block_number >= @fromBlock
-				AND block_number <= @toBlock
+				WHERE block_timestamp >= @fromTimestamp
+				AND block_timestamp <= @toTimestamp
 				AND validator = @validator
-				ORDER BY block_number ASC, log_index ASC
+				ORDER BY block_timestamp ASC
 			`),
 		};
 	}
 
-	protected insertEvent(log: ParsedLog<typeof EVENTS>): void {
+	protected insertEvent(log: Log<typeof EVENTS>): void {
 		this.#queries.upsertStaker.run({
-			blockNumber: log.blockNumber,
-			logIndex: log.logIndex,
+			blockTimestamp: log.blockTimestamp,
 			validator: log.args.validator,
 			staker: log.args.staker,
 		});
 	}
 
-	async validatorStakers({
-		validator,
-		...period
-	}: ValidatorStakerPeriod): Promise<ValidatorStaker[]> {
-		const range = await this.blocks.blockRange(period);
-		const staker = this.#queries.selectStartingStaker.pluck().get({ validator, ...range });
-		const changes = this.#queries.selectStakerChanges.all({ validator, ...range });
+	validatorStakers({ validator, ...period }: ValidatorStakerPeriod): ValidatorStaker[] {
+		const staker = this.#queries.selectStartingStaker.pluck().get({ validator, ...period });
+		const changes = this.#queries.selectStakerChanges.all({ validator, ...period });
 
 		const stakers = [
 			{
@@ -103,7 +96,7 @@ export class ValidatorStakers extends EventIndexer<typeof EVENTS> {
 				...period,
 			},
 		];
-		for (const { blockNumber, staker } of changes) {
+		for (const { blockTimestamp, staker } of changes) {
 			const previous = stakers.at(-1);
 			if (previous === undefined) {
 				throw new Error("stakers is never empty");
@@ -115,7 +108,7 @@ export class ValidatorStakers extends EventIndexer<typeof EVENTS> {
 				continue;
 			}
 
-			const timestamp = await this.blocks.mustGetTimestamp({ blockNumber: BigInt(blockNumber) });
+			const timestamp = BigInt(blockTimestamp);
 			previous.toTimestamp = timestamp;
 			stakers.push({
 				staker,

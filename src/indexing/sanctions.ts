@@ -2,8 +2,8 @@ import type { Statement } from "better-sqlite3";
 import { type Address, getAbiItem } from "viem";
 import { SANCTIONS_LIST_ABI } from "../abi.js";
 import { SANCTIONS_LIST_SEED_DATA } from "../data/sanctions.js";
-import type { FromBlock, ToBlock, ToTimestamp } from "../utils/ranges.js";
-import { type Configuration, EventIndexer, type ParsedLog } from "./events.js";
+import type { FromBlock, ToTimestamp } from "../utils/ranges.js";
+import { type BlockTimestamp, type Configuration, EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: SANCTIONS_LIST_ABI, name: "SanctionedAddressesAdded" }),
@@ -11,13 +11,13 @@ const EVENTS = [
 ];
 
 type Sanction = {
-	blockNumber: bigint;
+	blockTimestamp: bigint;
 	account: Address;
 	sanctioned: number;
 };
 
 type Instant = {
-	blockNumber: bigint;
+	blockTimestamp: bigint;
 };
 
 export class Sanctions extends EventIndexer<typeof EVENTS> {
@@ -35,17 +35,17 @@ export class Sanctions extends EventIndexer<typeof EVENTS> {
 
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS sanctions(
-				block_number INTEGER NOT NULL,
+				block_timestamp INTEGER NOT NULL,
 				account TEXT NOT NULL,
 				sanctioned INTEGER NOT NULL,
-				PRIMARY KEY(block_number, account)
+				PRIMARY KEY(block_timestamp, account)
 			) WITHOUT ROWID;
 		`);
 		this.#queries = {
 			upsertSanction: this.db.prepare<Sanction, number>(`
-				INSERT INTO sanctions(block_number, account, sanctioned)
-				VALUES(@blockNumber, @account, @sanctioned)
-				ON CONFLICT(block_number, account)
+				INSERT INTO sanctions(block_timestamp, account, sanctioned)
+				VALUES(@blockTimestamp, @account, @sanctioned)
+				ON CONFLICT(block_timestamp, account)
 				DO UPDATE SET sanctioned = EXCLUDED.sanctioned
 			`),
 			selectSanctionedAccounts: this.db.prepare<Instant, Address>(`
@@ -54,10 +54,10 @@ export class Sanctions extends EventIndexer<typeof EVENTS> {
 					, sanctioned
 					, row_number() OVER (
 						PARTITION BY account
-						ORDER BY block_number DESC
+						ORDER BY block_timestamp DESC
 					) AS n
 					FROM sanctions
-					WHERE block_number <= @blockNumber
+					WHERE block_timestamp <= @blockTimestamp
 				)
 				SELECT account
 				FROM sanctioned_at_block
@@ -68,12 +68,12 @@ export class Sanctions extends EventIndexer<typeof EVENTS> {
 		};
 	}
 
-	#insertEvent(log: Pick<ParsedLog<typeof EVENTS>, "blockNumber" | "eventName" | "args">): void {
+	#insertEvent(log: Log<typeof EVENTS>): void {
 		switch (log.eventName) {
 			case "SanctionedAddressesAdded": {
 				for (const account of log.args.addrs) {
 					this.#queries.upsertSanction.run({
-						blockNumber: log.blockNumber,
+						blockTimestamp: log.blockTimestamp,
 						account,
 						sanctioned: 1,
 					});
@@ -83,7 +83,7 @@ export class Sanctions extends EventIndexer<typeof EVENTS> {
 			case "SanctionedAddressesRemoved": {
 				for (const account of log.args.addrs) {
 					this.#queries.upsertSanction.run({
-						blockNumber: log.blockNumber,
+						blockTimestamp: log.blockTimestamp,
 						account,
 						sanctioned: 0,
 					});
@@ -93,25 +93,25 @@ export class Sanctions extends EventIndexer<typeof EVENTS> {
 		}
 	}
 
-	protected seed(contract: string, { fromBlock }: FromBlock): ToBlock | null {
+	protected seed(contract: string, { fromBlock }: FromBlock): BlockTimestamp | null {
 		const seedData = SANCTIONS_LIST_SEED_DATA[contract];
-		if (seedData === undefined || fromBlock > seedData.lastUpdatedBlock) {
+		if (seedData === undefined || fromBlock > seedData.lastUpdatedBlock.number) {
 			return null;
 		}
 
 		for (const log of seedData.events) {
-			if (log.blockNumber >= fromBlock) {
+			if (log.blockTimestamp >= fromBlock) {
 				this.#insertEvent(log);
 			}
 		}
-		return { toBlock: seedData.lastUpdatedBlock };
+		return seedData.lastUpdatedBlock;
 	}
 
-	protected insertEvent(log: ParsedLog<typeof EVENTS>): void {
+	protected insertEvent(log: Log<typeof EVENTS>): void {
 		this.#insertEvent(log);
 	}
 
-	async sanctionedAccounts({ toTimestamp }: ToTimestamp): Promise<Address[]> {
+	sanctionedAccounts({ toTimestamp }: ToTimestamp): Address[] {
 		// For sanctions, we see which addresses are sanctioned **at the time
 		// of payout**, i.e. at the end of the period. This means if an address
 		// is added and then later removed within a rewards period, we still
@@ -128,7 +128,7 @@ export class Sanctions extends EventIndexer<typeof EVENTS> {
 		//   then later added to the sanctions list (thereby excluding it
 		//   from future payout eligibility), the scripts will still produce
 		//   the same result on the historic data.
-		const blockNumber = await this.blocks.blockBefore({ timestamp: toTimestamp });
-		return this.#queries.selectSanctionedAccounts.pluck().all({ blockNumber });
+		const blockTimestamp = toTimestamp;
+		return this.#queries.selectSanctionedAccounts.pluck().all({ blockTimestamp });
 	}
 }
