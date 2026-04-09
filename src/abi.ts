@@ -7,6 +7,11 @@ export const STAKING_ABI = parseAbi([
 	"function totalStakedAmount() external view returns (uint256 amount)",
 ]);
 
+export const SANCTIONS_LIST_ABI = parseAbi([
+	"event SanctionedAddressesAdded(address[] addrs)",
+	"event SanctionedAddressesRemoved(address[] addrs)",
+]);
+
 export const COORDINATOR_ABI = parseAbi([
 	"event KeyGenConfirmed(bytes32 indexed gid, address participant, bool confirmed)",
 	"event Sign(address indexed initiator, bytes32 indexed gid, bytes32 indexed message, bytes32 sid, uint64 sequence)",
