@@ -5,7 +5,7 @@
 import Sqlite3 from "better-sqlite3";
 import debug, { type Debugger } from "debug";
 import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "viem";
-import { getChainId, readContract } from "viem/actions";
+import { getBlockNumber, getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { Attestations } from "./indexing/attestations.js";
 import type { EventIndexer } from "./indexing/events.js";
@@ -442,12 +442,13 @@ export class Safenet {
 	}
 
 	async totals(): Promise<Totals> {
-		const block = await this.#consensus.transactions.update();
+		const blockNumber = await getBlockNumber(this.#staking.contract.client);
+		await this.#consensus.transactions.update();
 		const stake = await readContract(this.#staking.contract.client, {
 			address: this.#staking.contract.address,
 			abi: STAKING_ABI,
 			functionName: "totalStakedAmount",
-			blockNumber: block.number,
+			blockNumber,
 		});
 		const transactions = this.#consensus.attestations.transactionCount();
 		return { stake, transactions };
