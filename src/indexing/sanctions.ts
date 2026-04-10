@@ -1,9 +1,9 @@
 import type { Statement } from "better-sqlite3";
 import { type Address, getAbiItem } from "viem";
 import { SANCTIONS_LIST_ABI } from "../abi.js";
-import { SANCTIONS_LIST_SEED_DATA } from "../data/sanctions.js";
 import type { FromBlock, ToTimestamp } from "../utils/ranges.js";
 import { type BlockTimestamp, type Configuration, EventIndexer, type Log } from "./events.js";
+import { SANCTIONS_LIST_SEED_DATA } from "./seeds/sanctions.js";
 
 const EVENTS = [
 	getAbiItem({ abi: SANCTIONS_LIST_ABI, name: "SanctionedAddressesAdded" }),
