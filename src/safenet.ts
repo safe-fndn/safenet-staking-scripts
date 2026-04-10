@@ -12,6 +12,7 @@ import type { EventIndexer } from "./indexing/events.js";
 import { Sanctions } from "./indexing/sanctions.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
+import { Staking } from "./indexing/staking.js";
 import { Transactions } from "./indexing/transactions.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
@@ -61,6 +62,7 @@ type StakingChain = {
 		address: Address;
 		client: Client;
 	};
+	staking: Staking;
 	stake: Stake;
 	validators: Validators;
 	sanctions: Sanctions;
@@ -127,7 +129,7 @@ export class Safenet {
 	async #validatorRegistrations(period: TimestampRange): Promise<ValidatorRegistrations[]> {
 		this.#debug(`using period ${formatRange(period)}`);
 		await this.index(period);
-		const set = this.#staking.validators.validatorSet(period);
+		const set = this.#staking.staking.validatorSet(period);
 		return Object.entries(set).map(([key, registrations]) => ({
 			validator: getAddress(key),
 			registrations,
@@ -153,12 +155,12 @@ export class Safenet {
 		// over those sub-ranges.
 
 		for (const registration of registrations) {
-			const stakers = this.#consensus.stakers.validatorStakers({
+			const stakers = this.#staking.staking.validatorStakers({
 				validator,
 				...registration,
 			});
 			for (const { staker, ...slice } of stakers) {
-				const stake = this.#staking.stake.timeWeightedStake({
+				const stake = this.#staking.staking.timeWeightedStake({
 					staker,
 					validator,
 					...slice,
@@ -188,8 +190,8 @@ export class Safenet {
 	): Promise<bigint> {
 		let total = 0n;
 		for (const registration of registrations) {
-			for (const staker of this.#staking.stake.stakers(registration)) {
-				total += this.#staking.stake.timeWeightedStake({
+			for (const staker of this.#staking.staking.stakers(registration)) {
+				total += this.#staking.staking.timeWeightedStake({
 					staker,
 					validator,
 					...registration,
@@ -222,7 +224,7 @@ export class Safenet {
 		period: TimestampRange,
 		validators: ValidatorRegistrations[],
 	): AsyncGenerator<Staked> {
-		for await (const staker of this.#staking.stake.stakers(period)) {
+		for await (const staker of this.#staking.staking.stakers(period)) {
 			const amounts = [] as Staked["amounts"];
 
 			// We need to, even for computed average stake amounts, compute them
@@ -232,7 +234,7 @@ export class Safenet {
 			for (const { validator, registrations } of validators) {
 				let amount = 0n;
 				for (const registration of registrations) {
-					amount += this.#staking.stake.timeWeightedStake({
+					amount += this.#staking.staking.timeWeightedStake({
 						staker,
 						validator,
 						...registration,
@@ -436,7 +438,7 @@ export class Safenet {
 
 	async sanctionedAccounts(to: Partial<ToTimestamp> = {}): Promise<Address[]> {
 		const block = await this.#staking.sanctions.update(to);
-		return this.#staking.sanctions.sanctionedAccounts({
+		return this.#staking.staking.sanctionedAccounts({
 			toTimestamp: to.toTimestamp ?? block.timestamp,
 		});
 	}
@@ -476,7 +478,9 @@ export class Safenet {
 		});
 
 		const db = new Sqlite3(params.databaseFile);
+		const staking = new Staking({ db });
 		const stakingConfig = {
+			staking,
 			db,
 			client: params.stakingClient,
 			blockPageSize: params.stakingBlockPageSize,
@@ -491,6 +495,7 @@ export class Safenet {
 		};
 		const attestations = new Attestations({ db });
 		const consensusConfig = {
+			staking,
 			db,
 			client: params.consensusClient,
 			blockPageSize: params.consensusBlockPageSize,
@@ -508,9 +513,8 @@ export class Safenet {
 					client: params.stakingClient,
 					address: params.stakingAddress,
 				},
-				stake: new Stake({
-					...stakingConfig,
-				}),
+				staking,
+				stake: new Stake(stakingConfig),
 				validators: new Validators(stakingConfig),
 				sanctions: new Sanctions(sanctionsConfig),
 			},
