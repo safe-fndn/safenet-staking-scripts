@@ -1,23 +1,20 @@
 import { getAbiItem } from "viem";
 import { STAKING_ABI } from "../abi.js";
-import { EventIndexer, type Log } from "./events.js";
-import type { Staking, StakingIndexerConfiguration } from "./staking.js";
+import type { StakingData } from "../data/staking.js";
+import { type Configuration, EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: STAKING_ABI, name: "StakeIncreased" }),
 	getAbiItem({ abi: STAKING_ABI, name: "WithdrawalInitiated" }),
 ];
 
-export class Stake extends EventIndexer<typeof EVENTS> {
-	#staking: Staking;
-
-	constructor({ staking, ...config }: StakingIndexerConfiguration) {
+export class Stake extends EventIndexer<typeof EVENTS, StakingData> {
+	constructor(config: Configuration<StakingData>) {
 		super({
 			name: "stake",
 			events: EVENTS,
 			...config,
 		});
-		this.#staking = staking;
 	}
 
 	protected insertEvent(log: Log<typeof EVENTS>): void {
@@ -26,7 +23,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 		// extension into its `sqlite3` bundle, meaning we cannot do arbitrary
 		// precision math. Note that `insertEvent` is always executed within a
 		// transaction.
-		const { blockTimestamp, amount } = this.#staking.latestStake(log.args) ?? {
+		const { blockTimestamp, amount } = this.data.latestStake(log.args) ?? {
 			blockTimestamp: 0,
 			amount: "0",
 		};
@@ -40,7 +37,7 @@ export class Stake extends EventIndexer<typeof EVENTS> {
 			throw new Error("withdrawal overflow");
 		}
 
-		this.#staking.registerStakeChange({
+		this.data.registerStakeChange({
 			blockTimestamp: log.blockTimestamp,
 			staker: log.args.staker,
 			validator: log.args.validator,

@@ -1,7 +1,7 @@
 import { type Address, getAbiItem } from "viem";
 import { COORDINATOR_ABI } from "../abi.js";
-import type { Attestations, AttestationsIndexerConfiguration } from "./attestations.js";
-import { EventIndexer, type Log } from "./events.js";
+import type { AttestationData } from "../data/attestations.js";
+import { type Configuration, EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: COORDINATOR_ABI, name: "KeyGenConfirmed" }),
@@ -15,34 +15,31 @@ export type ParticipationSummary = {
 	participants: Record<Address, number>;
 };
 
-export class Signatures extends EventIndexer<typeof EVENTS> {
-	#attestations: Attestations;
-
-	constructor({ attestations, ...config }: AttestationsIndexerConfiguration) {
+export class Signatures extends EventIndexer<typeof EVENTS, AttestationData> {
+	constructor(config: Configuration<AttestationData>) {
 		super({
 			name: "signatures",
 			events: EVENTS,
 			...config,
 		});
-		this.#attestations = attestations;
 	}
 
 	protected insertEvent(log: Log<typeof EVENTS>): void {
 		switch (log.eventName) {
 			case "KeyGenConfirmed": {
-				this.#attestations.registerParticipant({
+				this.data.registerParticipant({
 					address: log.args.participant,
 				});
 				break;
 			}
 			case "Sign": {
-				this.#attestations.registerSigningCeremony({
+				this.data.registerSigningCeremony({
 					sid: log.args.sid,
 				});
 				break;
 			}
 			case "SignShared": {
-				this.#attestations.registerSignatureShare({
+				this.data.registerSignatureShare({
 					sid: log.args.sid,
 					participant: log.args.participant,
 					selectionRoot: log.args.selectionRoot,
@@ -50,7 +47,7 @@ export class Signatures extends EventIndexer<typeof EVENTS> {
 				break;
 			}
 			case "SignCompleted": {
-				this.#attestations.registerSignatureCompleted({
+				this.data.registerSignatureCompleted({
 					sid: log.args.sid,
 					selectionRoot: log.args.selectionRoot,
 					blockTimestamp: log.blockTimestamp,

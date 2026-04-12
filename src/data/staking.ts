@@ -8,11 +8,6 @@ import {
 	type TimestampRange,
 	type ToTimestamp,
 } from "../utils/ranges.js";
-import type { Configuration } from "./events.js";
-
-export type StakingIndexerConfiguration = {
-	staking: Staking;
-} & Configuration;
 
 export type StakeSelector = {
 	staker: Address;
@@ -85,7 +80,7 @@ type StakerChange = {
 	staker: Address;
 };
 
-export class Staking {
+export class StakingData {
 	#db: Database;
 	#queries: {
 		upsertSanction: Statement<Sanction<0 | 1>, number>;
@@ -298,6 +293,10 @@ export class Staking {
 				ORDER BY block_timestamp ASC
 			`),
 		};
+	}
+
+	get db() {
+		return this.#db;
 	}
 
 	registerSanction({ blockTimestamp, account, sanctioned }: Sanction): void {

@@ -22,8 +22,8 @@ import { formatRange } from "../utils/format.js";
 import { minBigInt } from "../utils/math.js";
 import type { BlockRange, FromBlock, ToTimestamp } from "../utils/ranges.js";
 
-export type Configuration = {
-	db: Database;
+export type Configuration<Data extends { db: Database }> = {
+	data: Data;
 	client: Client;
 	blockPageSize: bigint;
 	chainId: number;
@@ -31,10 +31,10 @@ export type Configuration = {
 	startBlock?: bigint;
 };
 
-export type Parameters<Events> = {
+export type Parameters<Events, Data extends { db: Database }> = {
 	name: string;
 	events: Events;
-} & Configuration;
+} & Configuration<Data>;
 
 type ParsedLog<Events extends AbiEvent[]> = ViemLog<bigint, number, false, undefined, true, Events>;
 export type Log<Events extends AbiEvent[]> = UnionPick<ParsedLog<Events>, "eventName" | "args"> & {
@@ -48,7 +48,10 @@ export type BlockTimestamp<I = bigint> = {
 
 type BlockPage = BlockRange & ToTimestamp;
 
-export abstract class EventIndexer<Events extends AbiEvent[] = []> {
+export abstract class EventIndexer<
+	Events extends AbiEvent[] = [],
+	Data extends { db: Database } = { db: Database },
+> {
 	#debug: Debugger;
 	#contract: string;
 	#client: Client;
@@ -59,7 +62,7 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		strict: true;
 	};
 	#backoff: Backoff;
-	#db: Database;
+	#data: Data;
 	#queries: {
 		selectIndexer: Statement<[], BlockTimestamp<number>>;
 		updateIndexer: Statement<BlockTimestamp<bigint>, number>;
@@ -69,13 +72,13 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 	protected constructor({
 		name,
 		events,
-		db,
+		data,
 		client,
 		blockPageSize,
 		chainId,
 		address,
 		startBlock,
-	}: Parameters<Events>) {
+	}: Parameters<Events, Data>) {
 		this.#debug = debug(`safenet:indexing:${name}`);
 		this.#contract = `${chainId}:${getAddress(address)}`;
 		this.#client = client;
@@ -89,8 +92,8 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 			debug: this.#debug,
 		});
 
-		this.#db = db;
-		this.#db.exec(`
+		this.#data = data;
+		this.#data.db.exec(`
 			CREATE TABLE IF NOT EXISTS event_indexers(
 				name TEXT NOT NULL,
 				contract TEXT NOT NULL,
@@ -104,7 +107,7 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		// if the indexer was created with a different "identifier" to prevent
 		// issues where the same configuration is used for indexing multiple
 		// Safenet instances (which would corrupt our data).
-		const insert = this.#db
+		const insert = this.#data.db
 			.prepare(`
 				INSERT INTO event_indexers(name, contract, last_block_number, last_block_timestamp)
 				VALUES ('${name}', '${this.#contract}', @number, 0)
@@ -118,19 +121,19 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		}
 
 		this.#queries = {
-			selectIndexer: this.#db.prepare<[], BlockTimestamp<number>>(`
+			selectIndexer: this.#data.db.prepare<[], BlockTimestamp<number>>(`
 				SELECT last_block_number as number
 				, last_block_timestamp as timestamp
 				FROM event_indexers
 				WHERE name = '${name}'
 			`),
-			updateIndexer: this.#db.prepare<BlockTimestamp, number>(`
+			updateIndexer: this.#data.db.prepare<BlockTimestamp, number>(`
 				UPDATE event_indexers
 				SET last_block_number = @number
 				, last_block_timestamp = @timestamp
 				WHERE name = '${name}'
 			`),
-			addEvents: this.#db.transaction(
+			addEvents: this.#data.db.transaction(
 				({ block, logs }: { block: BlockTimestamp; logs: Log<Events>[] }) => {
 					this.#queries.updateIndexer.run(block);
 					for (const log of logs) {
@@ -141,8 +144,8 @@ export abstract class EventIndexer<Events extends AbiEvent[] = []> {
 		};
 	}
 
-	protected get db(): Database {
-		return this.#db;
+	protected get data(): Data {
+		return this.#data;
 	}
 
 	#lastBlock(): BlockTimestamp {
