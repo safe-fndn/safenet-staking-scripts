@@ -1,33 +1,30 @@
 import { getAbiItem } from "viem";
 import { CONSENSUS_ABI } from "../abi.js";
-import type { Attestations, AttestationsIndexerConfiguration } from "./attestations.js";
-import { EventIndexer, type Log } from "./events.js";
+import type { AttestationData } from "../data/attestations.js";
+import { type Configuration, EventIndexer, type Log } from "./events.js";
 
 const EVENTS = [
 	getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionProposed" }),
 	getAbiItem({ abi: CONSENSUS_ABI, name: "TransactionAttested" }),
 ];
 
-export class Transactions extends EventIndexer<typeof EVENTS> {
-	#attestations: Attestations;
-
-	constructor({ attestations, ...config }: AttestationsIndexerConfiguration) {
+export class Transactions extends EventIndexer<typeof EVENTS, AttestationData> {
+	constructor(config: Configuration<AttestationData>) {
 		super({
 			name: "transactions",
 			events: EVENTS,
 			...config,
 		});
-		this.#attestations = attestations;
 	}
 
 	protected insertEvent(log: Log<typeof EVENTS>): void {
 		switch (log.eventName) {
 			case "TransactionProposed": {
-				this.#attestations.registerTransactionProposal();
+				this.data.registerTransactionProposal();
 				break;
 			}
 			case "TransactionAttested": {
-				this.#attestations.registerTransactionAttestation({
+				this.data.registerTransactionAttestation({
 					sid: log.args.signatureId,
 				});
 				break;

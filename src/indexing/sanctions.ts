@@ -1,32 +1,29 @@
 import { getAbiItem } from "viem";
 import { SANCTIONS_LIST_ABI } from "../abi.js";
+import type { StakingData } from "../data/staking.js";
 import type { FromBlock } from "../utils/ranges.js";
-import { type BlockTimestamp, EventIndexer, type Log } from "./events.js";
+import { type BlockTimestamp, type Configuration, EventIndexer, type Log } from "./events.js";
 import { SANCTIONS_LIST_SEED_DATA } from "./seeds/sanctions.js";
-import type { Staking, StakingIndexerConfiguration } from "./staking.js";
 
 const EVENTS = [
 	getAbiItem({ abi: SANCTIONS_LIST_ABI, name: "SanctionedAddressesAdded" }),
 	getAbiItem({ abi: SANCTIONS_LIST_ABI, name: "SanctionedAddressesRemoved" }),
 ];
 
-export class Sanctions extends EventIndexer<typeof EVENTS> {
-	#staking: Staking;
-
-	constructor({ staking, ...config }: StakingIndexerConfiguration) {
+export class Sanctions extends EventIndexer<typeof EVENTS, StakingData> {
+	constructor(config: Configuration<StakingData>) {
 		super({
 			name: "sanctions",
 			events: EVENTS,
 			...config,
 		});
-		this.#staking = staking;
 	}
 
 	#insertEvent(log: Log<typeof EVENTS>): void {
 		switch (log.eventName) {
 			case "SanctionedAddressesAdded": {
 				for (const account of log.args.addrs) {
-					this.#staking.registerSanction({
+					this.data.registerSanction({
 						blockTimestamp: log.blockTimestamp,
 						account,
 						sanctioned: true,
@@ -36,10 +33,10 @@ export class Sanctions extends EventIndexer<typeof EVENTS> {
 			}
 			case "SanctionedAddressesRemoved": {
 				for (const account of log.args.addrs) {
-					this.#staking.registerSanction({
+					this.data.registerSanction({
 						blockTimestamp: log.blockTimestamp,
 						account,
-						sanctioned: true,
+						sanctioned: false,
 					});
 				}
 				break;

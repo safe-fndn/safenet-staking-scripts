@@ -7,12 +7,12 @@ import debug, { type Debugger } from "debug";
 import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "viem";
 import { getBlockNumber, getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
-import { Attestations } from "./indexing/attestations.js";
+import { AttestationData } from "./data/attestations.js";
+import { StakingData } from "./data/staking.js";
 import type { EventIndexer } from "./indexing/events.js";
 import { Sanctions } from "./indexing/sanctions.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
-import { Staking } from "./indexing/staking.js";
 import { Transactions } from "./indexing/transactions.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
@@ -62,14 +62,14 @@ type StakingChain = {
 		address: Address;
 		client: Client;
 	};
-	staking: Staking;
+	staking: StakingData;
 	stake: Stake;
 	validators: Validators;
 	sanctions: Sanctions;
 };
 
 type ConsensusChain = {
-	attestations: Attestations;
+	attestations: AttestationData;
 	stakers: ValidatorStakers;
 	transactions: Transactions;
 	signatures: Signatures;
@@ -478,10 +478,10 @@ export class Safenet {
 		});
 
 		const db = new Sqlite3(params.databaseFile);
-		const staking = new Staking({ db });
+		const stakingData = new StakingData({ db });
+		const attestationData = new AttestationData({ db });
 		const stakingConfig = {
-			staking,
-			db,
+			data: stakingData,
 			client: params.stakingClient,
 			blockPageSize: params.stakingBlockPageSize,
 			chainId: stakingChain,
@@ -493,15 +493,17 @@ export class Safenet {
 			address: params.sanctionsListAddress,
 			startBlock: params.sanctionsListStartBlock,
 		};
-		const attestations = new Attestations({ db });
 		const consensusConfig = {
-			staking,
-			db,
+			data: attestationData,
 			client: params.consensusClient,
 			blockPageSize: params.consensusBlockPageSize,
 			chainId: consensusChain,
 			address: params.consensusAddress,
 			startBlock: params.consensusStartBlock,
+		};
+		const validatorStakersConfig = {
+			...consensusConfig,
+			data: stakingData,
 		};
 		const coordinatorConfig = {
 			...consensusConfig,
@@ -513,16 +515,16 @@ export class Safenet {
 					client: params.stakingClient,
 					address: params.stakingAddress,
 				},
-				staking,
+				staking: stakingData,
 				stake: new Stake(stakingConfig),
 				validators: new Validators(stakingConfig),
 				sanctions: new Sanctions(sanctionsConfig),
 			},
 			consensus: {
-				stakers: new ValidatorStakers(consensusConfig),
-				attestations,
-				transactions: new Transactions({ attestations, ...consensusConfig }),
-				signatures: new Signatures({ attestations, ...coordinatorConfig }),
+				attestations: attestationData,
+				stakers: new ValidatorStakers(validatorStakersConfig),
+				transactions: new Transactions(consensusConfig),
+				signatures: new Signatures(coordinatorConfig),
 			},
 		});
 	}

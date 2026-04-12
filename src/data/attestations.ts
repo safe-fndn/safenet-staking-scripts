@@ -1,11 +1,6 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { Address, Hex } from "viem";
 import type { TimestampRange } from "../utils/ranges.js";
-import type { Configuration } from "./events.js";
-
-export type AttestationsIndexerConfiguration = {
-	attestations: Attestations;
-} & Configuration;
 
 export type ParticipationSummary = {
 	total: number;
@@ -45,7 +40,7 @@ type ParticipationCount = {
 	count: number;
 };
 
-export class Attestations {
+export class AttestationData {
 	#db: Database;
 	#queries: {
 		upsertIncrementTransactionCount: Statement<[], number>;
@@ -177,6 +172,10 @@ export class Attestations {
 				GROUP BY p.participant
 			`),
 		};
+	}
+
+	get db() {
+		return this.#db;
 	}
 
 	registerTransactionProposal(): void {
