@@ -170,7 +170,23 @@ export class StakingData {
 				DO UPDATE SET amount = EXCLUDED.amount
 			`),
 			selectStakeAmounts: this.#db.prepare<SelectStakeAmounts, StakeAmount>(`
-				WITH starting_stake AS (
+				WITH is_sanctioned AS (
+					SELECT EXISTS (
+						SELECT 1
+						FROM (
+							SELECT sanctioned
+							, row_number() OVER (
+								PARTITION BY account
+								ORDER BY block_timestamp DESC
+							) AS n
+							FROM sanctions
+							WHERE account = @staker
+							AND block_timestamp <= @toTimestamp
+						)
+						WHERE sanctioned = TRUE AND n = 1
+					) AS value
+				)
+				, starting_stake AS (
 					SELECT block_timestamp AS blockTimestamp
 					, amount
 					FROM stake
@@ -181,6 +197,7 @@ export class StakingData {
 					LIMIT 1
 				)
 				SELECT * FROM starting_stake
+				WHERE NOT (SELECT value FROM is_sanctioned)
 				UNION ALL
 				SELECT block_timestamp as blockTimestamp
 				, amount
@@ -189,6 +206,7 @@ export class StakingData {
 				AND block_timestamp <= @toTimestamp
 				AND staker = @staker
 				AND validator = @validator
+				AND NOT (SELECT value FROM is_sanctioned)
 			`),
 			selectStakeBlocks: this.#db.prepare<TimestampRange, number>(`
 				WITH starting_stake AS (
@@ -212,7 +230,21 @@ export class StakingData {
 				AND block_timestamp <= @toTimestamp
 			`),
 			selectStakers: this.#db.prepare<TimestampRange, Address>(`
-				WITH starting_stake AS (
+				WITH sanctioned AS (
+					SELECT account
+					FROM (
+						SELECT account
+						, sanctioned
+						, row_number() OVER (
+							PARTITION BY account
+							ORDER BY block_timestamp DESC
+						) AS n
+						FROM sanctions
+						WHERE block_timestamp <= @toTimestamp
+					)
+					WHERE sanctioned = TRUE AND n = 1
+				)
+				, starting_stake AS (
 					SELECT staker
 					, amount
 					, row_number() OVER (
@@ -236,6 +268,7 @@ export class StakingData {
 				)
 				SELECT DISTINCT(staker) AS staker
 				FROM all_stakers
+				WHERE staker NOT IN (SELECT account FROM sanctioned)
 				ORDER BY staker COLLATE NOCASE ASC
 			`),
 			upsertValidator: this.#db.prepare<ValidatorUpdate, number>(`
