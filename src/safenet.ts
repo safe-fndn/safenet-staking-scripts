@@ -436,6 +436,14 @@ export class Safenet {
 		return { payouts, unpaid };
 	}
 
+	async safeToken(): Promise<Address> {
+		return await readContract(this.#staking.contract.client, {
+			address: this.#staking.contract.address,
+			abi: STAKING_ABI,
+			functionName: "SAFE_TOKEN",
+		});
+	}
+
 	async sanctionedAccounts(to: Partial<ToTimestamp> = {}): Promise<Address[]> {
 		const block = await this.#staking.sanctions.update(to);
 		return this.#staking.staking.sanctionedAccounts({

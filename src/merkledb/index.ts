@@ -18,6 +18,11 @@ export type MerkleDbConfiguration = {
 	record: string;
 };
 
+export type Update = {
+	additionalAmount: bigint;
+	merkleRoot: Hex;
+};
+
 type DistributionData = {
 	cumulativeAmount: bigint;
 	merkleRoot: Hex;
@@ -37,6 +42,7 @@ const zHex = z
 const zIndex = z.looseObject({
 	merkleRoot: zHex,
 	tokenTotal: z.coerce.bigint(),
+	unpaidAmount: z.coerce.bigint().optional(),
 	updatedAt: z.coerce.date(),
 	rewardsUntil: z.coerce.date().optional(),
 });
@@ -121,8 +127,12 @@ export class MerkleDb {
 		}
 	}
 
-	distribute(period: TimestampRange, payouts: Record<Address, bigint>): Promise<Hex | null> {
-		return this.#locked(async () => {
+	distribute(
+		period: TimestampRange,
+		payouts: Record<Address, bigint>,
+		unpaid: bigint,
+	): Promise<Update | null> {
+		return this.#locked<Update>(async () => {
 			// Read the index file, check for common issues such as missing or
 			// overlapping rewards periods.
 			const indexfile = this.#path("latest.json");
@@ -155,19 +165,22 @@ export class MerkleDb {
 			const tree = new MerkleTreeMap(sortByAddress(leaves, ([address]) => address));
 
 			// Update the index and distributions.
-			index.merkleRoot = tree.root();
+			const merkleRoot = tree.root();
+			const previousTokenTotal = index.tokenTotal;
+			index.merkleRoot = merkleRoot;
 			index.tokenTotal = 0n;
+			index.unpaidAmount = (index.unpaidAmount ?? 0n) + unpaid;
 			index.updatedAt = new Date();
 			index.rewardsUntil = timestampToDate(period.toTimestamp);
 			for await (const { account, data, update } of this.#allDistributions()) {
 				index.tokenTotal += data.cumulativeAmount;
-				data.merkleRoot = tree.root();
+				data.merkleRoot = merkleRoot;
 				data.proof = tree.proof(account);
 				update(data);
 			}
 
 			await writeJsonFile(indexfile, index);
-			return tree.root();
+			return { additionalAmount: index.tokenTotal - previousTokenTotal, merkleRoot };
 		});
 	}
 }

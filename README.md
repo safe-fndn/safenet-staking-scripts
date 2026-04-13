@@ -30,20 +30,21 @@ cp .env.sample .env
 
 All scripts read configuration from environment variables (or from a `.env` file in the project root). The available variables are:
 
-| Variable                     | Description                                                                                | Default in `.env.sample`                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------- |
-| `DEBUG`                      | Debug log filter. All logs are under the `safenet:` prefix.                                | `safenet,safenet:*`                          |
-| `DATABASE_FILE`              | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence. | `:memory:`                                   |
-| `STAKING_RPC_URL`            | RPC endpoint for the staking chain (Ethereum mainnet).                                     | `https://mainnet.gateway.tenderly.co`        |
-| `STAKING_BLOCK_PAGE_SIZE`    | Number of blocks to fetch logs for in a single RPC call on the staking chain.              | `100`                                        |
-| `STAKING_ADDRESS`            | Address of the staking contract.                                                           | `0x115E78f160e1E3eF163B05C84562Fa16fA338509` |
-| `STAKING_START_BLOCK`        | Block at which the staking contract was deployed.                                          | `24585750`                                   |
-| `SANCTIONS_LIST_ADDRESS`     | Address of the Chainalysis sanctions list oracle.                                          | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
-| `SANCTIONS_LIST_START_BLOCK` | Block at which the sanctions list oracle was deployed.                                     | `14356508`                                   |
-| `CONSENSUS_RPC_URL`          | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
-| `CONSENSUS_BLOCK_PAGE_SIZE`  | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
-| `CONSENSUS_ADDRESS`          | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
-| `CONSENSUS_START_BLOCK`      | Block at which consensus began. Events before this block are ignored.                      | `45210396`                                   |
+| Variable                         | Description                                                                                | Default in `.env.sample`                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `DEBUG`                          | Debug log filter. All logs are under the `safenet:` prefix.                                | `safenet,safenet:*`                          |
+| `DATABASE_FILE`                  | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence. | `:memory:`                                   |
+| `STAKING_RPC_URL`                | RPC endpoint for the staking chain (Ethereum mainnet).                                     | `https://mainnet.gateway.tenderly.co`        |
+| `STAKING_BLOCK_PAGE_SIZE`        | Number of blocks to fetch logs for in a single RPC call on the staking chain.              | `100`                                        |
+| `STAKING_ADDRESS`                | Address of the staking contract.                                                           | `0x115E78f160e1E3eF163B05C84562Fa16fA338509` |
+| `STAKING_START_BLOCK`            | Block at which the staking contract was deployed.                                          | `24585750`                                   |
+| `SANCTIONS_LIST_ADDRESS`         | Address of the Chainalysis sanctions list oracle.                                          | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
+| `SANCTIONS_LIST_START_BLOCK`     | Block at which the sanctions list oracle was deployed.                                     | `14356508`                                   |
+| `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                               | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
+| `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
+| `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
+| `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
+| `CONSENSUS_START_BLOCK`          | Block at which consensus began. Events before this block are ignored.                      | `45210396`                                   |
 
 Every variable can also be passed as a CLI flag using camelCase (e.g. `--databaseFile ./data.db`).
 
@@ -94,6 +95,8 @@ npm run cmd:rewards -- --totalRewards=1000000 --record=./path/to/record
 ```
 
 The `--totalRewards` flag is required and takes the amount in whole SAFE tokens (18 decimal precision). The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
+
+When `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are also set, a Safe transaction bundle is written to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json`. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount.
 
 ### `cmd:validators`
 
