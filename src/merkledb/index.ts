@@ -104,6 +104,7 @@ export class MerkleDb {
 			};
 		}
 		data.cumulativeAmount += amount;
+		await fs.mkdir(path.dirname(entry), { recursive: true });
 		await writeJsonFile(entry, data);
 	}
 
