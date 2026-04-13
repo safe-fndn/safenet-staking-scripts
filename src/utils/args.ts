@@ -115,24 +115,31 @@ export const rewardsPeriod = (period: {
 	rewardPeriodStart?: bigint;
 	rewardPeriodEnd?: bigint;
 }): TimestampRange => {
+	// As per the DAO proposal, rewards are payed out every two weeks from
+	// starting from April 7th, 2026. Therefore, if no rewards period is
+	// specified take the last two week period ending on the very start of the
+	// last Tuesday. This just makes it easier to run rewards scripts, as not
+	// manually specifying a rewards period will Do The Right Thing™.
 	const TWO_WEEKS = BigInt(60 * 60 * 24 * 7 * 2);
-	const lastSunday = () => {
+	const lastTuesday = () => {
 		const now = new Date();
-		// Day '0' is Sunday, so we get just subtract the day of the week from
-		// the date (i.e. the day of the month) to get the date of the last
-		// Sunday (noting that the Date functions support negative dates to roll
-		// back months).
-		const sunday = Date.UTC(
+		// Day '2' is Tuesday, so we get just subtract the day of the week from
+		// the date (i.e. the day of the month) and either add 2 or subtract 5
+		// to get the date of the last Tuesday depending on whether not the
+		// current day comes before or after Tuesday (noting that the Date
+		// functions support negative dates to roll back months).
+		const sundayDate = now.getUTCDate() - now.getUTCDay();
+		const tuesday = Date.UTC(
 			now.getUTCFullYear(),
 			now.getUTCMonth(),
-			now.getUTCDate() - now.getUTCDay(),
+			now.getUTCDay() >= 2 ? sundayDate + 2 : sundayDate - 5,
 		);
-		return BigInt(sunday / 1000);
+		return BigInt(tuesday / 1000);
 	};
 
 	const toTimestamp =
 		period.rewardPeriodEnd ??
-		(period.rewardPeriodStart !== undefined ? period.rewardPeriodStart + TWO_WEEKS : lastSunday());
+		(period.rewardPeriodStart !== undefined ? period.rewardPeriodStart + TWO_WEEKS : lastTuesday());
 	const fromTimestamp = period.rewardPeriodStart ?? toTimestamp - TWO_WEEKS;
 	return { fromTimestamp, toTimestamp };
 };
