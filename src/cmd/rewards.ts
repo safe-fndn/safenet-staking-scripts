@@ -35,8 +35,9 @@ main(
 		console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)}`);
 
 		if (args.record) {
+			const sanctions = await safenet.sanctionedAccounts(period);
 			const db = new MerkleDb({ record: args.record });
-			const update = await db.distribute(period, payouts, unpaid);
+			const update = await db.distribute(period, payouts, unpaid, sanctions);
 
 			console.log();
 			if (update === null) {

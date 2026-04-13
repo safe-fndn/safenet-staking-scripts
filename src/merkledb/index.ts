@@ -26,7 +26,7 @@ export type Update = {
 type DistributionData = {
 	cumulativeAmount: bigint;
 	merkleRoot: Hex;
-	proof: Hex[];
+	proof: Hex[] | null;
 	[k: string]: unknown;
 };
 type Distribution = {
@@ -49,7 +49,7 @@ const zIndex = z.looseObject({
 const zDistributionData = z.looseObject({
 	cumulativeAmount: z.coerce.bigint(),
 	merkleRoot: zHex,
-	proof: zHex.array(),
+	proof: zHex.array().nullable(),
 });
 const zFileNotFoundError = z.object({ code: z.literal("ENOENT") });
 
@@ -131,6 +131,7 @@ export class MerkleDb {
 		period: TimestampRange,
 		payouts: Record<Address, bigint>,
 		unpaid: bigint,
+		sanctions: Address[],
 	): Promise<Update | null> {
 		return this.#locked<Update>(async () => {
 			// Read the index file, check for common issues such as missing or
@@ -156,7 +157,20 @@ export class MerkleDb {
 			// Re-compute the new distribution merkle tree. The tree always
 			// sorts by account addresses to ensure that it is stable.
 			const leaves = [] as [Address, Hex][];
+			const sanctionsLookup = new Set(sanctions);
 			for await (const { account, data } of this.#allDistributions()) {
+				if (sanctionsLookup.has(account)) {
+					// If the account is sanctioned, exclude it from the Merkle
+					// root. This means that if the account has not claimed its
+					// rewards before the Merkle root is updated, it will loose
+					// access to them. Note that this is only best-effort: it
+					// is possible for the sanctioned account to front-run the
+					// Merkle root update transaction, but it does provide an
+					// avenue for recovering funds from sanctioned accounts if
+					// they are not quick enough to withdraw them.
+					continue;
+				}
+
 				const leaf = keccak256(
 					encodePacked(["address", "uint256"], [account, data.cumulativeAmount]),
 				);

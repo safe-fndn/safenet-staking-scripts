@@ -32,10 +32,10 @@ export class MerkleTreeMap<K> {
 		return root;
 	}
 
-	proof(key: K): Hex[] {
+	proof(key: K): Hex[] | null {
 		const index = this.#positions.get(key);
 		if (index === undefined) {
-			throw new Error(`${key} not found`);
+			return null;
 		}
 		return this.#tree.slice(0, -1).map((row, j) => row.at((index >> j) ^ 1) ?? zeroHash);
 	}
