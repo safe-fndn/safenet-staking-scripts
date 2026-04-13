@@ -30,23 +30,26 @@ cp .env.sample .env
 
 All scripts read configuration from environment variables (or from a `.env` file in the project root). The available variables are:
 
-| Variable                | Description                                                                                | Default in `.env.sample`              |
-| ----------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------- |
-| `DEBUG`                 | Debug log filter. All logs are under the `safenet:` prefix.                                | `safenet,safenet:*`                   |
-| `DATABASE_FILE`         | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence. | `:memory:`                            |
-| `BLOCK_PAGE_SIZE`       | Number of blocks to fetch logs for in a single RPC call.                                   | `50`                                  |
-| `STAKING_RPC_URL`       | RPC endpoint for the staking chain (Sepolia).                                              | `https://sepolia.gateway.tenderly.co` |
-| `STAKING_ADDRESS`       | Address of the staking contract.                                                           |                                       |
-| `STAKING_START_BLOCK`   | Block at which the staking contract was deployed.                                          |                                       |
-| `CONSENSUS_RPC_URL`     | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://rpc.gnosischain.com`         |
-| `CONSENSUS_ADDRESS`     | Address of the consensus contract.                                                         |                                       |
-| `CONSENSUS_START_BLOCK` | Block at which consensus began. Events before this block are ignored.                      |                                       |
+| Variable                     | Description                                                                                | Default in `.env.sample`                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `DEBUG`                      | Debug log filter. All logs are under the `safenet:` prefix.                                | `safenet,safenet:*`                          |
+| `DATABASE_FILE`              | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence. | `:memory:`                                   |
+| `STAKING_RPC_URL`            | RPC endpoint for the staking chain (Ethereum mainnet).                                     | `https://mainnet.gateway.tenderly.co`        |
+| `STAKING_BLOCK_PAGE_SIZE`    | Number of blocks to fetch logs for in a single RPC call on the staking chain.              | `100`                                        |
+| `STAKING_ADDRESS`            | Address of the staking contract.                                                           | `0x115E78f160e1E3eF163B05C84562Fa16fA338509` |
+| `STAKING_START_BLOCK`        | Block at which the staking contract was deployed.                                          | `24585750`                                   |
+| `SANCTIONS_LIST_ADDRESS`     | Address of the Chainalysis sanctions list oracle.                                          | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
+| `SANCTIONS_LIST_START_BLOCK` | Block at which the sanctions list oracle was deployed.                                     | `14356508`                                   |
+| `CONSENSUS_RPC_URL`          | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
+| `CONSENSUS_BLOCK_PAGE_SIZE`  | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
+| `CONSENSUS_ADDRESS`          | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
+| `CONSENSUS_START_BLOCK`      | Block at which consensus began. Events before this block are ignored.                      | `45210396`                                   |
 
 Every variable can also be passed as a CLI flag using camelCase (e.g. `--databaseFile ./data.db`).
 
 ## Commands
 
-All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Sunday to Sunday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted.
+All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Tuesday to Tuesday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted.
 
 ### `cmd:index`
 
@@ -126,6 +129,48 @@ npm run cmd:totals -- --record=./path/to/record
 ```
 
 The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/network-info.json`.
+
+### `cmd:sanctions`
+
+Prints the list of sanctioned accounts that are excluded from reward payouts.
+
+```sh
+npm run cmd:sanctions
+```
+
+## Docker
+
+The scripts can also be run as a Docker container. You can either:
+
+- Build the image locally:
+  ```sh
+  docker build -t safenet-staking-scripts .
+  ```
+- Pull the image hosted on the GitHub Container Registry:
+  ```sh
+  docker pull ghcr.io/safe-fndn/safenet-staking-scripts:main
+  ```
+
+The container entrypoint accepts a command name followed by any flags. Pass configuration via environment variables with `-e`, and mount a host directory with `-v` when using a persistent database file.
+
+```sh
+# Run the participation command
+docker run --rm --env-file .env ghcr.io/safe-fndn/safenet-staking-scripts:main participation
+
+# Use a persistent database mounted from the host; set DATABASE_FILE to the
+# in-container path, overriding the value in .env
+docker run \
+  --rm \
+  --env-file .env \
+  -e DATABASE_FILE=/safenet.db \
+  -v ./safenet.db:/safenet.db \
+  ghcr.io/safe-fndn/safenet-staking-scripts:main \
+  index
+
+# Pass flags after the command name
+docker run --rm --env-file .env ghcr.io/safe-fndn/safenet-staking-scripts:main \
+  rewards --totalRewards=1000000 --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
+```
 
 ## Tests
 
