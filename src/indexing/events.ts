@@ -31,7 +31,7 @@ export type Configuration<Data extends { db: Database }> = {
 	startBlock?: bigint;
 };
 
-export type Parameters<Events, Data extends { db: Database }> = {
+export type Parameters<Events extends AbiEvent[], Data extends { db: Database }> = {
 	name: string;
 	events: Events;
 } & Configuration<Data>;

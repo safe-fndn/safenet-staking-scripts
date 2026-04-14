@@ -311,6 +311,7 @@ export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
 		stakingClient: createMockClient(stakingChain),
 		stakingBlockPageSize: 5n,
 		stakingAddress: namedAddress("Staking"),
+		delegateRegistryAddress: namedAddress("DelegateRegistry"),
 		sanctionsListAddress: namedAddress("SanctionsList"),
 		consensusClient: createMockClient(consensusChain),
 		consensusBlockPageSize: 5n,

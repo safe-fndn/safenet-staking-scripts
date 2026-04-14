@@ -14,6 +14,7 @@ import { Sanctions } from "./indexing/sanctions.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
 import { Transactions } from "./indexing/transactions.js";
+import { ValidatorBeneficiaries } from "./indexing/validator-benificiaries.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
 import { formatRange } from "./utils/format.js";
@@ -65,6 +66,7 @@ type StakingChain = {
 	staking: StakingData;
 	stake: Stake;
 	validators: Validators;
+	beneficiaries: ValidatorBeneficiaries;
 	sanctions: Sanctions;
 };
 
@@ -119,6 +121,7 @@ export class Safenet {
 		await Promise.all([
 			update(this.#staking.stake),
 			update(this.#staking.validators),
+			update(this.#staking.beneficiaries),
 			update(this.#staking.sanctions),
 			update(this.#consensus.stakers),
 			update(this.#consensus.transactions),
@@ -155,7 +158,7 @@ export class Safenet {
 		// over those sub-ranges.
 
 		for (const registration of registrations) {
-			const stakers = this.#staking.staking.validatorStakers({
+			const { stakers, beneficiary } = this.#staking.staking.validatorStakers({
 				validator,
 				...registration,
 			});
@@ -166,13 +169,11 @@ export class Safenet {
 					...slice,
 				});
 
-				// Note that the staker that receives the commissions is defined
-				// to be the **last** staker set by the validator. Keep track of
-				// the last seen staker as we go over the time slices.
-				result.beneficiary = staker;
 				result.amount += stake;
 				result.stakers[staker] = (result.stakers[staker] ?? 0n) + stake;
 			}
+
+			result.beneficiary = beneficiary;
 		}
 
 		const duration = rangeDuration(period);
@@ -387,7 +388,9 @@ export class Safenet {
 			payouts[payee] = (payouts[payee] ?? 0n) + amount;
 		};
 
-		// Compute the self-stake rewards for each validator.
+		// Compute the self-stake rewards for each validator. These rewards get
+		// paid out directly to the validator stakers and are not charged a
+		// commission.
 		for (const { validator } of validators) {
 			const validatorStat = stats[validator];
 
@@ -396,9 +399,11 @@ export class Safenet {
 				continue;
 			}
 
-			const selfReward =
-				(validatorRewards[validator] * validatorStat.stake.self.amount) / validatorStat.stake.total;
-			addPayout(validatorStat.beneficiary, selfReward);
+			for (const [staker, amount] of addressEntries(validatorStakers[validator])) {
+				const selfReward =
+					(validatorRewards[validator] * (amount ?? 0n)) / validatorStat.stake.total;
+				addPayout(staker, selfReward);
+			}
 		}
 
 		// Compute the payout amounts to each delegated staker.
@@ -470,6 +475,8 @@ export class Safenet {
 		stakingBlockPageSize: bigint;
 		stakingAddress: Address;
 		stakingStartBlock?: bigint;
+		delegateRegistryAddress: Address;
+		delegateRegistryStartBlock?: bigint;
 		sanctionsListAddress: Address;
 		sanctionsListStartBlock?: bigint;
 		consensusClient: Client;
@@ -495,6 +502,11 @@ export class Safenet {
 			chainId: stakingChain,
 			address: params.stakingAddress,
 			startBlock: params.stakingStartBlock,
+		};
+		const delegateRegistryConfig = {
+			...stakingConfig,
+			address: params.delegateRegistryAddress,
+			startBlock: params.delegateRegistryStartBlock,
 		};
 		const sanctionsConfig = {
 			...stakingConfig,
@@ -526,6 +538,7 @@ export class Safenet {
 				staking: stakingData,
 				stake: new Stake(stakingConfig),
 				validators: new Validators(stakingConfig),
+				beneficiaries: new ValidatorBeneficiaries(delegateRegistryConfig),
 				sanctions: new Sanctions(sanctionsConfig),
 			},
 			consensus: {

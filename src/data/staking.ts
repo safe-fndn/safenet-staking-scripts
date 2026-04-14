@@ -26,6 +26,15 @@ export type ValidatorStaker = {
 	staker: Address;
 } & TimestampRange;
 
+export type ValidatorStakers = {
+	stakers: ValidatorStaker[];
+	beneficiary: Address;
+};
+
+export type StakerBeneficiary = {
+	beneficiary: Address | null;
+} & TimestampRange;
+
 type LatestStakeRow = {
 	blockTimestamp: number;
 	amount: string;
@@ -80,6 +89,17 @@ type StakerChange = {
 	staker: Address;
 };
 
+type BeneficiaryUpdate = {
+	blockTimestamp: bigint;
+	staker: Address;
+	beneficiary: Address | null;
+};
+
+type BeneficiarySelector = {
+	staker: Address;
+	toTimestamp: bigint;
+};
+
 export class StakingData {
 	#db: Database;
 	#queries: {
@@ -96,6 +116,8 @@ export class StakingData {
 		upsertStaker: Statement<StakerUpdate, number>;
 		selectStartingStaker: Statement<StakerRange, Address>;
 		selectStakerChanges: Statement<StakerRange, StakerChange>;
+		upsertBeneficiary: Statement<BeneficiaryUpdate, number>;
+		selectLatestBeneficiary: Statement<BeneficiarySelector, Address | null>;
 	};
 
 	constructor({ db }: { db: Database }) {
@@ -128,6 +150,13 @@ export class StakingData {
 				validator TEXT NOT NULL,
 				staker TEXT NOT NULL,
 				PRIMARY KEY(block_timestamp, validator)
+			) WITHOUT ROWID;
+
+			CREATE TABLE IF NOT EXISTS staker_beneficiaries(
+				block_timestamp INTEGER NOT NULL,
+				staker TEXT NOT NULL,
+				beneficiary TEXT,
+				PRIMARY KEY(block_timestamp, staker)
 			) WITHOUT ROWID;
 		`);
 		this.#queries = {
@@ -325,6 +354,20 @@ export class StakingData {
 				AND validator = @validator
 				ORDER BY block_timestamp ASC
 			`),
+			upsertBeneficiary: this.#db.prepare<BeneficiaryUpdate, number>(`
+				INSERT INTO staker_beneficiaries(block_timestamp, staker, beneficiary)
+				VALUES(@blockTimestamp, @staker, @beneficiary)
+				ON CONFLICT(block_timestamp, staker)
+				DO UPDATE SET beneficiary = EXCLUDED.beneficiary
+			`),
+			selectLatestBeneficiary: this.#db.prepare<BeneficiarySelector, Address | null>(`
+				SELECT beneficiary
+				FROM staker_beneficiaries
+				WHERE staker = @staker
+				AND block_timestamp <= @toTimestamp
+				ORDER BY block_timestamp DESC
+				LIMIT 1
+			`),
 		};
 	}
 
@@ -434,7 +477,11 @@ export class StakingData {
 		this.#queries.upsertStaker.run({ blockTimestamp, validator, staker });
 	}
 
-	validatorStakers({ validator, ...period }: ValidatorStakerPeriod): ValidatorStaker[] {
+	registerBeneficiaryUpdate({ blockTimestamp, staker, beneficiary }: BeneficiaryUpdate): void {
+		this.#queries.upsertBeneficiary.run({ blockTimestamp, staker, beneficiary });
+	}
+
+	validatorStakers({ validator, ...period }: ValidatorStakerPeriod): ValidatorStakers {
 		const staker = this.#queries.selectStartingStaker.pluck().get({ validator, ...period });
 		const changes = this.#queries.selectStakerChanges.all({ validator, ...period });
 
@@ -465,8 +512,14 @@ export class StakingData {
 			});
 		}
 
-		// Account for the fact that a validator may set the staker to different
-		// values in the same block, remove stakers with a 0-duration.
-		return stakers.filter((s) => s.fromTimestamp < s.toTimestamp);
+		const last = stakers.at(-1);
+		const beneficiary =
+			last !== undefined
+				? (this.#queries.selectLatestBeneficiary
+						.pluck()
+						.get({ staker: last.staker, toTimestamp: period.toTimestamp }) ?? last.staker)
+				: zeroAddress;
+
+		return { stakers, beneficiary };
 	}
 }

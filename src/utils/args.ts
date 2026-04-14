@@ -11,6 +11,8 @@ const SCHEMA = z.object({
 	stakingBlockPageSize: z.coerce.bigint(),
 	stakingAddress: z.string().transform((a) => getAddress(a)),
 	stakingStartBlock: z.coerce.bigint(),
+	delegateRegistryAddress: z.string().transform((a) => getAddress(a)),
+	delegateRegistryStartBlock: z.coerce.bigint().optional(),
 	sanctionsListAddress: z.string().transform((a) => getAddress(a)),
 	sanctionsListStartBlock: z.coerce.bigint(),
 	consensusRpcUrl: z.url(),

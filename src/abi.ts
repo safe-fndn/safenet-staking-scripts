@@ -8,6 +8,11 @@ export const STAKING_ABI = parseAbi([
 	"function totalStakedAmount() external view returns (uint256 amount)",
 ]);
 
+export const DELEGATE_REGISTRY_ABI = parseAbi([
+	"event SetDelegate(address indexed delegator, bytes32 indexed id, address indexed delegate)",
+	"event ClearDelegate(address indexed delegator, bytes32 indexed id, address indexed delegate)",
+]);
+
 export const SANCTIONS_LIST_ABI = parseAbi([
 	"event SanctionedAddressesAdded(address[] addrs)",
 	"event SanctionedAddressesRemoved(address[] addrs)",
