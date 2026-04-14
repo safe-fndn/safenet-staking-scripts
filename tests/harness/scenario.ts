@@ -177,7 +177,7 @@ const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
 					eventName: event.name,
 					args: {
 						delegator: event.delegator,
-						id: keccak256(toHex("Safenet Beta validator commisions beneficiary")),
+						id: keccak256(toHex("Safenet Beta validator commission beneficiary")),
 						delegate: event.delegate,
 					},
 				}) as Hex[],

@@ -9,7 +9,7 @@ const EVENTS = [
 	getAbiItem({ abi: DELEGATE_REGISTRY_ABI, name: "SetDelegate" }),
 	getAbiItem({ abi: DELEGATE_REGISTRY_ABI, name: "ClearDelegate" }),
 ];
-const ID = keccak256(toHex("Safenet Beta validator commisions beneficiary"));
+const ID = keccak256(toHex("Safenet Beta validator commission beneficiary"));
 
 export class ValidatorBeneficiaries extends EventIndexer<typeof EVENTS, StakingData> {
 	constructor(config: Configuration<StakingData>) {
