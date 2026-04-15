@@ -31,10 +31,6 @@ export type ValidatorStakers = {
 	beneficiary: Address;
 };
 
-export type StakerBeneficiary = {
-	beneficiary: Address | null;
-} & TimestampRange;
-
 type LatestStakeRow = {
 	blockTimestamp: number;
 	amount: string;

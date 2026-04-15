@@ -14,7 +14,7 @@ import { Sanctions } from "./indexing/sanctions.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
 import { Transactions } from "./indexing/transactions.js";
-import { ValidatorBeneficiaries } from "./indexing/validator-benificiaries.js";
+import { ValidatorBeneficiaries } from "./indexing/validator-beneficiaries.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
 import { formatRange } from "./utils/format.js";
