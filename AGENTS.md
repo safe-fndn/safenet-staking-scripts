@@ -5,14 +5,14 @@ This file provides guidance to AI agents (such as Claude Code or OpenAI Codex) w
 ## Commands
 
 ```sh
-npm ci                  # install dependencies (Node.js 24+)
-npm run check           # Biome lint + tsc type-check (what CI runs)
-npm run fix             # Biome auto-fix
-npm test                # run all Vitest tests
-npm run test:watch      # watch mode
-npx vitest run tests/single.test.ts          # run one test file
-npx vitest run -t "distributes rewards"      # run tests matching a name
-npm run build           # compile to dist/ (production only)
+npm ci                                   # install dependencies (Node.js 24+)
+npm run check                            # Biome lint + tsc type-check (what CI runs)
+npm run fix                              # Biome auto-fix
+npm test                                 # run all Vitest tests
+npm run test:watch                       # watch mode
+npx vitest run tests/single.test.ts      # run one test file
+npx vitest run -t "distributes rewards"  # run tests matching a name
+npm run build                            # compile to dist/ (production only)
 ```
 
 CI only runs `npm run check` — tests are not gated in CI, but run them locally when changing accounting logic.
