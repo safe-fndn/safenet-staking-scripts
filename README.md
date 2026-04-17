@@ -146,13 +146,13 @@ npm run cmd:sanctions
 The scripts can also be run as a Docker container. You can either:
 
 - Build the image locally:
-  ```sh
-  docker build -t safenet-staking-scripts .
-  ```
+    ```sh
+    docker build -t safenet-staking-scripts .
+    ```
 - Pull the image hosted on the GitHub Container Registry:
-  ```sh
-  docker pull ghcr.io/safe-fndn/safenet-staking-scripts:main
-  ```
+    ```sh
+    docker pull ghcr.io/safe-fndn/safenet-staking-scripts:main
+    ```
 
 The container entrypoint accepts a command name followed by any flags. Pass configuration via environment variables with `-e`, and mount a host directory with `-v` when using a persistent database file.
 
