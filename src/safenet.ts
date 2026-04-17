@@ -225,7 +225,7 @@ export class Safenet {
 		period: TimestampRange,
 		validators: ValidatorRegistrations[],
 	): AsyncGenerator<Staked> {
-		for await (const staker of this.#staking.staking.stakers(period)) {
+		for (const staker of this.#staking.staking.stakers(period)) {
 			const amounts = [] as Staked["amounts"];
 
 			// We need to, even for computed average stake amounts, compute them

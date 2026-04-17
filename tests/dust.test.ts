@@ -1,15 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { attestedTransaction } from "./harness/presets.js";
 import { createTestSafenet } from "./harness/scenario.js";
-import {
-	emptyBlocks,
-	namedAddress,
-	parseSafe,
-	safeTxHash,
-	selectionRoot,
-	signatureId,
-	transaction,
-	transactionProposalMessage,
-} from "./harness/utils.js";
+import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
 
 describe("dust", () => {
 	it("carries forward sub-1 SAFE delegate payouts as unpaid", async () => {
@@ -58,36 +50,11 @@ describe("dust", () => {
 					...emptyBlocks(11),
 					{
 						assertTimestamp: 60n,
-						events: [
-							{
-								name: "TransactionProposed",
-								epoch: 1n,
-								transaction: transaction("valid"),
-							},
-							{
-								name: "Sign",
-								sid: signatureId("1", 1n),
-								message: transactionProposalMessage({
-									epoch: 1n,
-									safeTxHash: safeTxHash(transaction("valid")),
-								}),
-							},
-							{
-								name: "SignShared",
-								sid: signatureId("1", 1n),
-								selectionRoot: selectionRoot("1:1"),
-								participant: namedAddress("validator"),
-							},
-							{
-								name: "SignCompleted",
-								sid: signatureId("1", 1n),
-								selectionRoot: selectionRoot("1:1"),
-							},
-							{
-								name: "TransactionAttested",
-								sid: signatureId("1", 1n),
-							},
-						],
+						events: attestedTransaction({
+							epoch: 1n,
+							seed: "1",
+							participants: ["validator"],
+						}),
 					},
 					...emptyBlocks(12, { assertTimestamp: 120n }),
 				],

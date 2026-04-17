@@ -1,59 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { attestedTransaction } from "./harness/presets.js";
 import { createTestSafenet } from "./harness/scenario.js";
-import {
-	emptyBlocks,
-	namedAddress,
-	parseSafe,
-	safeTxHash,
-	selectionRoot,
-	signatureId,
-	transaction,
-	transactionProposalMessage,
-} from "./harness/utils.js";
+import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
 
 describe("participation", () => {
 	it("distributes rewards by participation-weighted stake and applies commission rules", async () => {
-		const attestedTransaction = ({
-			epoch,
-			seed,
-			participants,
-		}: {
-			epoch: bigint;
-			seed: string;
-			participants: string[];
-		}) => ({
-			events: [
-				{
-					name: "TransactionProposed" as const,
-					epoch,
-					transaction: transaction(seed),
-				},
-				{
-					name: "Sign" as const,
-					sid: signatureId(seed, 1n),
-					message: transactionProposalMessage({
-						epoch,
-						safeTxHash: safeTxHash(transaction(seed)),
-					}),
-				},
-				...participants.map((participant) => ({
-					name: "SignShared" as const,
-					sid: signatureId(seed, 1n),
-					selectionRoot: selectionRoot(`${seed}:1`),
-					participant: namedAddress(participant),
-				})),
-				{
-					name: "SignCompleted" as const,
-					sid: signatureId(seed, 1n),
-					selectionRoot: selectionRoot(`${seed}:1`),
-				},
-				{
-					name: "TransactionAttested" as const,
-					sid: signatureId(seed, 1n),
-				},
-			],
-		});
-
 		const safenet = await createTestSafenet({
 			staking: {
 				slots: [
@@ -134,31 +85,41 @@ describe("participation", () => {
 						],
 					},
 					...emptyBlocks(11),
-					attestedTransaction({
-						epoch: 1n,
-						seed: "1",
-						participants: ["validator1", "validator2", "validator3"],
-					}),
-					attestedTransaction({
-						epoch: 2n,
-						seed: "2",
-						participants: ["validator1", "validator2", "validator3"],
-					}),
-					attestedTransaction({
-						epoch: 3n,
-						seed: "3",
-						participants: ["validator1", "validator2", "validator3"],
-					}),
-					attestedTransaction({
-						epoch: 4n,
-						seed: "4",
-						participants: ["validator1", "validator2"],
-					}),
-					attestedTransaction({
-						epoch: 5n,
-						seed: "5",
-						participants: ["validator1"],
-					}),
+					{
+						events: attestedTransaction({
+							epoch: 1n,
+							seed: "1",
+							participants: ["validator1", "validator2", "validator3"],
+						}),
+					},
+					{
+						events: attestedTransaction({
+							epoch: 2n,
+							seed: "2",
+							participants: ["validator1", "validator2", "validator3"],
+						}),
+					},
+					{
+						events: attestedTransaction({
+							epoch: 3n,
+							seed: "3",
+							participants: ["validator1", "validator2", "validator3"],
+						}),
+					},
+					{
+						events: attestedTransaction({
+							epoch: 4n,
+							seed: "4",
+							participants: ["validator1", "validator2"],
+						}),
+					},
+					{
+						events: attestedTransaction({
+							epoch: 5n,
+							seed: "5",
+							participants: ["validator1"],
+						}),
+					},
 					...emptyBlocks(8, { assertTimestamp: 120n }),
 				],
 			},
