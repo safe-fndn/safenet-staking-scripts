@@ -208,6 +208,10 @@ export abstract class EventIndexer<
 		}
 
 		const latest = await getBlock(this.#client, { blockTag: "latest" });
+		if (to.toTimestamp !== undefined && to.toTimestamp > latest.timestamp) {
+			throw new Error("Attempting to update to a future block");
+		}
+
 		const range = {
 			latest,
 			toTimestamp: to.toTimestamp ?? latest.timestamp,

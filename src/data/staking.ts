@@ -448,7 +448,7 @@ export class StakingData {
 		const validators = this.#queries.selectRegisteredValidators.pluck().all(period);
 		const updates = this.#queries.selectValidatorUpdates.all(period);
 
-		const set = Object.fromEntries(validators.map((validator) => [validator, [period]]));
+		const set = Object.fromEntries(validators.map((validator) => [validator, [{ ...period }]]));
 		for (const { blockTimestamp, validator, isRegistered } of updates) {
 			const registrations = set[validator] ?? [];
 			const previous = registrations.at(-1);
