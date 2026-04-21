@@ -4,7 +4,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { parseUnits } from "viem";
+import { type Address, getAddress, parseUnits } from "viem";
 import { z } from "zod";
 import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
@@ -12,12 +12,20 @@ import { main, rewardsPeriod } from "../utils/args.js";
 import { formatSafeToken } from "../utils/format.js";
 import { writeJsonFile } from "../utils/json.js";
 
+const parseAddressSet = (value?: string): Address[] =>
+	value !== undefined ? value.split(",").map((address) => getAddress(address.trim())) : [];
+
 main(
 	{
 		rewardPeriodStart: z.coerce.bigint().optional(),
 		rewardPeriodEnd: z.coerce.bigint().optional(),
 		totalRewards: z.string().transform((v) => parseUnits(v, 18)),
+		kycThreshold: z
+			.string()
+			.transform((v) => parseUnits(v, 18))
+			.optional(),
 		record: z.string().optional(),
+		kyced: z.string().optional().transform(parseAddressSet),
 		cumulativeMerkleDropAddress: z.string().optional(),
 	},
 	async (args) => {
@@ -25,19 +33,33 @@ main(
 		const period = rewardsPeriod(args);
 
 		const { payouts, unpaid } = await safenet.rewards(period, args.totalRewards);
+		const kyced = new Set(args.kyced as string[]);
+		const formatKyc = (recipient: string, amount: bigint): string =>
+			args.kycThreshold && amount >= args.kycThreshold
+				? !kyced?.has(recipient)
+					? " ✓"
+					: " ✗"
+				: "";
 
-		console.log(` Recipient                                  | Payout                        `);
-		console.log(`--------------------------------------------+-------------------------------`);
+		console.log(
+			` Recipient                                  | Payout                        | KYC`,
+		);
+		console.log(
+			`--------------------------------------------+-------------------------------+-----`,
+		);
 		for (const [recipient, amount] of Object.entries(payouts)) {
-			console.log(` ${recipient} | ${formatSafeToken(amount)}`);
+			console.log(` ${recipient} | ${formatSafeToken(amount)} | ${formatKyc(recipient, amount)}`);
 		}
-		console.log(`--------------------------------------------+-------------------------------`);
-		console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)}`);
+		console.log(
+			`--------------------------------------------+-------------------------------+-----`,
+		);
+		console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)} |`);
 
 		if (args.record) {
 			const sanctions = await safenet.sanctionedAccounts(period);
 			const db = new MerkleDb({ record: args.record });
-			const update = await db.distribute(period, payouts, unpaid, sanctions);
+			const filters = { sanctions, ...args };
+			const update = await db.distribute(period, payouts, unpaid, filters);
 
 			console.log();
 			if (update === null) {

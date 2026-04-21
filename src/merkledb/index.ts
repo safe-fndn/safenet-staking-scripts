@@ -23,8 +23,15 @@ export type Update = {
 	merkleRoot: Hex;
 };
 
+export type Filters = {
+	sanctions: Address[];
+	kyced: Address[];
+	kycThreshold?: bigint;
+};
+
 type DistributionData = {
 	cumulativeAmount: bigint;
+	kycAmount: bigint;
 	merkleRoot: Hex;
 	proof: Hex[] | null;
 	[k: string]: unknown;
@@ -33,6 +40,11 @@ type Distribution = {
 	account: Address;
 	data: DistributionData;
 	update(value: DistributionData): Promise<void>;
+};
+
+type Kyc = {
+	accounts: Set<Address>;
+	threshold?: bigint;
 };
 
 const zHex = z
@@ -48,6 +60,7 @@ const zIndex = z.looseObject({
 });
 const zDistributionData = z.looseObject({
 	cumulativeAmount: z.coerce.bigint(),
+	kycAmount: z.coerce.bigint().default(0n),
 	merkleRoot: zHex,
 	proof: zHex.array().nullable(),
 });
@@ -94,7 +107,10 @@ export class MerkleDb {
 		return result;
 	}
 
-	async #distributeTo({ account, amount }: { account: Address; amount: bigint }): Promise<void> {
+	async #distributeTo(
+		{ account, amount }: { account: Address; amount: bigint },
+		kyc: Kyc,
+	): Promise<void> {
 		const entry = this.#accountPath(account);
 		let data: DistributionData;
 		try {
@@ -105,11 +121,23 @@ export class MerkleDb {
 			}
 			data = {
 				cumulativeAmount: 0n,
+				kycAmount: 0n,
 				merkleRoot: zeroHash,
 				proof: [],
 			};
 		}
-		data.cumulativeAmount += amount;
+
+		if (kyc.accounts.has(account)) {
+			// The account is KYCed, make sure to include all payouts that were
+			// waiting on KYC to their cumulative amount.
+			data.cumulativeAmount += data.kycAmount + amount;
+			data.kycAmount = 0n;
+		} else if (kyc.threshold && amount > kyc.threshold) {
+			data.kycAmount += amount;
+		} else {
+			data.cumulativeAmount += amount;
+		}
+
 		await fs.mkdir(path.dirname(entry), { recursive: true });
 		await writeJsonFile(entry, data);
 	}
@@ -131,7 +159,7 @@ export class MerkleDb {
 		period: TimestampRange,
 		payouts: Record<Address, bigint>,
 		unpaid: bigint,
-		sanctions: Address[],
+		filters: Filters,
 	): Promise<Update | null> {
 		return this.#locked<Update>(async () => {
 			// Read the index file, check for common issues such as missing or
@@ -149,17 +177,18 @@ export class MerkleDb {
 			}
 
 			// Update the distributions with the new payouts.
+			const kyc = { accounts: new Set(filters.kyced), threshold: filters.kycThreshold };
 			for (const key in payouts) {
 				const account = getAddress(key);
-				await this.#distributeTo({ account, amount: payouts[account] });
+				await this.#distributeTo({ account, amount: payouts[account] }, kyc);
 			}
 
 			// Re-compute the new distribution merkle tree. The tree always
 			// sorts by account addresses to ensure that it is stable.
 			const leaves = [] as [Address, Hex][];
-			const sanctionsLookup = new Set(sanctions);
+			const sanctions = new Set(filters.sanctions);
 			for await (const { account, data } of this.#allDistributions()) {
-				if (sanctionsLookup.has(account)) {
+				if (sanctions.has(account)) {
 					// If the account is sanctioned, exclude it from the Merkle
 					// root. This means that if the account has not claimed its
 					// rewards before the Merkle root is updated, it will loose
