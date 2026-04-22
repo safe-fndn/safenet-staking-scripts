@@ -61,14 +61,19 @@ export function parseArgs<T extends z.core.$ZodLooseShape>(extraArgs: T | undefi
 	const schema = extraArgs === undefined ? SCHEMA : SCHEMA.extend(extraArgs);
 
 	const options = {} as ParseArgsOptionsConfig;
+	let allowPositionals = false;
 	for (const [key, field] of Object.entries(schema.shape)) {
-		options[key] = isBool(field)
-			? { type: "boolean", default: envToBool(process.env[envKey(key)]) }
-			: { type: "string", default: process.env[envKey(key)] };
+		if (key === "positionals") {
+			allowPositionals = true;
+		} else {
+			options[key] = isBool(field)
+				? { type: "boolean", default: envToBool(process.env[envKey(key)]) }
+				: { type: "string", default: process.env[envKey(key)] };
+		}
 	}
 
-	const { values } = util.parseArgs({ options });
-	const args = schema.parse(values);
+	const { values, positionals } = util.parseArgs({ options, allowPositionals });
+	const args = allowPositionals ? schema.parse({ ...values, positionals }) : schema.parse(values);
 
 	return {
 		...args,

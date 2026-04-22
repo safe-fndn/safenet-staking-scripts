@@ -10,7 +10,12 @@ import path from "node:path";
 import { type Address, encodePacked, getAddress, type Hex, isHex, keccak256, zeroHash } from "viem";
 import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../utils/json.js";
-import { type TimestampRange, timestampToDate } from "../utils/ranges.js";
+import {
+	dateToTimestamp,
+	type TimestampRange,
+	type ToTimestamp,
+	timestampToDate,
+} from "../utils/ranges.js";
 import { sortByAddress } from "../utils/sort.js";
 import { MerkleTreeMap } from "./treemap.js";
 
@@ -26,6 +31,18 @@ export type Update = {
 export type Filters = {
 	sanctions: Address[];
 	kycThreshold?: bigint;
+};
+
+type IndexData = {
+	merkleRoot: Hex;
+	tokenTotal: bigint;
+	unpaidAmount?: bigint;
+	updatedAt: Date;
+	rewardsUntil?: Date;
+};
+type Index = {
+	data: IndexData;
+	update(value: IndexData): Promise<void>;
 };
 
 type DistributionData = {
@@ -46,7 +63,7 @@ const zHex = z
 	.string()
 	.refine((s) => isHex(s))
 	.transform((s) => s as Hex);
-const zIndex = z.looseObject({
+const zIndexData = z.looseObject({
 	merkleRoot: zHex,
 	tokenTotal: z.coerce.bigint(),
 	unpaidAmount: z.coerce.bigint().optional(),
@@ -84,7 +101,7 @@ export class MerkleDb {
 		return this.#path("proofs", ...match.slice(1, 5), `${normalized}.json`);
 	}
 
-	async #locked<T>(thunk: () => Promise<T | null>): Promise<T | null> {
+	async #locked<T>(thunk: () => Promise<T>): Promise<T> {
 		const lockfile = this.#path(".lock");
 
 		// Open the lock file in `wx` mode: this will create an empty file if it
@@ -101,6 +118,13 @@ export class MerkleDb {
 		await fs.unlink(lockfile);
 
 		return result;
+	}
+
+	async #getIndex(): Promise<Index> {
+		const filename = this.#path("latest.json");
+		const data = await readJsonFile(filename, zIndexData);
+		const update = (newData: IndexData) => writeJsonFile(filename, newData);
+		return { data, update };
 	}
 
 	async #getDistribution(account: Address): Promise<Distribution> {
@@ -152,19 +176,82 @@ export class MerkleDb {
 		}
 	}
 
+	async #rebuildTree(
+		period: Partial<ToTimestamp>,
+		unpaid: bigint,
+		sanctions: Address[],
+	): Promise<Update> {
+		// Re-compute the new distribution merkle tree. The tree always
+		// sorts by account addresses to ensure that it is stable.
+		const leaves = [] as [Address, Hex][];
+		const sanctioned = new Set(sanctions);
+		for await (const { account, data, update } of this.#allDistributions()) {
+			if (data.kyc === true && data.kycAmount > 0n) {
+				data.cumulativeAmount += data.kycAmount;
+				data.kycAmount = 0n;
+				await update(data);
+			}
+
+			if (sanctioned.has(account)) {
+				// If the account is sanctioned, exclude it from the Merkle
+				// root. This means that if the account has not claimed its
+				// rewards before the Merkle root is updated, it will loose
+				// access to them. Note that this is only best-effort: it
+				// is possible for the sanctioned account to front-run the
+				// Merkle root update transaction, but it does provide an
+				// avenue for recovering funds from sanctioned accounts if
+				// they are not quick enough to withdraw them.
+				continue;
+			}
+
+			// Check for empty payout amounts and exclude them from the
+			// Merkle tree - this can happen if an account has a payout
+			// waiting on KYC.
+			if (data.cumulativeAmount <= 0n) {
+				continue;
+			}
+
+			const leaf = keccak256(
+				encodePacked(["address", "uint256"], [account, data.cumulativeAmount]),
+			);
+			leaves.push([account, leaf]);
+		}
+		const tree = new MerkleTreeMap(sortByAddress(leaves, ([address]) => address));
+
+		// Update the index and distributions Merkle proofs.
+		const { data: index, update } = await this.#getIndex();
+		const merkleRoot = tree.root();
+		const previousTokenTotal = index.tokenTotal;
+		index.merkleRoot = merkleRoot;
+		index.tokenTotal = 0n;
+		index.unpaidAmount = (index.unpaidAmount ?? 0n) + unpaid;
+		index.updatedAt = new Date();
+		if (period.toTimestamp !== undefined) {
+			index.rewardsUntil = timestampToDate(period.toTimestamp);
+		}
+		for await (const { account, data, update } of this.#allDistributions()) {
+			index.tokenTotal += data.cumulativeAmount + data.kycAmount;
+			data.merkleRoot = merkleRoot;
+			data.proof = tree.proof(account);
+			await update(data);
+		}
+
+		await update(index);
+		return { additionalAmount: index.tokenTotal - previousTokenTotal, merkleRoot };
+	}
+
 	distribute(
 		period: TimestampRange,
 		payouts: Record<Address, bigint>,
 		unpaid: bigint,
 		filters: Filters,
 	): Promise<Update | null> {
-		return this.#locked<Update>(async () => {
+		return this.#locked<Update | null>(async () => {
 			// Read the index file, check for common issues such as missing or
 			// overlapping rewards periods.
-			const indexfile = this.#path("latest.json");
-			const index = await readJsonFile(indexfile, zIndex);
-			if (index.rewardsUntil !== undefined) {
-				const timestamp = BigInt(index.rewardsUntil.getTime()) / 1000n;
+			const index = await this.#getIndex();
+			if (index.data.rewardsUntil !== undefined) {
+				const timestamp = dateToTimestamp(index.data.rewardsUntil);
 				if (timestamp !== period.fromTimestamp || timestamp >= period.toTimestamp) {
 					// We are either missing rewards and have a "hole" in our
 					// rewards distribution, or there is something wrong with the
@@ -179,54 +266,31 @@ export class MerkleDb {
 				await this.#distributeTo({ account, amount: payouts[account] }, filters.kycThreshold);
 			}
 
-			// Re-compute the new distribution merkle tree. The tree always
-			// sorts by account addresses to ensure that it is stable.
-			const leaves = [] as [Address, Hex][];
-			const sanctions = new Set(filters.sanctions);
-			for await (const { account, data } of this.#allDistributions()) {
-				if (sanctions.has(account)) {
-					// If the account is sanctioned, exclude it from the Merkle
-					// root. This means that if the account has not claimed its
-					// rewards before the Merkle root is updated, it will loose
-					// access to them. Note that this is only best-effort: it
-					// is possible for the sanctioned account to front-run the
-					// Merkle root update transaction, but it does provide an
-					// avenue for recovering funds from sanctioned accounts if
-					// they are not quick enough to withdraw them.
-					continue;
-				}
+			return await this.#rebuildTree(period, unpaid, filters.sanctions);
+		});
+	}
 
-				// Check for empty payout amounts and exclude them from the
-				// Merkle tree - this can happen if an account has a payout
-				// waiting on KYC.
-				if (data.cumulativeAmount <= 0n) {
-					continue;
+	kyc(period: ToTimestamp, accounts: Address[], sanctions: Address[]): Promise<Update> {
+		return this.#locked<Update>(async () => {
+			// Read the index file, ensure that the KYC update is being done
+			// on the correct period.
+			const index = await this.#getIndex();
+			if (index.data.rewardsUntil !== undefined) {
+				const timestamp = dateToTimestamp(index.data.rewardsUntil);
+				if (timestamp !== period.toTimestamp) {
+					throw new Error("attempt to update KYC status for wrong rewards period");
 				}
-
-				const leaf = keccak256(
-					encodePacked(["address", "uint256"], [account, data.cumulativeAmount]),
-				);
-				leaves.push([account, leaf]);
 			}
-			const tree = new MerkleTreeMap(sortByAddress(leaves, ([address]) => address));
 
-			// Update the index and distributions.
-			const merkleRoot = tree.root();
-			const previousTokenTotal = index.tokenTotal;
-			index.merkleRoot = merkleRoot;
-			index.tokenTotal = 0n;
-			index.unpaidAmount = (index.unpaidAmount ?? 0n) + unpaid;
-			index.updatedAt = new Date();
-			index.rewardsUntil = timestampToDate(period.toTimestamp);
-			for await (const { account, data, update } of this.#allDistributions()) {
-				index.tokenTotal += data.cumulativeAmount + data.kycAmount;
-				data.merkleRoot = merkleRoot;
-				data.proof = tree.proof(account);
+			for (const account of accounts) {
+				const { data, update } = await this.#getDistribution(account);
+				data.kyc = true;
+				data.cumulativeAmount += data.kycAmount;
+				data.kycAmount = 0n;
 				await update(data);
 			}
 
-			await writeJsonFile(indexfile, index);
-			return { additionalAmount: index.tokenTotal - previousTokenTotal, merkleRoot };
+			return await this.#rebuildTree({}, 0n, sanctions);
 		});
 	}
 }

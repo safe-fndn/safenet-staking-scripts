@@ -72,3 +72,8 @@ export const rangeContains = (range: Range, value: bigint): boolean =>
  * Converts a timestamp to a Date.
  */
 export const timestampToDate = (timestamp: bigint): Date => new Date(Number(timestamp) * 1000);
+
+/**
+ * Converts a Date to a timestamp.
+ */
+export const dateToTimestamp = (date: Date): bigint => BigInt(date.getTime()) / 1000n;

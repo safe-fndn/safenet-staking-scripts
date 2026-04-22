@@ -6,6 +6,7 @@
 		"build": "rimraf dist && tsc --project tsconfig.dist.json",
 		"check": "biome check && tsc",
 		"cmd:index": "tsx src/cmd/index.ts",
+		"cmd:kyc": "tsx src/cmd/kyc.ts",
 		"cmd:participation": "tsx src/cmd/participation.ts",
 		"cmd:rewards": "tsx src/cmd/rewards.ts",
 		"cmd:sanctions": "tsx src/cmd/sanctions.ts",

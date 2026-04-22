@@ -98,6 +98,21 @@ The `--totalRewards` flag is required and takes the amount in whole SAFE tokens 
 
 When `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are also set, a Safe transaction bundle is written to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json`. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount.
 
+### `cmd:kyc`
+
+Marks one or more recipient addresses as KYC-approved in the Merkle distribution database, releases any withheld `kycAmount` into `cumulativeAmount`, and rebuilds the Merkle root and proofs.
+
+```sh
+npm run cmd:kyc -- --record=./path/to/record 0x0000000000000000000000000000000000000001
+
+# Approve multiple recipients in one run
+npm run cmd:kyc -- --record=./path/to/record \
+  0x0000000000000000000000000000000000000001 \
+  0x0000000000000000000000000000000000000002
+```
+
+The `--record` flag is required and must point at the root of the `safenet-beta-data` repository. Recipient addresses are passed positionally, are normalized up front, and the command rebuilds the Merkle tree using the current sanctions list before writing the updated root and proofs back into `<record>/assets/rewards/`.
+
 ### `cmd:validators`
 
 Prints each validator's self-stake and total delegated stake (time-weighted averages) over a reward period.
