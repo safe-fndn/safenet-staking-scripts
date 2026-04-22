@@ -103,10 +103,7 @@ export class MerkleDb {
 		return result;
 	}
 
-	async #distributeTo(
-		{ account, amount }: { account: Address; amount: bigint },
-		kycThreshold?: bigint,
-	): Promise<void> {
+	async #getDistribution(account: Address): Promise<Distribution> {
 		const entry = this.#accountPath(account);
 		let data: DistributionData;
 		try {
@@ -122,15 +119,24 @@ export class MerkleDb {
 				proof: [],
 			};
 		}
+		const update = async (newData: DistributionData) => {
+			await fs.mkdir(path.dirname(entry), { recursive: true });
+			await writeJsonFile(entry, newData);
+		};
+		return { account, data, update };
+	}
 
+	async #distributeTo(
+		{ account, amount }: { account: Address; amount: bigint },
+		kycThreshold?: bigint,
+	): Promise<void> {
+		const { data, update } = await this.#getDistribution(account);
 		if (kycThreshold !== undefined && amount >= kycThreshold && data.kyc !== true) {
 			data.kycAmount += amount;
 		} else {
 			data.cumulativeAmount += amount;
 		}
-
-		await fs.mkdir(path.dirname(entry), { recursive: true });
-		await writeJsonFile(entry, data);
+		await update(data);
 	}
 
 	async *#allDistributions(): AsyncGenerator<Distribution> {
@@ -177,7 +183,7 @@ export class MerkleDb {
 			// sorts by account addresses to ensure that it is stable.
 			const leaves = [] as [Address, Hex][];
 			const sanctions = new Set(filters.sanctions);
-			for await (const { account, data, update } of this.#allDistributions()) {
+			for await (const { account, data } of this.#allDistributions()) {
 				if (sanctions.has(account)) {
 					// If the account is sanctioned, exclude it from the Merkle
 					// root. This means that if the account has not claimed its

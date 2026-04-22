@@ -4,7 +4,7 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { type Address, getAddress, parseUnits } from "viem";
+import { parseUnits } from "viem";
 import { z } from "zod";
 import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
