@@ -12,9 +12,6 @@ import { main, rewardsPeriod } from "../utils/args.js";
 import { formatSafeToken } from "../utils/format.js";
 import { writeJsonFile } from "../utils/json.js";
 
-const parseAddresses = (value?: string): Address[] =>
-	value !== undefined ? value.split(",").map((address) => getAddress(address.trim())) : [];
-
 main(
 	{
 		rewardPeriodStart: z.coerce.bigint().optional(),
@@ -25,7 +22,6 @@ main(
 			.transform((v) => parseUnits(v, 18))
 			.optional(),
 		record: z.string().optional(),
-		kyced: z.string().optional().transform(parseAddresses),
 		cumulativeMerkleDropAddress: z.string().optional(),
 	},
 	async (args) => {
@@ -33,9 +29,8 @@ main(
 		const period = rewardsPeriod(args);
 
 		const { payouts, unpaid } = await safenet.rewards(period, args.totalRewards);
-		const kyced = new Set(args.kyced as string[]);
-		const formatKyc = (recipient: string, amount: bigint): string =>
-			args.kycThreshold && amount >= args.kycThreshold ? (kyced?.has(recipient) ? " ✓" : " ✗") : "";
+		const formatKyc = (amount: bigint): string =>
+			args.kycThreshold && amount >= args.kycThreshold ? " *" : "";
 
 		console.log(
 			` Recipient                                  | Payout                        | KYC`,
@@ -44,7 +39,7 @@ main(
 			`--------------------------------------------+-------------------------------+-----`,
 		);
 		for (const [recipient, amount] of Object.entries(payouts)) {
-			console.log(` ${recipient} | ${formatSafeToken(amount)} | ${formatKyc(recipient, amount)}`);
+			console.log(` ${recipient} | ${formatSafeToken(amount)} | ${formatKyc(amount)}`);
 		}
 		console.log(
 			`--------------------------------------------+-------------------------------+-----`,

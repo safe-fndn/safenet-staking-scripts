@@ -25,13 +25,13 @@ export type Update = {
 
 export type Filters = {
 	sanctions: Address[];
-	kyced: Address[];
 	kycThreshold?: bigint;
 };
 
 type DistributionData = {
 	cumulativeAmount: bigint;
 	kycAmount: bigint;
+	kyc?: boolean;
 	merkleRoot: Hex;
 	proof: Hex[] | null;
 	[k: string]: unknown;
@@ -56,6 +56,7 @@ const zIndex = z.looseObject({
 const zDistributionData = z.looseObject({
 	cumulativeAmount: z.coerce.bigint(),
 	kycAmount: z.coerce.bigint().default(0n),
+	kyc: z.boolean().optional(),
 	merkleRoot: zHex,
 	proof: zHex.array().nullable(),
 });
@@ -122,7 +123,7 @@ export class MerkleDb {
 			};
 		}
 
-		if (kycThreshold !== undefined && amount >= kycThreshold) {
+		if (kycThreshold !== undefined && amount >= kycThreshold && data.kyc !== true) {
 			data.kycAmount += amount;
 		} else {
 			data.cumulativeAmount += amount;
@@ -176,7 +177,6 @@ export class MerkleDb {
 			// sorts by account addresses to ensure that it is stable.
 			const leaves = [] as [Address, Hex][];
 			const sanctions = new Set(filters.sanctions);
-			const kyced = new Set(filters.kyced);
 			for await (const { account, data, update } of this.#allDistributions()) {
 				if (sanctions.has(account)) {
 					// If the account is sanctioned, exclude it from the Merkle
@@ -190,13 +190,9 @@ export class MerkleDb {
 					continue;
 				}
 
-				if (kyced.has(account)) {
-					// It the account is KYCed, then add all rewards payouts that
-					// were awaiting the KYC to their cumulative amount.
-					data.cumulativeAmount += data.kycAmount;
-					data.kycAmount = 0n;
-					update(data);
-				}
+				// Check for empty payout amounts and exclude them from the
+				// Merkle tree - this can happen if an account has a payout
+				// waiting on KYC.
 				if (data.cumulativeAmount <= 0n) {
 					continue;
 				}
@@ -220,7 +216,7 @@ export class MerkleDb {
 				index.tokenTotal += data.cumulativeAmount + data.kycAmount;
 				data.merkleRoot = merkleRoot;
 				data.proof = tree.proof(account);
-				update(data);
+				await update(data);
 			}
 
 			await writeJsonFile(indexfile, index);
