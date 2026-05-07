@@ -155,8 +155,13 @@ export const rewardsPeriod = (period: {
 export const totalRewardsAmount = async (args: {
 	rewardPeriodStart?: bigint;
 	rewardPeriodEnd?: bigint;
+	totalRewards?: bigint;
 	record?: string;
 }): Promise<bigint> => {
+	if (args.totalRewards !== undefined) {
+		return args.totalRewards;
+	}
+
 	// As per the DAO proposal, a total of 4.5M SAFE tokens are distributed
 	// evenly over 26 weeks of rewards starting on April 7th, 2026. The amount
 	// for a given period is therefore prorated by its duration (which is not

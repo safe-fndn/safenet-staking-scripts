@@ -4,6 +4,10 @@ import { totalRewardsAmount } from "./args.js";
 const dateToTimestamp = (date: string): bigint => BigInt(new Date(date).getTime() / 1000);
 
 describe("totalRewardsAmount", () => {
+	it("uses the overridden total rewards amount", async () => {
+		expect(await totalRewardsAmount({ totalRewards: 42n })).toBe(42n);
+	});
+
 	it("computes the per-period amount for a default two-week period", async () => {
 		expect(await totalRewardsAmount({})).toBe(346153846153846153846153n);
 	});

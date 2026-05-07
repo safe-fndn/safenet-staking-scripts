@@ -14,6 +14,10 @@ main(
 	{
 		rewardPeriodStart: z.coerce.bigint().optional(),
 		rewardPeriodEnd: z.coerce.bigint().optional(),
+		totalRewards: z
+			.string()
+			.transform((v) => parseUnits(v, 18))
+			.optional(),
 		kycThreshold: z
 			.string()
 			.transform((v) => parseUnits(v, 18))
