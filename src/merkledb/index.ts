@@ -33,7 +33,7 @@ export type Filters = {
 	kycThreshold?: bigint;
 };
 
-type IndexData = {
+export type IndexData = {
 	merkleRoot: Hex;
 	tokenTotal: bigint;
 	unpaidAmount?: bigint;
@@ -125,6 +125,18 @@ export class MerkleDb {
 		const data = await readJsonFile(filename, zIndexData);
 		const update = (newData: IndexData) => writeJsonFile(filename, newData);
 		return { data, update };
+	}
+
+	async index(): Promise<IndexData | null> {
+		try {
+			const { data } = await this.#getIndex();
+			return data;
+		} catch (err) {
+			if (!zFileNotFoundError.safeParse(err).success) {
+				throw err;
+			}
+			return null;
+		}
 	}
 
 	async #getDistribution(account: Address): Promise<Distribution> {

@@ -1,8 +1,9 @@
 import util, { type ParseArgsOptionsConfig } from "node:util";
 import debug from "debug";
 import { configDotenv } from "dotenv";
-import { type Client, createClient, getAddress, http, type Prettify } from "viem";
+import { type Client, createClient, getAddress, http, type Prettify, parseUnits } from "viem";
 import { z } from "zod";
+import { MerkleDb } from "../merkledb/index.js";
 import type { TimestampRange } from "../utils/ranges.js";
 
 const SCHEMA = z.object({
@@ -149,4 +150,46 @@ export const rewardsPeriod = (period: {
 		(period.rewardPeriodStart !== undefined ? period.rewardPeriodStart + TWO_WEEKS : lastTuesday());
 	const fromTimestamp = period.rewardPeriodStart ?? toTimestamp - TWO_WEEKS;
 	return { fromTimestamp, toTimestamp };
+};
+
+export const totalRewardsAmount = async (args: {
+	rewardPeriodStart?: bigint;
+	rewardPeriodEnd?: bigint;
+	record?: string;
+}): Promise<bigint> => {
+	// As per the DAO proposal, a total of 4.5M SAFE tokens are distributed
+	// evenly over 26 weeks of rewards starting on April 7th, 2026. The amount
+	// for a given period is therefore prorated by its duration (which is not
+	// guaranteed to be exactly two weeks). When a `record` directory is
+	// provided, we account for what has already been distributed: this both
+	// absorbs the rounding remainder into the final periods and rolls past
+	// unpaid amounts forward into future periods (since `tokenTotal` only
+	// tracks committed payouts, not the carried-over `unpaidAmount`).
+
+	const TOTAL_REWARDS = parseUnits("4500000.0", 18);
+	const TOTAL_REWARDS_PERIOD = BigInt(60 * 60 * 24 * 7 * 26);
+	const REWARDS_START = BigInt(Date.UTC(2026, 3, 7) / 1000);
+
+	const period = rewardsPeriod(args);
+	const periodDuration = period.toTimestamp - period.fromTimestamp;
+
+	if (args.record === undefined) {
+		return (TOTAL_REWARDS * periodDuration) / TOTAL_REWARDS_PERIOD;
+	}
+
+	const db = new MerkleDb({ record: args.record });
+	const index = await db.index();
+	if (index === null || index.rewardsUntil === undefined) {
+		return (TOTAL_REWARDS * periodDuration) / TOTAL_REWARDS_PERIOD;
+	}
+
+	const rewardsUntil = BigInt(Math.floor(index.rewardsUntil.getTime() / 1000));
+	const paidRewardsDuration = rewardsUntil - REWARDS_START;
+	if (paidRewardsDuration >= TOTAL_REWARDS_PERIOD) {
+		return 0n;
+	}
+
+	const newTokenTotal =
+		(TOTAL_REWARDS * (paidRewardsDuration + periodDuration)) / TOTAL_REWARDS_PERIOD;
+	return newTokenTotal - index.tokenTotal;
 };

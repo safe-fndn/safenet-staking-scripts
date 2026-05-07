@@ -6,7 +6,7 @@ import { getAddress, parseUnits } from "viem";
 import { z } from "zod";
 import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
-import { main, rewardsPeriod } from "../utils/args.js";
+import { main, rewardsPeriod, totalRewardsAmount } from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
 import { formatSafeToken } from "../utils/format.js";
 
@@ -14,7 +14,6 @@ main(
 	{
 		rewardPeriodStart: z.coerce.bigint().optional(),
 		rewardPeriodEnd: z.coerce.bigint().optional(),
-		totalRewards: z.string().transform((v) => parseUnits(v, 18)),
 		kycThreshold: z
 			.string()
 			.transform((v) => parseUnits(v, 18))
@@ -28,8 +27,9 @@ main(
 	async (args) => {
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
+		const totalAmount = await totalRewardsAmount(args);
 
-		const { payouts, unpaid } = await safenet.rewards(period, args.totalRewards);
+		const { payouts, unpaid } = await safenet.rewards(period, totalAmount);
 		const formatKyc = (amount: bigint): string =>
 			args.kycThreshold && amount >= args.kycThreshold ? " *" : "";
 
