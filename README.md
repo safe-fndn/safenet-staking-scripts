@@ -85,16 +85,16 @@ Computes and prints SAFE token reward payouts for each recipient over a reward p
 Validators with less than 75% participation generate no rewards for themselves or their delegators. Validators below the 3.5M SAFE minimum self-stake threshold forfeit their commission on delegated stake, but still receive rewards on their own self-stake. Individual payouts below 1 SAFE are carried forward as unpaid. See the [full rewards specification](https://docs.safefoundation.org/safenet/staking/rewards) for details.
 
 ```sh
-npm run cmd:rewards -- --totalRewards=1000000
+npm run cmd:rewards
 
-# Specify an explicit period
+# Specify an explicit period and total rewards
 npm run cmd:rewards -- --totalRewards=1000000 --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 
 # Record payouts and update the Merkle distribution database
-npm run cmd:rewards -- --totalRewards=1000000 --kycThreshold=1000 --record=./path/to/record
+npm run cmd:rewards -- --kycThreshold=1000 --record=./path/to/record
 ```
 
-The `--totalRewards` flag is required and takes the amount in whole SAFE tokens (18 decimal precision). The optional `--kycThreshold` flag sets the minimum payout amount, in SAFE tokens, at which a recipient is marked for KYC handling. KYC approval is read from each recipient's distribution entry in the Merkle database via its optional `kyc` boolean field. The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
+The optional `--totalRewards` flag overrides the payout amount for the period (in whole SAFE tokens, 18 decimal precision); when omitted, the amount is prorated from the 4.5M SAFE allocated for the Safenet Beta program. The optional `--kycThreshold` flag sets the minimum payout amount, in SAFE tokens, at which a recipient is marked for KYC handling. KYC approval is read from each recipient's distribution entry in the Merkle database via its optional `kyc` boolean field. The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
 
 When `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are also set, a Safe transaction bundle is written to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json`. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount.
 
