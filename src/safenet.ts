@@ -391,7 +391,10 @@ export class Safenet {
 		const payouts = {} as Record<Address, RewardSplit>;
 		const addPayout = (payee: Address, stakeRewards: bigint, commission: bigint): void => {
 			const p = payouts[payee] ?? { stakeRewards: 0n, commission: 0n };
-			payouts[payee] = { stakeRewards: p.stakeRewards + stakeRewards, commission: p.commission + commission };
+			payouts[payee] = {
+				stakeRewards: p.stakeRewards + stakeRewards,
+				commission: p.commission + commission,
+			};
 		};
 
 		// Compute the self-stake rewards for each validator. These rewards get

@@ -118,7 +118,10 @@ describe("block-times", () => {
 			parseSafe("20"),
 		);
 		const payouts = Object.fromEntries(
-			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [
+				addr,
+				stakeRewards + commission,
+			]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("staker1")]: parseSafe("10"),

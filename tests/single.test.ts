@@ -76,7 +76,10 @@ describe("single", () => {
 			parseSafe("100000"),
 		);
 		const payouts = Object.fromEntries(
-			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [
+				addr,
+				stakeRewards + commission,
+			]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("staker")]: parseSafe("78888.888888888888888888"),

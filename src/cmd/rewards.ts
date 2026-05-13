@@ -76,7 +76,10 @@ main(
 			const db = new MerkleDb({ record: args.record });
 			const filters = { sanctions, ...args };
 			const flatPayouts = Object.fromEntries(
-				Object.entries(payouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
+				Object.entries(payouts).map(([addr, { stakeRewards, commission }]) => [
+					addr,
+					stakeRewards + commission,
+				]),
 			);
 			const update = await db.distribute(period, flatPayouts, unpaid, filters);
 
