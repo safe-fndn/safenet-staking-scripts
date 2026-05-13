@@ -113,9 +113,12 @@ describe("block-times", () => {
 		//   staker2 =  4 SAFE
 		//   staker3 =  6 SAFE
 
-		const { payouts, unpaid } = await safenet.rewards(
+		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 80n, toTimestamp: 90n },
 			parseSafe("20"),
+		);
+		const payouts = Object.fromEntries(
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("staker1")]: parseSafe("10"),

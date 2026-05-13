@@ -73,9 +73,12 @@ describe("dust", () => {
 		// The dust payout is below the 1 SAFE minimum, so it is omitted and
 		// carried forward as unpaid.
 
-		const { payouts, unpaid } = await safenet.rewards(
+		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("500000"),
+		);
+		const payouts = Object.fromEntries(
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("delegate")]: parseSafe("499999.5"),

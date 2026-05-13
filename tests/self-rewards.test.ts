@@ -187,12 +187,12 @@ describe("self-rewards", () => {
 		const commission = parseSafe("277.777777777777777777");
 		const delegateReward = parseSafe("5277.777777777777777778");
 		expect(payouts).toEqual({
-			[namedAddress("validator1")]: validatorReward + commission,
-			[namedAddress("staker2")]: validatorReward + commission,
-			[namedAddress("staker3")]: validatorReward,
-			[namedAddress("beneficiary3")]: commission,
-			[namedAddress("staker4")]: validatorReward + commission,
-			[namedAddress("delegate")]: 4n * delegateReward,
+			[namedAddress("validator1")]: { stakeRewards: validatorReward, commission },
+			[namedAddress("staker2")]: { stakeRewards: validatorReward, commission },
+			[namedAddress("staker3")]: { stakeRewards: validatorReward, commission: 0n },
+			[namedAddress("beneficiary3")]: { stakeRewards: 0n, commission },
+			[namedAddress("staker4")]: { stakeRewards: validatorReward, commission },
+			[namedAddress("delegate")]: { stakeRewards: 4n * delegateReward, commission: 0n },
 		});
 		expect(unpaid).toBe(4n);
 	});

@@ -148,9 +148,12 @@ describe("participation", () => {
 		// 5% commission to staker1. validator2 has no self-stake, so delegate2
 		// receives the full validator2 reward with no commission.
 
-		const { payouts, unpaid } = await safenet.rewards(
+		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("100000"),
+		);
+		const payouts = Object.fromEntries(
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("staker1")]: parseSafe("65383.360100233574815986"),

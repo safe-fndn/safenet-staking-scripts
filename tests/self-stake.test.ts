@@ -272,9 +272,12 @@ describe("self-stake", () => {
 		//   delegate3 payout        = 5,568.384 × 420K / 1.42M
 		//                           ≈ 1,646.987 SAFE
 
-		const { payouts, unpaid } = await safenet.rewards(
+		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 30n, toTimestamp: 90n },
 			parseSafe("100000"),
+		);
+		const payouts = Object.fromEntries(
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("staker1")]: parseSafe("7606.371852805720730551"),

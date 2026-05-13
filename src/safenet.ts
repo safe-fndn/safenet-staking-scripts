@@ -48,8 +48,13 @@ export type Participation = {
 	validators: Record<Address, number>;
 };
 
+export type RewardSplit = {
+	stakeRewards: bigint;
+	commission: bigint;
+};
+
 export type Rewards = {
-	payouts: Record<Address, bigint>;
+	payouts: Record<Address, RewardSplit>;
 	unpaid: bigint;
 };
 
@@ -383,9 +388,10 @@ export class Safenet {
 			}
 		}
 
-		const payouts = {} as Record<Address, bigint>;
-		const addPayout = (payee: Address, amount: bigint): void => {
-			payouts[payee] = (payouts[payee] ?? 0n) + amount;
+		const payouts = {} as Record<Address, RewardSplit>;
+		const addPayout = (payee: Address, stakeRewards: bigint, commission: bigint): void => {
+			const p = payouts[payee] ?? { stakeRewards: 0n, commission: 0n };
+			payouts[payee] = { stakeRewards: p.stakeRewards + stakeRewards, commission: p.commission + commission };
 		};
 
 		// Compute the self-stake rewards for each validator. These rewards get
@@ -402,7 +408,7 @@ export class Safenet {
 			for (const [staker, amount] of addressEntries(validatorStakers[validator])) {
 				const selfReward =
 					(validatorRewards[validator] * (amount ?? 0n)) / validatorStat.stake.total;
-				addPayout(staker, selfReward);
+				addPayout(staker, selfReward, 0n);
 			}
 		}
 
@@ -419,23 +425,23 @@ export class Safenet {
 					validatorStat.stake.self.amount >= MIN_SELF_STAKE
 						? (delegateReward * COMMISSION_BPS) / 10000n
 						: 0n;
-				addPayout(staker, delegateReward - commission);
-				addPayout(validatorStat.beneficiary, commission);
+				addPayout(staker, delegateReward - commission, 0n);
+				addPayout(validatorStat.beneficiary, 0n, commission);
 			}
 		}
 
 		// Remove any payments that are below the minimum payout threshold.
 		const MIN_PAYOUT = parseUnits("1.0", 18);
-		for (const [payee, amount] of addressEntries(payouts)) {
-			if (amount < MIN_PAYOUT) {
+		for (const [payee, { stakeRewards, commission }] of addressEntries(payouts)) {
+			if (stakeRewards + commission < MIN_PAYOUT) {
 				delete payouts[payee];
 			}
 		}
 
 		// Compute the total unpaid amount.
 		let unpaid = totalRewards;
-		for (const [, amount] of addressEntries(payouts)) {
-			unpaid -= amount;
+		for (const [, { stakeRewards, commission }] of addressEntries(payouts)) {
+			unpaid -= stakeRewards + commission;
 		}
 
 		return { payouts, unpaid };

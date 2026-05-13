@@ -27,6 +27,7 @@ main(
 			.string()
 			.transform((v) => getAddress(v))
 			.optional(),
+		split: z.boolean().optional(),
 	},
 	async (args) => {
 		const safenet = await Safenet.create(args);
@@ -37,25 +38,47 @@ main(
 		const formatKyc = (amount: bigint): string =>
 			args.kycThreshold && amount >= args.kycThreshold ? " *" : "";
 
-		console.log(
-			` Recipient                                  | Payout                        | KYC`,
-		);
-		console.log(
-			`--------------------------------------------+-------------------------------+-----`,
-		);
-		for (const [recipient, amount] of Object.entries(payouts)) {
-			console.log(` ${recipient} | ${formatSafeToken(amount)} | ${formatKyc(amount)}`);
+		if (args.split) {
+			console.log(
+				` Recipient                                  | Stake Rewards                 | Commission                    | KYC`,
+			);
+			console.log(
+				`--------------------------------------------+-------------------------------+-------------------------------+-----`,
+			);
+			for (const [recipient, { stakeRewards, commission }] of Object.entries(payouts)) {
+				console.log(
+					` ${recipient} | ${formatSafeToken(stakeRewards)} | ${formatSafeToken(commission)} | ${formatKyc(stakeRewards + commission)}`,
+				);
+			}
+			console.log(
+				`--------------------------------------------+-------------------------------+-------------------------------+-----`,
+			);
+			console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)} | ${"".padEnd(31)} |`);
+		} else {
+			console.log(
+				` Recipient                                  | Payout                        | KYC`,
+			);
+			console.log(
+				`--------------------------------------------+-------------------------------+-----`,
+			);
+			for (const [recipient, { stakeRewards, commission }] of Object.entries(payouts)) {
+				const total = stakeRewards + commission;
+				console.log(` ${recipient} | ${formatSafeToken(total)} | ${formatKyc(total)}`);
+			}
+			console.log(
+				`--------------------------------------------+-------------------------------+-----`,
+			);
+			console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)} |`);
 		}
-		console.log(
-			`--------------------------------------------+-------------------------------+-----`,
-		);
-		console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)} |`);
 
 		if (args.record) {
 			const sanctions = await safenet.sanctionedAccounts(period);
 			const db = new MerkleDb({ record: args.record });
 			const filters = { sanctions, ...args };
-			const update = await db.distribute(period, payouts, unpaid, filters);
+			const flatPayouts = Object.fromEntries(
+				Object.entries(payouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
+			);
+			const update = await db.distribute(period, flatPayouts, unpaid, filters);
 
 			console.log();
 			if (update === null) {

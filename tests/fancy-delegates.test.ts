@@ -213,9 +213,12 @@ describe("fancy-delegates", () => {
 		//   validator2-churn payout    = 60,000 × 2.9M / 6.0M = 29,000 SAFE
 		//   validator2-exit payout     = 60,000 × 0.6M / 6.0M =  6,000 SAFE
 
-		const { payouts, unpaid } = await safenet.rewards(
+		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("120000"),
+		);
+		const payouts = Object.fromEntries(
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("staker1")]: parseSafe("36250"),

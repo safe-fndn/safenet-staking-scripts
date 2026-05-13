@@ -71,9 +71,12 @@ describe("single", () => {
 		//   validator payout ≈ 78_888.89 SAFE
 		//   delegate payout  ≈ 21_111.11 SAFE
 
-		const { payouts, unpaid } = await safenet.rewards(
+		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("100000"),
+		);
+		const payouts = Object.fromEntries(
+			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [addr, stakeRewards + commission]),
 		);
 		expect(payouts).toEqual({
 			[namedAddress("staker")]: parseSafe("78888.888888888888888888"),
