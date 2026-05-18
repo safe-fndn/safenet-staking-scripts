@@ -92,6 +92,9 @@ npm run cmd:rewards -- --totalRewards=1000000 --rewardPeriodStart=1700000000 --r
 
 # Record payouts and update the Merkle distribution database
 npm run cmd:rewards -- --kycThreshold=1000 --record=./path/to/record
+
+# Print rewards as tab-separated values (TSV)
+npm run cmd:rewards -- --tsv
 ```
 
 The optional `--totalRewards` flag overrides the payout amount for the period (in whole SAFE tokens, 18 decimal precision); when omitted, the amount is prorated from the 4.5M SAFE allocated for the Safenet Beta program. The optional `--kycThreshold` flag sets the minimum payout amount, in SAFE tokens, at which a recipient is marked for KYC handling. KYC approval is read from each recipient's distribution entry in the Merkle database via its optional `kyc` boolean field. The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.

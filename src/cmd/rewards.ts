@@ -9,6 +9,12 @@ import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod, totalRewardsAmount } from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
 import { formatSafeToken } from "../utils/format.js";
+import {
+	buildRewardsPresentation,
+	buildSplitRewardsPresentation,
+	presentTable,
+	presentTsv,
+} from "../utils/presentation.js";
 
 main(
 	{
@@ -22,6 +28,7 @@ main(
 			.string()
 			.transform((v) => parseUnits(v, 18))
 			.optional(),
+		tsv: z.boolean().optional(),
 		record: z.string().optional(),
 		cumulativeMerkleDropAddress: z
 			.string()
@@ -35,41 +42,20 @@ main(
 		const totalAmount = await totalRewardsAmount(args);
 
 		const { payouts, unpaid } = await safenet.rewards(period, totalAmount);
-		const formatKyc = (amount: bigint): string =>
-			args.kycThreshold && amount >= args.kycThreshold ? " *" : "";
 
-		if (args.split) {
-			console.log(
-				` Recipient                                  | Stake Rewards                 | Commission                    | KYC`,
-			);
-			console.log(
-				`--------------------------------------------+-------------------------------+-------------------------------+-----`,
-			);
-			for (const [recipient, { stakeRewards, commission }] of Object.entries(payouts)) {
-				console.log(
-					` ${recipient} | ${formatSafeToken(stakeRewards)} | ${formatSafeToken(commission)} | ${formatKyc(stakeRewards + commission)}`,
+		const presentation = args.split
+			? buildSplitRewardsPresentation(payouts, unpaid, args.kycThreshold)
+			: buildRewardsPresentation(
+					Object.fromEntries(
+						Object.entries(payouts).map(([addr, { stakeRewards, commission }]) => [
+							addr,
+							stakeRewards + commission,
+						]),
+					),
+					unpaid,
+					args.kycThreshold,
 				);
-			}
-			console.log(
-				`--------------------------------------------+-------------------------------+-------------------------------+-----`,
-			);
-			console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)} | ${"".padEnd(31)} |`);
-		} else {
-			console.log(
-				` Recipient                                  | Payout                        | KYC`,
-			);
-			console.log(
-				`--------------------------------------------+-------------------------------+-----`,
-			);
-			for (const [recipient, { stakeRewards, commission }] of Object.entries(payouts)) {
-				const total = stakeRewards + commission;
-				console.log(` ${recipient} | ${formatSafeToken(total)} | ${formatKyc(total)}`);
-			}
-			console.log(
-				`--------------------------------------------+-------------------------------+-----`,
-			);
-			console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)} |`);
-		}
+		console.log(args.tsv ? presentTsv(presentation) : presentTable(presentation));
 
 		if (args.record) {
 			const sanctions = await safenet.sanctionedAccounts(period);
