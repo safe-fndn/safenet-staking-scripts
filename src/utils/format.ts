@@ -1,20 +1,6 @@
 import { formatUnits } from "viem";
 import { isBlockRange, type Range, timestampToDate } from "./ranges.js";
 
-export const formatTsv = (
-	payouts: Record<string, bigint>,
-	unpaid: bigint,
-	kycThreshold?: bigint,
-): string => {
-	const meetsKyc = (amount: bigint): boolean => !!kycThreshold && amount >= kycThreshold;
-	const lines = ["Recipient\tPayout\tKYC"];
-	for (const [recipient, amount] of Object.entries(payouts)) {
-		lines.push(`${recipient}\t${formatUnits(amount, 18)}\t${meetsKyc(amount) ? "TRUE" : "FALSE"}`);
-	}
-	lines.push(`Unpaid\t${formatUnits(unpaid, 18)}\t`);
-	return lines.join("\n");
-};
-
 /**
  * Formats a timestamp.
  */

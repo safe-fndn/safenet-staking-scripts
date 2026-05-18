@@ -8,7 +8,8 @@ import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod, totalRewardsAmount } from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
-import { formatTsv, formatSafeToken } from "../utils/format.js";
+import { formatSafeToken } from "../utils/format.js";
+import { buildRewardsPresentation, presentTable, presentTsv } from "../utils/presentation.js";
 
 main(
 	{
@@ -35,25 +36,8 @@ main(
 		const totalAmount = await totalRewardsAmount(args);
 
 		const { payouts, unpaid } = await safenet.rewards(period, totalAmount);
-		if (args.tsv) {
-			console.log(formatTsv(payouts, unpaid, args.kycThreshold));
-		} else {
-			console.log(
-				` Recipient                                  | Payout                        | KYC`,
-			);
-			console.log(
-				`--------------------------------------------+-------------------------------+-----`,
-			);
-			for (const [recipient, amount] of Object.entries(payouts)) {
-				console.log(
-					` ${recipient} | ${formatSafeToken(amount)} |${args.kycThreshold && amount >= args.kycThreshold ? " *" : ""}`,
-				);
-			}
-			console.log(
-				`--------------------------------------------+-------------------------------+-----`,
-			);
-			console.log(` ${"Unpaid".padEnd(42)} | ${formatSafeToken(unpaid)} |`);
-		}
+		const presentation = buildRewardsPresentation(payouts, unpaid, args.kycThreshold);
+		console.log(args.tsv ? presentTsv(presentation) : presentTable(presentation));
 
 		if (args.record) {
 			const sanctions = await safenet.sanctionedAccounts(period);
