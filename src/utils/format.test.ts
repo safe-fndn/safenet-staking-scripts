@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { formatGsheet } from "./format.js";
+import { formatTsv } from "./format.js";
 
 const addr1 = "0x0000000000000000000000000000000000000001";
 const addr2 = "0x0000000000000000000000000000000000000002";
 const ONE_SAFE = 10n ** 18n;
 
-describe("formatGsheet", () => {
+describe("formatTsv", () => {
 	it("outputs tab-separated rows with a header and unpaid footer", () => {
 		const payouts = {
 			[addr1]: ONE_SAFE * 1000n,
 			[addr2]: ONE_SAFE * 500n,
 		};
-		const output = formatGsheet(payouts, ONE_SAFE / 2n);
+		const output = formatTsv(payouts, ONE_SAFE / 2n);
 		const lines = output.split("\n");
 
 		expect(lines[0]).toBe("Recipient\tPayout\tKYC");
@@ -25,7 +25,7 @@ describe("formatGsheet", () => {
 			[addr1]: ONE_SAFE * 1000n,
 			[addr2]: ONE_SAFE * 500n,
 		};
-		const output = formatGsheet(payouts, 0n, ONE_SAFE * 750n);
+		const output = formatTsv(payouts, 0n, ONE_SAFE * 750n);
 		const lines = output.split("\n");
 
 		expect(lines[1]).toBe(`${addr1}\t1000\tTRUE`);

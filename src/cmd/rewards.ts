@@ -8,7 +8,7 @@ import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod, totalRewardsAmount } from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
-import { formatGsheet, formatSafeToken } from "../utils/format.js";
+import { formatTsv, formatSafeToken } from "../utils/format.js";
 
 main(
 	{
@@ -22,7 +22,7 @@ main(
 			.string()
 			.transform((v) => parseUnits(v, 18))
 			.optional(),
-		gsheet: z.boolean().optional(),
+		tsv: z.boolean().optional(),
 		record: z.string().optional(),
 		cumulativeMerkleDropAddress: z
 			.string()
@@ -35,8 +35,8 @@ main(
 		const totalAmount = await totalRewardsAmount(args);
 
 		const { payouts, unpaid } = await safenet.rewards(period, totalAmount);
-		if (args.gsheet) {
-			console.log(formatGsheet(payouts, unpaid, args.kycThreshold));
+		if (args.tsv) {
+			console.log(formatTsv(payouts, unpaid, args.kycThreshold));
 		} else {
 			console.log(
 				` Recipient                                  | Payout                        | KYC`,

@@ -1,7 +1,7 @@
 import { formatUnits } from "viem";
 import { isBlockRange, type Range, timestampToDate } from "./ranges.js";
 
-export const formatGsheet = (
+export const formatTsv = (
 	payouts: Record<string, bigint>,
 	unpaid: bigint,
 	kycThreshold?: bigint,
