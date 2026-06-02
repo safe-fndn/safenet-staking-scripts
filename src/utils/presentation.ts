@@ -1,60 +1,52 @@
-import { formatUnits } from "viem";
+type FormatFn<T> = (item: T) => string;
 
-export type Presentation = {
-	headers: string[];
-	rows: string[][];
-	footer: string[];
+export type ColumnDef<T> = {
+	header: string;
+	width: number;
+	align?: "left" | "right";
+	format: FormatFn<T> | { table: FormatFn<T>; tsv: FormatFn<T> };
 };
 
-export const buildRewardsPresentation = (
-	payouts: Record<string, bigint>,
-	unpaid: bigint,
-	kycThreshold?: bigint,
-): Presentation => {
-	const meetsKyc = (amount: bigint): boolean => !!kycThreshold && amount >= kycThreshold;
-	return {
-		headers: ["Recipient", "Payout", "KYC"],
-		rows: Object.entries(payouts).map(([recipient, amount]) => [
-			recipient,
-			formatUnits(amount, 18),
-			meetsKyc(amount) ? "TRUE" : "FALSE",
-		]),
-		footer: ["Unpaid", formatUnits(unpaid, 18), ""],
-	};
+export type Presenter<T> = {
+	writeRow: (item: T) => void;
+	finish: (footer?: string[]) => void;
 };
 
-export const buildSplitRewardsPresentation = (
-	payouts: Record<string, { stakeRewards: bigint; commission: bigint }>,
-	unpaid: bigint,
-	kycThreshold?: bigint,
-): Presentation => {
-	const meetsKyc = (amount: bigint): boolean => !!kycThreshold && amount >= kycThreshold;
-	return {
-		headers: ["Recipient", "Stake Rewards", "Commission", "KYC"],
-		rows: Object.entries(payouts).map(([recipient, { stakeRewards, commission }]) => [
-			recipient,
-			formatUnits(stakeRewards, 18),
-			formatUnits(commission, 18),
-			meetsKyc(stakeRewards + commission) ? "TRUE" : "FALSE",
-		]),
-		footer: ["Unpaid", formatUnits(unpaid, 18), "", ""],
-	};
-};
+const resolveFormat = <T>(col: ColumnDef<T>, mode: "table" | "tsv"): FormatFn<T> =>
+	typeof col.format === "function" ? col.format : col.format[mode];
 
-export const presentTsv = ({ headers, rows, footer }: Presentation): string =>
-	[headers, ...rows, footer].map((row) => row.join("\t")).join("\n");
+export const createPresenter = <T>(
+	columns: ColumnDef<T>[],
+	{ tsv = false, writer = console.log }: { tsv?: boolean; writer?: (line: string) => void } = {},
+): Presenter<T> => {
+	const mode = tsv ? "tsv" : "table";
+	let finished = false;
 
-export const presentTable = ({ headers, rows, footer }: Presentation): string => {
-	const amountCols = headers.length - 2;
-	const sep =
-		`--------------------------------------------+` +
-		`-------------------------------+`.repeat(amountCols) +
-		`-----`;
-	const fmtRow = (row: string[]) => {
-		const [address, ...rest] = row;
-		const kyc = rest[rest.length - 1];
-		const amounts = rest.slice(0, -1);
-		return ` ${address.padEnd(42)} | ${amounts.map((a) => a.padStart(29)).join(" | ")} | ${kyc === "TRUE" ? "*" : kyc}`;
+	const tableSeparator = columns.map((col) => "-".repeat(col.width + 2)).join("+");
+
+	const fmtTsvLine = (values: string[]) => columns.map((_, i) => values[i] ?? "").join("\t");
+	const fmtTableLine = (values: string[]) => {
+		const padCell = (col: ColumnDef<T>, value: string) =>
+			col.align === "right" ? ` ${value.padStart(col.width)} ` : ` ${value.padEnd(col.width)} `;
+		return columns.map((col, i) => padCell(col, values[i] ?? "")).join("|");
 	};
-	return [fmtRow(headers), sep, ...rows.map(fmtRow), sep, fmtRow(footer)].join("\n");
+	const fmtLine = mode === "tsv" ? fmtTsvLine : fmtTableLine;
+
+	writer(fmtLine(columns.map((col) => col.header)));
+	if (mode === "table") writer(tableSeparator);
+
+	const writeRow = (item: T): void => {
+		if (finished) throw new Error("Presenter already finished");
+		writer(fmtLine(columns.map((col) => resolveFormat(col, mode)(item))));
+	};
+
+	const finish = (footer?: string[]): void => {
+		if (finished) throw new Error("Presenter already finished");
+		finished = true;
+
+		if (mode === "table") writer(tableSeparator);
+		if (footer) writer(fmtLine(footer));
+	};
+
+	return { writeRow, finish };
 };
