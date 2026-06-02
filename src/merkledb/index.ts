@@ -236,7 +236,7 @@ export class MerkleDb {
 		const previousTokenTotal = index.tokenTotal;
 		index.merkleRoot = merkleRoot;
 		index.tokenTotal = 0n;
-		index.unpaidAmount = (index.unpaidAmount ?? 0n) + unpaid;
+		index.unpaidAmount = unpaid;
 		index.updatedAt = new Date();
 		if (period.toTimestamp !== undefined) {
 			index.rewardsUntil = timestampToDate(period.toTimestamp);
