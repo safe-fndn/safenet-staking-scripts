@@ -2,16 +2,21 @@
  * Command to print reward payouts for a given payout period.
  */
 
-import { formatUnits, getAddress, parseUnits } from "viem";
+import { type Address, formatUnits, getAddress, parseUnits } from "viem";
 import { z } from "zod";
 import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod, totalRewardsAmount } from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
 import { formatSafeToken } from "../utils/format.js";
-import { type ColumnDef, createPresenter } from "../utils/presentation.js";
+import {
+	addressColumn,
+	booleanColumn,
+	createPresenter,
+	safeTokenColumn,
+} from "../utils/presentation.js";
 
-type PayoutItem = { recipient: string; stakeRewards: bigint; commission: bigint };
+type PayoutItem = { recipient: Address; stakeRewards: bigint; commission: bigint };
 
 main(
 	{
@@ -41,54 +46,39 @@ main(
 		const { payouts, unpaid } = await safenet.rewards(period, totalAmount);
 		const meetsKyc = (amount: bigint) => !!args.kycThreshold && amount >= args.kycThreshold;
 
-		const amountCols: ColumnDef<PayoutItem>[] = args.split
-			? [
-					{
-						header: "Stake Rewards",
-						width: 29,
-						align: "right",
-						format: ({ stakeRewards }) => formatUnits(stakeRewards, 18),
-					},
-					{
-						header: "Commission",
-						width: 29,
-						align: "right",
-						format: ({ commission }) => formatUnits(commission, 18),
-					},
-				]
-			: [
-					{
-						header: "Payout",
-						width: 29,
-						align: "right",
-						format: ({ stakeRewards, commission }) => formatUnits(stakeRewards + commission, 18),
-					},
-				];
-
 		const presenter = createPresenter<PayoutItem>(
 			[
-				{
+				addressColumn({
 					header: "Recipient",
-					width: 42,
-					format: ({ recipient }) => recipient,
-				},
-				...amountCols,
-				{
+					extract: ({ recipient }) => recipient,
+				}),
+				...(args.split
+					? [
+							safeTokenColumn<PayoutItem>({
+								header: "Stake Rewards",
+								extract: ({ stakeRewards }) => stakeRewards,
+							}),
+							safeTokenColumn<PayoutItem>({
+								header: "Commission",
+								extract: ({ commission }) => commission,
+							}),
+						]
+					: [
+							safeTokenColumn<PayoutItem>({
+								header: "Payout",
+								extract: ({ stakeRewards, commission }) => stakeRewards + commission,
+							}),
+						]),
+				booleanColumn({
 					header: "KYC",
-					width: 3,
-					format: {
-						table: ({ stakeRewards, commission }) =>
-							meetsKyc(stakeRewards + commission) ? "*" : "",
-						tsv: ({ stakeRewards, commission }) =>
-							meetsKyc(stakeRewards + commission) ? "TRUE" : "FALSE",
-					},
-				},
+					extract: ({ stakeRewards, commission }) => meetsKyc(stakeRewards + commission),
+				}),
 			],
 			args,
 		);
 
 		for (const [recipient, { stakeRewards, commission }] of Object.entries(payouts)) {
-			presenter.writeRow({ recipient, stakeRewards, commission });
+			presenter.writeRow({ recipient: getAddress(recipient), stakeRewards, commission });
 		}
 
 		presenter.finish(["Unpaid", formatUnits(unpaid, 18)]);

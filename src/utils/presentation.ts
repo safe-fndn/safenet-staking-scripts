@@ -1,3 +1,6 @@
+import { type Address, formatUnits, zeroAddress } from "viem";
+import { formatSafeToken } from "./format.js";
+
 type FormatFn<T> = (item: T) => string;
 
 export type ColumnDef<T> = {
@@ -50,3 +53,61 @@ export const createPresenter = <T>(
 
 	return { writeRow, finish };
 };
+
+/**
+ * Column helper for Ethereum addresses. Sets the width to fit a checksummed
+ * address (`0x` plus 40 hex characters) and renders the {@link Address}
+ * returned by `extract`.
+ */
+export const addressColumn = <T>({
+	header,
+	extract,
+}: {
+	header: string;
+	extract: (item: T) => Address;
+}): ColumnDef<T> => ({
+	header,
+	width: Math.max(header.length, zeroAddress.length),
+	format: extract,
+});
+
+/**
+ * Column helper for SAFE token amounts. Renders the `bigint` returned by
+ * `extract` using {@link formatSafeToken} in table mode (fixed 29-character
+ * width: 10 integer digits, `.`, and 18 fractional digits) and a plain
+ * `formatUnits` representation in TSV mode.
+ */
+export const safeTokenColumn = <T>({
+	header,
+	extract,
+}: {
+	header: string;
+	extract: (item: T) => bigint;
+}): ColumnDef<T> => ({
+	header,
+	width: Math.max(header.length, "1000000000.000000000000000000".length),
+	format: {
+		table: (item) => formatSafeToken(extract(item)),
+		tsv: (item) => formatUnits(extract(item), 18),
+	},
+});
+
+/**
+ * Column helper for boolean flags. Renders the boolean returned by `extract` as
+ * a `*` marker in table mode and `TRUE`/`FALSE` in TSV mode, sized to fit the
+ * header.
+ */
+export const booleanColumn = <T>({
+	header,
+	extract,
+}: {
+	header: string;
+	extract: (item: T) => boolean;
+}): ColumnDef<T> => ({
+	header,
+	width: Math.max(header.length, 1),
+	format: {
+		table: (item) => (extract(item) ? "*" : ""),
+		tsv: (item) => (extract(item) ? "TRUE" : "FALSE"),
+	},
+});
