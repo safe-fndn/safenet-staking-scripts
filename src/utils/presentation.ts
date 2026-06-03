@@ -1,5 +1,5 @@
 import { type Address, formatUnits, zeroAddress } from "viem";
-import { formatSafeToken } from "./format.js";
+import { formatPercent, formatSafeToken } from "./format.js";
 
 type FormatFn<T> = (item: T) => string;
 
@@ -110,4 +110,22 @@ export const booleanColumn = <T>({
 		table: (item) => (extract(item) ? "*" : ""),
 		tsv: (item) => (extract(item) ? "TRUE" : "FALSE"),
 	},
+});
+
+/**
+ * Column helper for percentage rates. Renders the `number` returned by
+ * `extract` with {@link formatPercent}, right-aligned in a column wide enough
+ * to fit the header and a fully saturated `100.00%` value.
+ */
+export const percentColumn = <T>({
+	header,
+	extract,
+}: {
+	header: string;
+	extract: (item: T) => number;
+}): ColumnDef<T> => ({
+	header,
+	width: Math.max(header.length, "100.00%".length),
+	align: "right",
+	format: (item) => formatPercent(extract(item)),
 });

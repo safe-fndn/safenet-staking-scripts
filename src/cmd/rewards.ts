@@ -30,7 +30,6 @@ main(
 			.string()
 			.transform((v) => parseUnits(v, 18))
 			.optional(),
-		tsv: z.boolean().optional(),
 		record: z.string().optional(),
 		cumulativeMerkleDropAddress: z
 			.string()
