@@ -9,7 +9,12 @@ import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod, totalRewardsAmount } from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
 import { formatSafeToken } from "../utils/format.js";
-import { addressColumn, createPresenter, safeTokenColumn } from "../utils/presentation.js";
+import {
+	addressColumn,
+	booleanColumn,
+	createPresenter,
+	safeTokenColumn,
+} from "../utils/presentation.js";
 
 type PayoutItem = { recipient: Address; stakeRewards: bigint; commission: bigint };
 
@@ -64,16 +69,10 @@ main(
 								extract: ({ stakeRewards, commission }) => stakeRewards + commission,
 							}),
 						]),
-				{
+				booleanColumn({
 					header: "KYC",
-					width: 3,
-					format: {
-						table: ({ stakeRewards, commission }) =>
-							meetsKyc(stakeRewards + commission) ? "*" : "",
-						tsv: ({ stakeRewards, commission }) =>
-							meetsKyc(stakeRewards + commission) ? "TRUE" : "FALSE",
-					},
-				},
+					extract: ({ stakeRewards, commission }) => meetsKyc(stakeRewards + commission),
+				}),
 			],
 			args,
 		);

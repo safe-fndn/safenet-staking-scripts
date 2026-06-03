@@ -1,4 +1,4 @@
-import { type Address, formatUnits } from "viem";
+import { type Address, formatUnits, zeroAddress } from "viem";
 import { formatSafeToken } from "./format.js";
 
 type FormatFn<T> = (item: T) => string;
@@ -67,7 +67,7 @@ export const addressColumn = <T>({
 	extract: (item: T) => Address;
 }): ColumnDef<T> => ({
 	header,
-	width: 42,
+	width: Math.max(header.length, zeroAddress.length),
 	format: extract,
 });
 
@@ -85,9 +85,29 @@ export const safeTokenColumn = <T>({
 	extract: (item: T) => bigint;
 }): ColumnDef<T> => ({
 	header,
-	width: 29,
+	width: Math.max(header.length, "1000000000.000000000000000000".length),
 	format: {
 		table: (item) => formatSafeToken(extract(item)),
 		tsv: (item) => formatUnits(extract(item), 18),
+	},
+});
+
+/**
+ * Column helper for boolean flags. Renders the boolean returned by `extract` as
+ * a `*` marker in table mode and `TRUE`/`FALSE` in TSV mode, sized to fit the
+ * header.
+ */
+export const booleanColumn = <T>({
+	header,
+	extract,
+}: {
+	header: string;
+	extract: (item: T) => boolean;
+}): ColumnDef<T> => ({
+	header,
+	width: Math.max(header.length, 1),
+	format: {
+		table: (item) => (extract(item) ? "*" : ""),
+		tsv: (item) => (extract(item) ? "TRUE" : "FALSE"),
 	},
 });
