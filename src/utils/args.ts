@@ -20,6 +20,7 @@ const SCHEMA = z.object({
 	consensusAddress: z.string().transform((a) => getAddress(a)),
 	consensusStartBlock: z.coerce.bigint(),
 	consensusBlockPageSize: z.coerce.bigint(),
+	tsv: z.boolean().optional(),
 });
 
 const envKey = (key: string): string => {

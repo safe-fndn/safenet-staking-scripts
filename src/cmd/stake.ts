@@ -2,10 +2,13 @@
  * Command to print stake statistics for a given payout period.
  */
 
+import type { Address } from "viem";
 import { z } from "zod";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
-import { formatSafeToken } from "../utils/format.js";
+import { addressColumn, createPresenter, safeTokenColumn } from "../utils/presentation.js";
+
+type StakeItem = { staker: Address; validator: Address; amount: bigint };
 
 main(
 	{
@@ -16,16 +19,19 @@ main(
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 
-		console.log(
-			` Staker                                     | Validator                                  | Average Stake`,
-		);
-		console.log(
-			`--------------------------------------------+--------------------------------------------+-------------------------------`,
+		const presenter = createPresenter<StakeItem>(
+			[
+				addressColumn({ header: "Staker", extract: ({ staker }) => staker }),
+				addressColumn({ header: "Validator", extract: ({ validator }) => validator }),
+				safeTokenColumn({ header: "Average Stake", extract: ({ amount }) => amount }),
+			],
+			args,
 		);
 		for await (const { staker, amounts } of safenet.staked(period)) {
 			for (const { validator, amount } of amounts) {
-				console.log(` ${staker} | ${validator} | ${formatSafeToken(amount)}`);
+				presenter.writeRow({ staker, validator, amount });
 			}
 		}
+		presenter.finish();
 	},
 );

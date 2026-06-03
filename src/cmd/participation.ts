@@ -3,13 +3,15 @@
  */
 
 import path from "node:path";
-import { getAddress } from "viem";
+import { type Address, getAddress } from "viem";
 import { z } from "zod";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
-import { formatPercent } from "../utils/format.js";
 import { readJsonFile, writeJsonFile } from "../utils/json.js";
+import { addressColumn, createPresenter, percentColumn } from "../utils/presentation.js";
 import { sortByAddress } from "../utils/sort.js";
+
+type ParticipationItem = { validator: Address; rate: number };
 
 main(
 	{
@@ -21,12 +23,18 @@ main(
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 
-		console.log(` Validator                                  | Participation`);
-		console.log(`--------------------------------------------+---------------`);
 		const { total, validators } = await safenet.participation(period);
+		const presenter = createPresenter<ParticipationItem>(
+			[
+				addressColumn({ header: "Validator", extract: ({ validator }) => validator }),
+				percentColumn({ header: "Participation", extract: ({ rate }) => rate }),
+			],
+			args,
+		);
 		for (const [validator, count] of Object.entries(validators)) {
-			console.log(` ${validator} | ${formatPercent(count / total).padStart(13)}`);
+			presenter.writeRow({ validator: getAddress(validator), rate: count / total });
 		}
+		presenter.finish();
 
 		if (args.record !== undefined) {
 			const validatorsFile = path.join(args.record, "assets", "validator-info.json");
