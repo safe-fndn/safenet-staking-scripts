@@ -182,7 +182,7 @@ export abstract class EventIndexer<
 		const { timestamp } =
 			toBlock === range.latest.number
 				? range.latest
-				: await getBlock(this.#client, { blockNumber: toBlock });
+				: await this.#backoff(() => getBlock(this.#client, { blockNumber: toBlock }));
 		return { fromBlock, toBlock, toTimestamp: timestamp };
 	}
 
@@ -198,7 +198,9 @@ export abstract class EventIndexer<
 		if (start.number >= 0n && start.timestamp === 0n) {
 			// On startup we set the timestamp to 0, fetch it from the block
 			// chain on first update.
-			const { timestamp } = await getBlock(this.#client, { blockNumber: start.number });
+			const { timestamp } = await this.#backoff(() =>
+				getBlock(this.#client, { blockNumber: start.number }),
+			);
 			start.timestamp = timestamp;
 			this.#queries.updateIndexer.run(start);
 		}
@@ -207,7 +209,7 @@ export abstract class EventIndexer<
 			return start;
 		}
 
-		const latest = await getBlock(this.#client, { blockTag: "latest" });
+		const latest = await this.#backoff(() => getBlock(this.#client, { blockTag: "latest" }));
 		if (to.toTimestamp !== undefined && to.toTimestamp > latest.timestamp) {
 			throw new Error("Attempting to update to a future block");
 		}
