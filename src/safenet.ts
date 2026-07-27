@@ -17,6 +17,7 @@ import { Transactions } from "./indexing/transactions.js";
 import { ValidatorBeneficiaries } from "./indexing/validator-beneficiaries.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
+import { type Backoff, backoff } from "./utils/backoff.js";
 import { formatRange } from "./utils/format.js";
 import { sqrtBigInt } from "./utils/math.js";
 import { rangeDuration, type TimestampRange, type ToTimestamp } from "./utils/ranges.js";
@@ -95,6 +96,7 @@ type ValidatorSelfStake = {
 
 export class Safenet {
 	#debug: Debugger;
+	#backoff: Backoff;
 	#staking: StakingChain;
 	#consensus: ConsensusChain;
 
@@ -106,6 +108,7 @@ export class Safenet {
 		consensus: ConsensusChain;
 	}) {
 		this.#debug = debug("safenet");
+		this.#backoff = backoff({ debug: this.#debug });
 		this.#staking = staking;
 		this.#consensus = consensus;
 	}
@@ -451,11 +454,13 @@ export class Safenet {
 	}
 
 	async safeToken(): Promise<Address> {
-		return await readContract(this.#staking.contract.client, {
-			address: this.#staking.contract.address,
-			abi: STAKING_ABI,
-			functionName: "SAFE_TOKEN",
-		});
+		return await this.#backoff(() =>
+			readContract(this.#staking.contract.client, {
+				address: this.#staking.contract.address,
+				abi: STAKING_ABI,
+				functionName: "SAFE_TOKEN",
+			}),
+		);
 	}
 
 	async sanctionedAccounts(to: Partial<ToTimestamp> = {}): Promise<Address[]> {
@@ -466,14 +471,16 @@ export class Safenet {
 	}
 
 	async totals(): Promise<Totals> {
-		const blockNumber = await getBlockNumber(this.#staking.contract.client);
+		const blockNumber = await this.#backoff(() => getBlockNumber(this.#staking.contract.client));
 		await this.#consensus.transactions.update();
-		const stake = await readContract(this.#staking.contract.client, {
-			address: this.#staking.contract.address,
-			abi: STAKING_ABI,
-			functionName: "totalStakedAmount",
-			blockNumber,
-		});
+		const stake = await this.#backoff(() =>
+			readContract(this.#staking.contract.client, {
+				address: this.#staking.contract.address,
+				abi: STAKING_ABI,
+				functionName: "totalStakedAmount",
+				blockNumber,
+			}),
+		);
 		const transactions = this.#consensus.attestations.transactionCount();
 		return { stake, transactions };
 	}
@@ -493,13 +500,16 @@ export class Safenet {
 		consensusAddress: Address;
 		consensusStartBlock?: bigint;
 	}): Promise<Safenet> {
-		const stakingChain = await getChainId(params.stakingClient);
-		const consensusChain = await getChainId(params.consensusClient);
-		const coordinatorAddress = await readContract(params.consensusClient, {
-			address: params.consensusAddress,
-			abi: CONSENSUS_ABI,
-			functionName: "getCoordinator",
-		});
+		const withBackoff = backoff({ debug: debug("safenet") });
+		const stakingChain = await withBackoff(() => getChainId(params.stakingClient));
+		const consensusChain = await withBackoff(() => getChainId(params.consensusClient));
+		const coordinatorAddress = await withBackoff(() =>
+			readContract(params.consensusClient, {
+				address: params.consensusAddress,
+				abi: CONSENSUS_ABI,
+				functionName: "getCoordinator",
+			}),
+		);
 
 		const db = new Sqlite3(params.databaseFile);
 		const stakingData = new StakingData({ db });
