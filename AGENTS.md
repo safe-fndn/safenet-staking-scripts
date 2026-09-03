@@ -136,6 +136,34 @@ All on-chain event indexers extend the abstract `EventIndexer` class in `src/ind
 - Some indexers ship **seed data** (pre-indexed historical events) under `src/indexing/seeds/` to avoid fetching from genesis. Add seed files there when a new historical dataset is needed.
 - Indexers write into `StakingData` or `AttestationData`; they do not own their own tables.
 
+## Database Schema Conventions
+
+The SQLite database is an event cache that grows monotonically with chain history, so schema
+decisions that look harmless at small scale dominate the file size later. When adding or changing
+tables:
+
+- **Never store a repeated address or hash inline in a high-cardinality table.** Give it an integer
+  surrogate key in its own lookup table and reference that key instead. `participants` and
+  `signing_participants` in `src/data/attestations.ts` are the reference implementation: one row per
+  address in the lookup table, and the per-event table stores only integers. SQLite does no
+  deduplication of repeated text on its own, and retrofitting a lookup table later means a
+  re-index. This has already caused real database size problems with the validator tables.
+- **Identify the table that grows fastest** (one row per participant per event, rather than one row
+  per event) and make that the one carrying nothing but integers.
+- **`PRIMARY KEY(id)` on an `INTEGER` column is a rowid alias**, so such tables must be rowid
+  tables. Use `WITHOUT ROWID` only when the primary key is a composite of narrow columns, as in
+  `signing_participants`.
+- **Only use `AUTOINCREMENT` when rows get deleted.** It guarantees a row ID is never reused for
+  the lifetime of the database, which matters for `selections` (whose rows are cleaned up after
+  use, leaving deliberately dangling references) and nowhere else. It requires an awkward
+  `INSERT … SELECT … WHERE NOT EXISTS` upsert to avoid burning IDs, so do not copy that pattern
+  into tables that never delete.
+- **Drop columns that are never queried.** `signing_participants` has no timestamp because shares
+  are only ever counted through their ceremony; an unused column is both dead weight and an
+  invitation to filter on it by accident.
+- **Discard unindexed event payload you do not need**, such as long `string` fields, rather than
+  storing them for hypothetical future use.
+
 ## Record Directory & Merkle Distribution
 
 The `--record` flag on several commands accepts the root of the `safenet-beta-data` repository. `MerkleDb` (`src/merkledb/index.ts`) writes cumulative payout data and Merkle proofs to `<record>/assets/rewards/`. The `cmd:rewards` command also emits a Safe transaction bundle to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json` when `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are set. `SAFE_TOKEN_ADDRESS` is fetched dynamically from the staking contract if not explicitly set via env.
