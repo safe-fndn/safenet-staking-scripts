@@ -350,5 +350,6 @@ export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
 		consensusClient: createMockClient(consensusChain),
 		consensusBlockPageSize: 5n,
 		consensusAddress: namedAddress("Consensus"),
+		sentinelOracleAddress: namedAddress("SentinelOracle"),
 	});
 };
