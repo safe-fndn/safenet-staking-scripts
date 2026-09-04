@@ -10,8 +10,8 @@ The work breaks down into:
 
 1. **Data layer** — a `SentinelData` class owning four new SQLite tables (two lookup tables,
    requests, reveals) plus the participation query.
-2. **Indexing** — a `SentinelOracle` event indexer (`NewRequest`, `Revealed`) per configured oracle
-   contract, wired into `Safenet.index()` and the CLI/env configuration.
+2. **Indexing** — a `SentinelOracle` event indexer (`NewRequest`, `Revealed`) for the canonical
+   oracle contract, wired into `Safenet.index()` and the CLI/env configuration.
 3. **Test harness** — sentinel oracle event encoding in `tests/harness/`, plus
    `Safenet.sentinelParticipation()` and its integration test.
 4. **`cmd:participation`** — print validator and sentinel participation together, with a
@@ -35,21 +35,21 @@ The sentinel oracle lives on the **consensus chain** (Gnosis Chain), so it reuse
 `CONSENSUS_RPC_URL`, `consensusClient`, and `CONSENSUS_BLOCK_PAGE_SIZE`. No new chain, no new RPC
 client, no new `viem` transport.
 
-### One `EventIndexer` instance per oracle contract
+### A single canonical oracle contract
 
-`EventIndexer` is constructed with a single `address` and stores progress keyed by a unique `name`
-with a `contract` (`chainId:address`) guard. Rather than teaching it to filter on an address list,
-we instantiate one `SentinelOracle` indexer per configured oracle, named
-`sentinel-oracle:<checksummedAddress>`. Consequences:
+There is always exactly one canonical sentinel oracle, and it is **required** configuration — not
+an optional feature flag. `SentinelOracle` is therefore an ordinary `EventIndexer` named
+`sentinel-oracle`, constructed exactly like `Signatures` or `Sanctions` and configured with a plain
+`SENTINEL_ORACLE_ADDRESS` / `SENTINEL_ORACLE_START_BLOCK` pair. Consequences:
 
 - No changes to `EventIndexer` — the largest and most delicate piece of existing machinery.
-- Per-oracle indexing progress, so adding a new oracle contract does not force a re-index of the
-  existing ones.
-- `Safenet.index()`'s `Promise.all` list becomes `[...fixedIndexers, ...sentinelIndexers]`.
-
-Note that `EventIndexer` interpolates `name` directly into SQL string literals. The name is derived
-from a `getAddress()`-checksummed address, so it is constrained to `[0-9a-fA-Fx]` and safe; this is
-called out in a code comment.
+- `Safenet.index()`'s `Promise.all` list simply gains one more entry.
+- Nothing downstream needs an "is sentinel indexing enabled?" branch: `ConsensusChain.oracle` is
+  non-nullable, and `sentinelParticipation()` / `sentinelRewards()` always have a denominator to
+  query. A period with no requests is an ordinary zero, not a special case.
+- `EventIndexer`'s existing `contract` (`chainId:address`) guard already refuses to run against a
+  database that was indexed for a different address, so re-pointing the oracle at a redeployment
+  fails loudly instead of silently mixing two contracts' requests.
 
 ### New `SentinelData` class, not an extension of `AttestationData`
 
@@ -82,9 +82,11 @@ shape (`setMerkleRoot` + a single `transfer` covering the combined amount).
 
 ### Alternatives Considered
 
-- **Extend `EventIndexer` to accept an address array.** `viem`'s `getLogs` supports it, but it
-  would mean a shared progress cursor across oracles (adding an oracle re-indexes all of them) and
-  a refactor of the most safety-critical class in the repo. Rejected.
+- **Supporting a configurable set of oracle contracts** (either by teaching `EventIndexer` to
+  filter on an address array, or by instantiating one indexer per configured oracle). This was the
+  original design, and it carried a real hazard: two operators configuring *different* oracle sets
+  would compute different participation denominators from the same chain data. Rejected once the
+  oracle was settled as canonical — a single address is both simpler and unambiguous.
 - **A "grace-shifted" participation window.** Shift the denominator window back by a configured
   number of seconds (`[from - grace, to - grace)`) so that every request's reveal phase has closed
   before it is counted. This removes the boundary effect entirely, but introduces a tuning
@@ -181,8 +183,9 @@ Why this shape:
 - **No `AUTOINCREMENT`.** `AttestationData` needs it for `selections` only because those rows get
   deleted and a reused row ID would corrupt the data; sentinel rows are never deleted, so the
   plain rowid alias is correct here and the `AUTOINCREMENT`-friendly upsert dance is unnecessary.
-- **Requests are scoped by `oracle`** via `UNIQUE(oracle, request_id)`, so two oracle contracts
-  cannot collide on `requestId`.
+- **Requests are scoped by `oracle`** via `UNIQUE(oracle, request_id)`. With a single canonical
+  oracle this is not strictly load-bearing, but it costs one integer column and keeps a `requestId`
+  unique to the contract that issued it, which matters if the oracle is ever redeployed.
 - **`sentinel_reveals` deliberately carries no `block_timestamp`**, mirroring
   `signing_participants`: reveals are only ever counted through their request, so the column would
   be dead weight and an invitation to filter on it by accident.
@@ -313,49 +316,44 @@ time, so it already covers the merged list for free.
 New variables, following the existing camelCase-flag / `SCREAMING_SNAKE_CASE`-env convention in
 `src/utils/args.ts`:
 
-| Variable                     | CLI flag                      | Description                                                                 |
-| ---------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
-| `SENTINEL_ORACLE_ADDRESSES`  | `--sentinelOracleAddresses`   | Comma-separated `address@startBlock` list, e.g. `0xAbC…@45210396,0xDeF…@45300000`. Empty/unset disables all sentinel indexing and reward calculation. |
-| `SENTINEL_REWARDS`           | `--sentinelRewards`           | Per-period, per-sentinel override, in whole SAFE (analogous to `--totalRewards`). |
+| Variable                      | CLI flag                       | Description                                                                 |
+| ----------------------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| `SENTINEL_ORACLE_ADDRESS`     | `--sentinelOracleAddress`      | Address of the canonical sentinel oracle contract, on the consensus chain. Required. |
+| `SENTINEL_ORACLE_START_BLOCK` | `--sentinelOracleStartBlock`   | Block the sentinel oracle was deployed on. Required. |
+| `SENTINEL_REWARDS`            | `--sentinelRewards`            | Per-period, per-sentinel override, in whole SAFE (analogous to `--totalRewards`). |
 
 There is deliberately **one** reward flag, not two. An annual-rate flag alongside a per-period
 override would leave "what happens if both are given?" to resolve, for no gain: the annual rate is
 a program constant (see above), and the only thing an operator ever needs to override is the
 resulting per-period amount.
 
-The `address@block` combined syntax is chosen over parallel `SENTINEL_ORACLE_ADDRESSES` /
-`SENTINEL_ORACLE_START_BLOCKS` lists so that the two can never drift out of alignment. The zod
-field is a `z.string().transform(...)` producing `{ address: Address; startBlock: bigint }[]`; the
-`isBool` heuristic in `parseArgs` correctly classifies it as a string option.
+The address/start-block pair follows the existing `CONSENSUS_ADDRESS` / `CONSENSUS_START_BLOCK`
+convention exactly — the same required `z.string().transform((a) => getAddress(a))` and
+`z.coerce.bigint()` fields used for every other contract.
 
-All sentinel features degrade to no-ops when `SENTINEL_ORACLE_ADDRESSES` is unset, so existing
-deployments and `.env` files keep working unchanged. `.env.sample` ships the variable commented out
-until the deployed oracle addresses are known.
+Because they are required, **every command fails to start without them**, including ones that have
+nothing to do with sentinels. This is deliberate: a missing oracle would otherwise silently produce
+an empty participation denominator, and an operator who has not configured the oracle is not in a
+position to compute correct rewards either. The cost is that `.env` files must be updated in
+lockstep with this change; `.env.sample` ships a clearly marked placeholder address and start block
+so that `cp .env.sample .env` still parses.
 
-#### Configured oracle set versus indexed sentinel set
+#### Configured oracle versus indexed sentinel set
 
-These are two different lists, and only the first is configuration:
+Only the first of these is configuration:
 
-- **Which oracle contracts to index** is configuration. The set of oracles that sentinel rewards
-  are paid for is fixed by a SEP, not by anything the consensus contract emits, so there is no
-  event stream to derive it from.
+- **Which oracle contract to index** is required configuration — a single canonical address, the
+  same way `CONSENSUS_ADDRESS` is required configuration. Misconfiguring it is the same class of operator error as
+  pointing `CONSENSUS_ADDRESS` at the wrong contract, and `EventIndexer`'s contract guard catches
+  the case where an existing database was indexed against a different address.
 - **Which sentinels exist** is *not* configuration and is never listed anywhere in this plan. It is
-  derived entirely from indexed `Revealed` events, so sentinels being added to or removed from an
+  derived entirely from indexed `Revealed` events, so sentinels being added to or removed from the
   oracle's allowlist mid-period is picked up automatically, with no operator action and no
   re-indexing.
 
-The residual risk is that two operators who configure *different oracle sets* compute different
-participation denominators from the same chain data. This is real, but it is the same class of
-operator error as pointing `CONSENSUS_ADDRESS` at the wrong contract, and it is bounded by the
-SEP-defined oracle set being small and fixed. It is **not** the mid-period-membership-change hazard
-that would apply if the *sentinel* list were configured — that list is event-derived precisely to
-avoid it.
-
-**This is under active discussion on the review thread and may still change** — see
-[thread `r3924004224`](https://github.com/safe-fndn/safenet-staking-scripts/pull/68#discussion_r3924004224).
-If an on-chain registry of SEP-approved oracles exists or is planned, indexing its registration
-events would remove the configuration entirely and is the better design; the question of which
-event that would be is open.
+This resolves [thread `r3924004224`](https://github.com/safe-fndn/safenet-staking-scripts/pull/68#discussion_r3924004224),
+which questioned the configured *set* of oracles: with one canonical oracle there is no set to
+disagree about, and no need for an on-chain registry of approved oracles to derive one from.
 
 ### Merkle DB accounting — the tokenTotal correction
 
@@ -403,9 +401,6 @@ Implementation notes:
 - `ParticipationItem` gains a `category` field, and a small `Category` column is added inline in
   `src/cmd/participation.ts` (a fixed-width `format` over a `"Validator" | "Sentinel"` union). It
   is not worth a shared helper in `src/utils/presentation.ts` until a second command needs it.
-- `sentinelParticipation()` must return an empty result rather than throwing when no oracles are
-  configured, since it now runs on the default path. That guard belongs in `Safenet`, not the
-  command.
 - Rows are grouped by category, then sorted by address within each group, so the output is stable.
 
 The `--record` path is **not** extended: the
@@ -441,7 +436,6 @@ Integration (`tests/sentinel-participation.test.ts`, `tests/sentinel-rewards.tes
 - participation excludes requests created outside the period
 - a `Revealed` whose `NewRequest` predates the oracle's configured start block is skipped without
   throwing, and does not appear in the numerator
-- two oracle contracts with a colliding `requestId` stay separate
 - a period with zero requests yields no payouts and no divide-by-zero
 - validator and sentinel payouts to the **same** address are summed into one distribution entry
 - `sentinelTokenTotal` accounting: two consecutive periods of mixed payouts leave the validator
@@ -466,14 +460,20 @@ design most needs scrutiny.
 
 **Depends on:** Phase 1
 **Files:** `src/indexing/sentinels.ts`, `src/safenet.ts`, `src/utils/args.ts`,
-`src/utils/args.test.ts`, `.env.sample`, `README.md`
-**Estimate:** ~190 LOC, 6 files
+`tests/harness/scenario.ts`, `.env.sample`, `README.md`
+**Estimate:** ~110 LOC, 6 files
 
-The `SentinelOracle` indexer (mapping the two events onto `SentinelData`), the
-`address@startBlock` arg parser with tests, per-oracle indexer construction in `Safenet.create()`,
-and `Safenet.index()` including them. Documents the new environment variables in `README.md`'s
-variable table and `.env.sample`. After this PR `cmd:index` indexes sentinel events; nothing reads
-them yet.
+The `SentinelOracle` indexer (mapping the two events onto `SentinelData`), the required
+`sentinelOracleAddress` / `sentinelOracleStartBlock` configuration, indexer construction in
+`Safenet.create()`, and `Safenet.index()` including it. Documents the new environment variables in
+`README.md`'s variable table and `.env.sample`. There are no new unit tests: the configuration is
+the same plain zod address/block pair as every other contract, so there is nothing bespoke to test
+until the harness lands in Phase 3.
+
+Because the oracle address is required, `createTestSafenet()` has to pass one for the repo to
+type-check, so this phase makes that one-line addition to `tests/harness/scenario.ts`; Phase 3 still
+owns the event encoding and the rest of the harness plumbing. After this PR `cmd:index` indexes
+sentinel events; nothing reads them yet.
 
 ### Phase 3 — Test harness support and `sentinelParticipation()`
 
@@ -483,7 +483,7 @@ them yet.
 **Estimate:** ~230 LOC, 5 files
 
 Extends `ConsensusChainEvent` with `NewRequest` / `Revealed` variants emitted from
-`namedAddress("SentinelOracle")` (same chain as consensus), passes `sentinelOracleAddresses`
+`namedAddress("SentinelOracle")` (same chain as consensus), threads `sentinelOracleStartBlock`
 through `createTestSafenet()`, adds a `sentinelRequest()` preset for the request-plus-reveals
 sequence, implements `Safenet.sentinelParticipation()`, and covers it with the participation
 integration test including the cross-period reveal case.
@@ -576,9 +576,11 @@ third is context a reviewer or implementer should know.
 Both are values plugged into the configuration described above, needed before the first production
 run rather than before any code lands.
 
-1. **Deployed oracle addresses and start blocks** for `SENTINEL_ORACLE_ADDRESSES`. `.env.sample`
-   ships the variable commented out until these are known, and every sentinel code path is a no-op
-   while it is unset.
+1. **The deployed oracle address and its start block** for `SENTINEL_ORACLE_ADDRESS` /
+   `SENTINEL_ORACLE_START_BLOCK`. Both are required, so `.env.sample` ships a placeholder zero
+   address and the consensus start block, marked `TODO`. These must be replaced with the real
+   deployment before the first production run — until then sentinel participation indexes an empty
+   contract and every sentinel rate is zero.
 2. **Final `SENTINEL_REWARD_PER_YEAR`.** The plan uses 400 000 SAFE per the proposed DAO
    formulation; the figure may change when the proposal is finalised, which is a one-line constant
    change in `src/utils/args.ts` — the same as it would be for the validator `TOTAL_REWARDS`.
@@ -598,13 +600,12 @@ run rather than before any code lands.
 - The sentinel oracle is deployed on the consensus chain and reachable via `CONSENSUS_RPC_URL`.
 - Sentinel addresses can claim from the cumulative Merkle drop directly; there is no sentinel-side
   beneficiary indirection analogous to the validator commission beneficiary (`SetDelegate`).
-- Requests created before an oracle's configured `startBlock` are out of scope, and any reveals for
+- There is exactly one canonical sentinel oracle contract, so participation has a single
+  unambiguous denominator.
+- Requests created before the oracle's configured `startBlock` are out of scope, and any reveals for
   them are excluded from both numerator and denominator.
 - No historical seed data is required for the sentinel oracle; indexing starts from the configured
   start block.
-- Sentinel participation is computed across **all** configured oracle contracts pooled together,
-  not per-oracle. If a sentinel is only expected to serve a subset of oracles, this understates
-  their rate.
 - Because reveals are counted with no timestamp predicate (matching `signing_participants`), a
   period's sentinel rates can improve if the database is later indexed past `toTimestamp` and
   further reveals for late-period requests arrive. On the default `:memory:` database this cannot
