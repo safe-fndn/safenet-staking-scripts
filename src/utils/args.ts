@@ -20,6 +20,8 @@ const SCHEMA = z.object({
 	consensusAddress: z.string().transform((a) => getAddress(a)),
 	consensusStartBlock: z.coerce.bigint(),
 	consensusBlockPageSize: z.coerce.bigint(),
+	sentinelOracleAddress: z.string().transform((a) => getAddress(a)),
+	sentinelOracleStartBlock: z.coerce.bigint(),
 	tsv: z.boolean().optional(),
 });
 

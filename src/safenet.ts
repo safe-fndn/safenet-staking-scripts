@@ -8,9 +8,11 @@ import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "
 import { getBlockNumber, getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { AttestationData } from "./data/attestations.js";
+import { SentinelData } from "./data/sentinels.js";
 import { StakingData } from "./data/staking.js";
 import type { EventIndexer } from "./indexing/events.js";
 import { Sanctions } from "./indexing/sanctions.js";
+import { SentinelOracle } from "./indexing/sentinels.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
 import { Transactions } from "./indexing/transactions.js";
@@ -81,6 +83,8 @@ type ConsensusChain = {
 	stakers: ValidatorStakers;
 	transactions: Transactions;
 	signatures: Signatures;
+	sentinels: SentinelData;
+	oracle: SentinelOracle;
 };
 
 type ValidatorRegistrations = {
@@ -134,6 +138,7 @@ export class Safenet {
 			update(this.#consensus.stakers),
 			update(this.#consensus.transactions),
 			update(this.#consensus.signatures),
+			update(this.#consensus.oracle),
 		]);
 	}
 
@@ -499,6 +504,8 @@ export class Safenet {
 		consensusBlockPageSize: bigint;
 		consensusAddress: Address;
 		consensusStartBlock?: bigint;
+		sentinelOracleAddress: Address;
+		sentinelOracleStartBlock?: bigint;
 	}): Promise<Safenet> {
 		const withBackoff = backoff({ debug: debug("safenet") });
 		const stakingChain = await withBackoff(() => getChainId(params.stakingClient));
@@ -514,6 +521,7 @@ export class Safenet {
 		const db = new Sqlite3(params.databaseFile);
 		const stakingData = new StakingData({ db });
 		const attestationData = new AttestationData({ db });
+		const sentinelData = new SentinelData({ db });
 		const stakingConfig = {
 			data: stakingData,
 			client: params.stakingClient,
@@ -548,6 +556,15 @@ export class Safenet {
 			...consensusConfig,
 			address: coordinatorAddress,
 		};
+
+		// The sentinel oracle lives on the consensus chain, so it reuses its
+		// client and block page size, only overriding the contract it indexes.
+		const sentinelOracleConfig = {
+			...consensusConfig,
+			data: sentinelData,
+			address: params.sentinelOracleAddress,
+			startBlock: params.sentinelOracleStartBlock,
+		};
 		return new Safenet({
 			staking: {
 				contract: {
@@ -565,6 +582,8 @@ export class Safenet {
 				stakers: new ValidatorStakers(validatorStakersConfig),
 				transactions: new Transactions(consensusConfig),
 				signatures: new Signatures(coordinatorConfig),
+				sentinels: sentinelData,
+				oracle: new SentinelOracle(sentinelOracleConfig),
 			},
 		});
 	}
