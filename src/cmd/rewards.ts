@@ -86,10 +86,12 @@ main(
 			const sanctions = await safenet.sanctionedAccounts(period);
 			const db = new MerkleDb({ record: args.record });
 			const filters = { sanctions, ...args };
+			// TODO (Phase 7): sentinel rewards are not part of this distribution yet, so no
+			// payout has a sentinel share.
 			const flatPayouts = Object.fromEntries(
 				Object.entries(payouts).map(([addr, { stakeRewards, commission }]) => [
 					addr,
-					stakeRewards + commission,
+					{ amount: stakeRewards + commission, sentinelAmount: 0n },
 				]),
 			);
 			const update = await db.distribute(period, flatPayouts, unpaid, filters);

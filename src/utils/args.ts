@@ -173,6 +173,10 @@ export const totalRewardsAmount = async (args: {
 	// absorbs the rounding remainder into the final periods and rolls past
 	// unpaid amounts forward into future periods (since `tokenTotal` only
 	// tracks committed payouts, not the carried-over `unpaidAmount`).
+	//
+	// Sentinel rewards ride the same Merkle distribution, so they are included
+	// in `tokenTotal` and must be discounted here - otherwise the validator
+	// program would be under-funded by exactly the accumulated sentinel spend.
 
 	const TOTAL_REWARDS = parseUnits("4500000.0", 18);
 	const TOTAL_REWARDS_PERIOD = BigInt(60 * 60 * 24 * 7 * 26);
@@ -199,5 +203,5 @@ export const totalRewardsAmount = async (args: {
 
 	const newTokenTotal =
 		(TOTAL_REWARDS * (paidRewardsDuration + periodDuration)) / TOTAL_REWARDS_PERIOD;
-	return newTokenTotal - index.tokenTotal;
+	return newTokenTotal - (index.tokenTotal - index.sentinelTokenTotal);
 };

@@ -33,9 +33,19 @@ export type Filters = {
 	kycThreshold?: bigint;
 };
 
+export type Payout = {
+	amount: bigint;
+	/**
+	 * The portion of `amount` funded by the sentinel rewards program. Both programs are paid out
+	 * of the same distribution, so this is a split of `amount` and never an addition to it.
+	 */
+	sentinelAmount: bigint;
+};
+
 export type IndexData = {
 	merkleRoot: Hex;
 	tokenTotal: bigint;
+	sentinelTokenTotal: bigint;
 	unpaidAmount?: bigint;
 	updatedAt: Date;
 	rewardsUntil?: Date;
@@ -48,6 +58,7 @@ type Index = {
 type DistributionData = {
 	cumulativeAmount: bigint;
 	kycAmount: bigint;
+	sentinelAmount: bigint;
 	kyc?: boolean;
 	merkleRoot: Hex;
 	proof: Hex[] | null;
@@ -66,6 +77,7 @@ const zHex = z
 const zIndexData = z.looseObject({
 	merkleRoot: zHex,
 	tokenTotal: z.coerce.bigint(),
+	sentinelTokenTotal: z.coerce.bigint().default(0n),
 	unpaidAmount: z.coerce.bigint().optional(),
 	updatedAt: z.coerce.date(),
 	rewardsUntil: z.coerce.date().optional(),
@@ -73,6 +85,9 @@ const zIndexData = z.looseObject({
 const zDistributionData = z.looseObject({
 	cumulativeAmount: z.coerce.bigint(),
 	kycAmount: z.coerce.bigint().default(0n),
+	// Entries written before sentinel rewards existed record no sentinel spend, so they load
+	// unchanged and contribute nothing to the sentinel total.
+	sentinelAmount: z.coerce.bigint().default(0n),
 	kyc: z.boolean().optional(),
 	merkleRoot: zHex,
 	proof: zHex.array().nullable(),
@@ -151,6 +166,7 @@ export class MerkleDb {
 			data = {
 				cumulativeAmount: 0n,
 				kycAmount: 0n,
+				sentinelAmount: 0n,
 				merkleRoot: zeroHash,
 				proof: [],
 			};
@@ -163,7 +179,7 @@ export class MerkleDb {
 	}
 
 	async #distributeTo(
-		{ account, amount }: { account: Address; amount: bigint },
+		{ account, amount, sentinelAmount }: { account: Address } & Payout,
 		kycThreshold?: bigint,
 	): Promise<void> {
 		const { data, update } = await this.#getDistribution(account);
@@ -172,6 +188,9 @@ export class MerkleDb {
 		} else {
 			data.cumulativeAmount += amount;
 		}
+		// The sentinel share is tracked whichever bucket the payout lands in, so that it stays
+		// a split of the entry's total rather than of the claimable amount.
+		data.sentinelAmount += sentinelAmount;
 		await update(data);
 	}
 
@@ -236,6 +255,7 @@ export class MerkleDb {
 		const previousTokenTotal = index.tokenTotal;
 		index.merkleRoot = merkleRoot;
 		index.tokenTotal = 0n;
+		index.sentinelTokenTotal = 0n;
 		index.unpaidAmount = unpaid;
 		index.updatedAt = new Date();
 		if (period.toTimestamp !== undefined) {
@@ -243,6 +263,7 @@ export class MerkleDb {
 		}
 		for await (const { account, data, update } of this.#allDistributions()) {
 			index.tokenTotal += data.cumulativeAmount + data.kycAmount;
+			index.sentinelTokenTotal += data.sentinelAmount;
 			data.merkleRoot = merkleRoot;
 			data.proof = tree.proof(account);
 			await update(data);
@@ -254,7 +275,7 @@ export class MerkleDb {
 
 	distribute(
 		period: TimestampRange,
-		payouts: Record<Address, bigint>,
+		payouts: Record<Address, Payout>,
 		unpaid: bigint,
 		filters: Filters,
 	): Promise<Update | null> {
@@ -275,7 +296,7 @@ export class MerkleDb {
 			// Update the distributions with the new payouts.
 			for (const key in payouts) {
 				const account = getAddress(key);
-				await this.#distributeTo({ account, amount: payouts[account] }, filters.kycThreshold);
+				await this.#distributeTo({ account, ...payouts[account] }, filters.kycThreshold);
 			}
 
 			return await this.#rebuildTree(period, unpaid, filters.sanctions);
