@@ -1,6 +1,7 @@
 import type { ConsensusChainEvent } from "./scenario.js";
 import {
 	namedAddress,
+	requestId,
 	safeTxHash,
 	selectionRoot,
 	signatureId,
@@ -47,4 +48,31 @@ export const attestedTransaction = ({
 		name: "TransactionAttested",
 		sid: signatureId(seed, 1n),
 	},
+];
+
+export type SentinelRequestOptions = {
+	seed: string;
+	reveals: string[];
+};
+
+/**
+ * A sentinel oracle request answered by a set of sentinels in the same block.
+ *
+ * Reveals landing in a later block - possibly even in a later period - are not
+ * covered by this preset, as they need to be placed in their own slot.
+ */
+export const sentinelRequest = ({
+	seed,
+	reveals,
+}: SentinelRequestOptions): ConsensusChainEvent[] => [
+	{
+		name: "NewRequest",
+		requestId: requestId(seed),
+	},
+	...reveals.map((sentinel) => ({
+		name: "Revealed" as const,
+		requestId: requestId(seed),
+		sentinel: namedAddress(sentinel),
+		approved: true,
+	})),
 ];

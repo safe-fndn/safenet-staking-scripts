@@ -14,6 +14,7 @@ import {
 	COORDINATOR_ABI,
 	DELEGATE_REGISTRY_ABI,
 	SANCTIONS_LIST_ABI,
+	SENTINEL_ORACLE_ABI,
 	STAKING_ABI,
 } from "../../src/abi.js";
 import { Safenet } from "../../src/safenet.js";
@@ -97,6 +98,16 @@ export type ConsensusChainEvent =
 			name: "SignCompleted";
 			sid: Hex;
 			selectionRoot: Hex;
+	  }
+	| {
+			name: "NewRequest";
+			requestId: Hex;
+	  }
+	| {
+			name: "Revealed";
+			requestId: Hex;
+			sentinel: Address;
+			approved: boolean;
 	  };
 
 export type TypedBlockSpec<E> = Omit<BlockSpec, "logs"> & {
@@ -111,6 +122,12 @@ export type TypedChainSpec<E> = {
 export type Scenario = {
 	staking: TypedChainSpec<StakingChainEvent>;
 	consensus: TypedChainSpec<ConsensusChainEvent>;
+	/**
+	 * Block the sentinel oracle indexer starts at, defaulting to the first
+	 * block of the consensus chain. Requests created before it are not indexed,
+	 * which is the only way for a `Revealed` to reference an unknown request.
+	 */
+	sentinelOracleStartBlock?: bigint;
 };
 
 const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
@@ -311,6 +328,42 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 				),
 			};
 		}
+		case "NewRequest": {
+			return {
+				address: namedAddress("SentinelOracle"),
+				topics: encodeEventTopics({
+					abi: SENTINEL_ORACLE_ABI,
+					eventName: "NewRequest",
+					args: {
+						requestId: event.requestId,
+						sponsor: zeroAddress,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters(
+						"uint96 fee, uint96 bondTarget, uint96 slashAmount, uint64 commitDeadline, uint64 revealDeadline",
+					),
+					[0n, 0n, 0n, 0n, 0n],
+				),
+			};
+		}
+		case "Revealed": {
+			return {
+				address: namedAddress("SentinelOracle"),
+				topics: encodeEventTopics({
+					abi: SENTINEL_ORACLE_ABI,
+					eventName: "Revealed",
+					args: {
+						requestId: event.requestId,
+						sentinel: event.sentinel,
+					},
+				}) as Hex[],
+				data: encodeAbiParameters(
+					parseAbiParameters("bool approved, uint96 bondAmount, string reason"),
+					[event.approved, 0n, ""],
+				),
+			};
+		}
 	}
 };
 
@@ -351,5 +404,6 @@ export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
 		consensusBlockPageSize: 5n,
 		consensusAddress: namedAddress("Consensus"),
 		sentinelOracleAddress: namedAddress("SentinelOracle"),
+		sentinelOracleStartBlock: scenario.sentinelOracleStartBlock,
 	});
 };
