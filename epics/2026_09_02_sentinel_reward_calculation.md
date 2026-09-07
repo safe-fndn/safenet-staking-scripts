@@ -371,15 +371,31 @@ return newTokenTotal - index.tokenTotal;
 into the same distribution files therefore inflates `tokenTotal` and would silently *under-fund* the
 validator program by exactly the accumulated sentinel spend. This must be fixed in the same epic:
 
-- `IndexData` gains `sentinelTokenTotal: bigint`, parsed with `z.coerce.bigint().default(0n)` so
-  existing `latest.json` records load unchanged.
-- `MerkleDb.distribute()` takes an additional `sentinelTotal: bigint` argument and accumulates it
-  into `index.sentinelTokenTotal` during `#rebuildTree`.
+- Every distribution entry gains `sentinelAmount: bigint`, parsed with
+  `z.coerce.bigint().default(0n)` so entries written before sentinel rewards load unchanged. It is
+  a **split of** the entry's total rather than an addition to it: the portion of
+  `cumulativeAmount + kycAmount` funded by the sentinel program.
+- `MerkleDb.distribute()` therefore takes `Record<Address, Payout>` in place of
+  `Record<Address, bigint>`, where `Payout` is `{ amount, sentinelAmount }`. The existing caller
+  passes `sentinelAmount: 0n` for every payout.
+- `IndexData` gains `sentinelTokenTotal: bigint`, also defaulting to `0n`, which `#rebuildTree`
+  recomputes from scratch on every rebuild as the sum of every entry's `sentinelAmount` - in the
+  same loop and by the same rule that recomputes `tokenTotal`, so the two can never drift apart.
 - `totalRewardsAmount()` uses `index.tokenTotal - index.sentinelTokenTotal` as the validator-paid
   total.
 
-Sanctions filtering needs no change: `#rebuildTree` already excludes sanctioned accounts from the
-tree for every distribution entry, so sentinels inherit it.
+Recording the split per entry, rather than passing a `sentinelTotal` argument to `distribute()`, is
+what keeps those two totals consistent. `tokenTotal` is not a running sum that callers contribute
+to: it is re-derived from the distribution files every time the tree is rebuilt, and
+`MerkleDb.kyc()` rebuilds the very same tree with no period and no payouts at all. A
+caller-supplied total would have to be threaded through that path too, and would be a figure
+nothing on disk could corroborate.
+
+Sanctions and KYC filtering need no change. `#rebuildTree` already excludes sanctioned accounts
+from the tree for every distribution entry, so sentinels inherit that for free; and because both
+totals are summed over *all* entries regardless of whether they made it into the tree, a sanctioned
+or KYC-pending sentinel payout still discounts the validator budget by exactly the amount written
+for it.
 
 ### CLI surface
 
@@ -510,8 +526,9 @@ on its own.
 `tests/merkledb-sentinel-total.test.ts`
 **Estimate:** ~110 LOC, 4 files
 
-Introduces `IndexData.sentinelTokenTotal` (defaulting to `0n`), the extra `sentinelTotal` argument
-on `distribute()` (passed as `0n` by the existing caller), and the `totalRewardsAmount()`
+Introduces the per-entry `sentinelAmount` split and the `Payout` shape `distribute()` takes in
+place of a plain amount (with `sentinelAmount: 0n` from the existing caller),
+`IndexData.sentinelTokenTotal` derived from it in `#rebuildTree`, and the `totalRewardsAmount()`
 correction, with a regression test proving the validator budget is unaffected by sentinel spend.
 This is the one change that alters existing behaviour, so it is deliberately isolated.
 
@@ -521,19 +538,22 @@ This is the one change that alters existing behaviour, so it is deliberately iso
 **Files:** `src/safenet.ts`, `tests/sentinel-rewards.test.ts`
 **Estimate:** ~120 LOC, 2 files
 
-The reward calculation itself: duration proration against the 52-week constant, the 70 % threshold,
-and the `forfeited` accounting, plus the `RewardSplit.sentinelRewards` field. Pure accounting logic
-with no CLI or Merkle DB surface, which is the part that most deserves undivided reviewer attention.
+The reward calculation itself: the 70 % threshold and the `forfeited` accounting. Pure accounting
+logic with no CLI or Merkle DB surface, which is the part that most deserves undivided reviewer
+attention. The duration proration lives in `sentinelRewardsAmount()` alongside the `--sentinelRewards`
+override, so it lands with its caller in Phase 7, as does `RewardSplit.sentinelRewards`.
 
 ### Phase 7 — `cmd:rewards` integration
 
 **Depends on:** Phases 5 and 6
-**Files:** `src/cmd/rewards.ts`, `src/utils/args.ts`, `README.md`, `.env.sample`
-**Estimate:** ~120 LOC, 4 files
+**Files:** `src/cmd/rewards.ts`, `src/utils/args.ts`, `src/safenet.ts`, `README.md`, `.env.sample`
+**Estimate:** ~120 LOC, 5 files
 
-Merges validator and sentinel payouts into the single `distribute()` call, adds the third `--split`
-column, the `--sentinelRewards` override and the `sentinelRewardsAmount()` helper, threads
-`sentinelTotal` through, and documents the combined behaviour and the transaction bundle semantics.
+Merges validator and sentinel payouts into the single `distribute()` call, adds the
+`RewardSplit.sentinelRewards` field that carries them in one payouts map, the third `--split`
+column, the `--sentinelRewards` override and the `sentinelRewardsAmount()` helper (the 52-week
+duration proration), maps each merged payout onto the `{ amount, sentinelAmount }` `Payout` shape
+Phase 5 introduced, and documents the combined behaviour and the transaction bundle semantics.
 
 ### Phase 8 — Remove this specification
 
