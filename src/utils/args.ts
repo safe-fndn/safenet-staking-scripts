@@ -205,3 +205,29 @@ export const totalRewardsAmount = async (args: {
 		(TOTAL_REWARDS * (paidRewardsDuration + periodDuration)) / TOTAL_REWARDS_PERIOD;
 	return newTokenTotal - (index.tokenTotal - index.sentinelTokenTotal);
 };
+
+export const sentinelRewardsAmount = (args: {
+	rewardPeriodStart?: bigint;
+	rewardPeriodEnd?: bigint;
+	sentinelRewards?: bigint;
+}): bigint => {
+	if (args.sentinelRewards !== undefined) {
+		return args.sentinelRewards;
+	}
+
+	// As per the DAO proposal, each sentinel is granted 400,000 SAFE tokens per
+	// year of service, prorated by the duration of the payout period. Unlike
+	// `totalRewardsAmount` above, there is deliberately no reconciliation
+	// against what has already been distributed: the spend of a period depends
+	// on how many sentinels were eligible in it, so a cumulative "distributed
+	// so far" catch-up is not well defined. The aggregate spend is instead
+	// bounded upstream by the sentinel allowlist on the oracle contract.
+
+	const SENTINEL_REWARD_PER_YEAR = parseUnits("400000.0", 18);
+	const SENTINEL_REWARDS_PERIOD = BigInt(60 * 60 * 24 * 7 * 52);
+
+	const period = rewardsPeriod(args);
+	const periodDuration = period.toTimestamp - period.fromTimestamp;
+
+	return (SENTINEL_REWARD_PER_YEAR * periodDuration) / SENTINEL_REWARDS_PERIOD;
+};

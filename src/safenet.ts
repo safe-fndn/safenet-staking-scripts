@@ -59,6 +59,7 @@ export type SentinelParticipation = {
 export type RewardSplit = {
 	stakeRewards: bigint;
 	commission: bigint;
+	sentinelRewards: bigint;
 };
 
 export type Rewards = {
@@ -75,6 +76,33 @@ export type SentinelRewards = {
 export type Totals = {
 	stake: bigint;
 	transactions: number;
+};
+
+/** The total amount paid out to a recipient over all reward programs. */
+export const payoutAmount = ({ stakeRewards, commission, sentinelRewards }: RewardSplit): bigint =>
+	stakeRewards + commission + sentinelRewards;
+
+/**
+ * Merges sentinel grants into validator payouts, so that both programs can be
+ * paid out through a single Merkle distribution.
+ *
+ * An address can be both a validator staker and a sentinel, and the cumulative
+ * Merkle drop holds exactly one cumulative amount per account, so the two
+ * amounts have to end up summed into the same distribution entry.
+ */
+export const mergeRewardPayouts = (
+	validatorPayouts: Record<Address, RewardSplit>,
+	sentinelPayouts: Record<Address, bigint>,
+): Record<Address, RewardSplit> => {
+	const payouts = {} as Record<Address, RewardSplit>;
+	for (const [account, split] of addressEntries(validatorPayouts)) {
+		payouts[account] = { ...split };
+	}
+	for (const [account, sentinelRewards] of addressEntries(sentinelPayouts)) {
+		const split = payouts[account] ?? { stakeRewards: 0n, commission: 0n, sentinelRewards: 0n };
+		payouts[account] = { ...split, sentinelRewards: split.sentinelRewards + sentinelRewards };
+	}
+	return payouts;
 };
 
 type StakingChain = {
@@ -428,8 +456,9 @@ export class Safenet {
 
 		const payouts = {} as Record<Address, RewardSplit>;
 		const addPayout = (payee: Address, stakeRewards: bigint, commission: bigint): void => {
-			const p = payouts[payee] ?? { stakeRewards: 0n, commission: 0n };
+			const p = payouts[payee] ?? { stakeRewards: 0n, commission: 0n, sentinelRewards: 0n };
 			payouts[payee] = {
+				...p,
 				stakeRewards: p.stakeRewards + stakeRewards,
 				commission: p.commission + commission,
 			};
@@ -668,8 +697,10 @@ function* addresses<V>(record: Record<Address, V>): Generator<Address> {
 }
 
 function* addressEntries<V>(record: Record<Address, V>): Generator<[Address, V]> {
-	for (const key in record) {
-		const address = getAddress(key);
-		yield [address, record[address]];
+	for (const [key, value] of Object.entries(record)) {
+		// Note that the value comes from the entry itself and is not looked up
+		// again with the checksummed address: callers are only promised that
+		// their keys are addresses, not that they are checksummed the same way.
+		yield [getAddress(key), value];
 	}
 }

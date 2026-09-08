@@ -12,7 +12,8 @@ export type ColumnDef<T> = {
 
 export type Presenter<T> = {
 	writeRow: (item: T) => void;
-	finish: (footer?: string[]) => void;
+	/** Ends the table, optionally writing one line per footer row below it. */
+	finish: (...footers: string[][]) => void;
 };
 
 const resolveFormat = <T>(col: ColumnDef<T>, mode: "table" | "tsv"): FormatFn<T> =>
@@ -43,12 +44,14 @@ export const createPresenter = <T>(
 		writer(fmtLine(columns.map((col) => resolveFormat(col, mode)(item))));
 	};
 
-	const finish = (footer?: string[]): void => {
+	const finish = (...footers: string[][]): void => {
 		if (finished) throw new Error("Presenter already finished");
 		finished = true;
 
 		if (mode === "table") writer(tableSeparator);
-		if (footer) writer(fmtLine(footer));
+		for (const footer of footers) {
+			writer(fmtLine(footer));
+		}
 	};
 
 	return { writeRow, finish };
