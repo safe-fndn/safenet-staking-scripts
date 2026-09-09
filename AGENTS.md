@@ -121,6 +121,7 @@ Key business-logic constants embedded in `src/safenet.ts`:
 - **Minimum self-stake for commission** – 3.5 M SAFE. Validators below this forfeit their 5 % commission on delegated stake but still earn rewards on their own self-stake.
 - **Commission rate** – 5 % (500 bps) of rewards earned by delegated stake.
 - **Minimum payout** – 1 SAFE. Amounts below this are carried forward as unpaid to the next period.
+- **Sentinel participation threshold** – 70 %. Sentinels at or above this rate each receive the full per-sentinel grant; below it, the grant is forfeited rather than carried forward.
 - **Stake weighting** – rewards scale with participation-weighted stake; large stakes use square-root weighting (`sqrtBigInt` in `src/utils/math.ts`).
 - **All token amounts** use `bigint` with 18 decimal places. Use `formatSafeToken` in `src/utils/format.ts` for display and never convert to floating-point for arithmetic.
 

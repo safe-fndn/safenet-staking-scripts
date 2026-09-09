@@ -66,6 +66,12 @@ export type Rewards = {
 	unpaid: bigint;
 };
 
+export type SentinelRewards = {
+	payouts: Record<Address, bigint>;
+	/** Grants that were not awarded because participation was too low. */
+	forfeited: bigint;
+};
+
 export type Totals = {
 	stake: bigint;
 	transactions: number;
@@ -480,6 +486,48 @@ export class Safenet {
 		}
 
 		return { payouts, unpaid };
+	}
+
+	/**
+	 * Compute sentinel rewards within a period.
+	 *
+	 * Eligibility is binary: every sentinel that revealed for at least 70% of
+	 * the oracle requests created in the period receives the full `perSentinel`
+	 * grant. There is no pool to divide, no stake to weight by, no delegation
+	 * and no commission - the aggregate spend is bounded upstream by the
+	 * oracle's sentinel allowlist instead of by a cap in here.
+	 *
+	 * Grants of sentinels below the threshold are reported as `forfeited`.
+	 * Unlike the validator `unpaid` amount, this is not rounding dust that is
+	 * carried into a future period, but budget that is simply never spent.
+	 *
+	 * Note that only sentinels that revealed at least once in the period are
+	 * known at all, so a sentinel that never revealed is missing from both the
+	 * payouts and the forfeited total. This does not affect the payouts, as it
+	 * would have been below the threshold anyway.
+	 */
+	async sentinelRewards(period: TimestampRange, perSentinel: bigint): Promise<SentinelRewards> {
+		const { total, sentinels } = await this.sentinelParticipation(period);
+
+		if (total === 0) {
+			// There were no oracle requests in that period, so there is no
+			// participation to measure and nothing to pay out. We exit early
+			// here to prevent a "divide by zero" when computing the rates.
+			return { payouts: {}, forfeited: 0n };
+		}
+
+		const payouts = {} as Record<Address, bigint>;
+		let forfeited = 0n;
+		for (const [sentinel, reveals] of addressEntries(sentinels)) {
+			const participationRate = reveals / total;
+			if (participationRate < 0.7) {
+				forfeited += perSentinel;
+			} else {
+				payouts[sentinel] = perSentinel;
+			}
+		}
+
+		return { payouts, forfeited };
 	}
 
 	async safeToken(): Promise<Address> {
