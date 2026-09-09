@@ -44,6 +44,7 @@ Integration tests live in `tests/` and are built around `createTestSafenet()` fr
 | `safeTxHash(tx)`                   | EIP-712 hash of a `SafeTransaction`                                                                |
 | `signatureId(groupSeed, sequence)` | Signing-ceremony ID (`bytes32`)                                                                    |
 | `selectionRoot(seed)`              | Deterministic selection-root hash                                                                  |
+| `requestId(seed)`                  | Deterministic sentinel oracle request ID (`bytes32`)                                               |
 | `transactionProposalMessage(...)`  | EIP-712 message hash for a `Sign` event                                                            |
 
 ### Scenario structure

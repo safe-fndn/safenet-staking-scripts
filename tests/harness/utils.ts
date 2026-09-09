@@ -37,6 +37,8 @@ export type Point = {
 
 export const selectionRoot = (seed: string): Hex => keccak256(toHex(`selectionroot:${seed}`));
 
+export const requestId = (seed: string): Hex => keccak256(toHex(`request:${seed}`));
+
 export type SafeTransaction = {
 	chainId: bigint;
 	safe: Address;

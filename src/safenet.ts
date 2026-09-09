@@ -51,6 +51,11 @@ export type Participation = {
 	validators: Record<Address, number>;
 };
 
+export type SentinelParticipation = {
+	total: number;
+	sentinels: Record<Address, number>;
+};
+
 export type RewardSplit = {
 	stakeRewards: bigint;
 	commission: bigint;
@@ -311,6 +316,25 @@ export class Safenet {
 	async participation(period: TimestampRange): Promise<Participation> {
 		const validators = await this.#validatorRegistrations(period);
 		return await this.#participation(period, validators);
+	}
+
+	/**
+	 * Compute sentinel participation within a period.
+	 *
+	 * Participation is the number of sentinel oracle requests a sentinel
+	 * revealed for, out of all requests created in the period. Reveals are
+	 * attributed to the period of the request they answer and not to the period
+	 * they happened in, so a reveal landing after the period boundary still
+	 * counts towards its request. This mirrors how validator participation
+	 * attributes signature shares to their signing ceremony.
+	 *
+	 * Unlike validators, there is no registry of known sentinels, so only
+	 * sentinels that revealed at least once appear in the result.
+	 */
+	async sentinelParticipation(period: TimestampRange): Promise<SentinelParticipation> {
+		this.#debug(`using period ${formatRange(period)}`);
+		await this.index(period);
+		return this.#consensus.sentinels.participation(period);
 	}
 
 	/**
