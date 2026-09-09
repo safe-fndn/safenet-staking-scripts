@@ -30,6 +30,7 @@ describe("totalRewardsAmount", () => {
 				class {
 					index = vi.fn(async () => ({
 						tokenTotal: 346151474022931470997436n,
+						sentinelTokenTotal: 0n,
 						rewardsUntil: new Date("2026-04-21T00:00:00.000Z"),
 					}));
 				},
