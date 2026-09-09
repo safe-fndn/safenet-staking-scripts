@@ -148,6 +148,11 @@ export abstract class EventIndexer<
 		return this.#data;
 	}
 
+	/** The contract identifier being indexed, i.e. `'chainId:0xChecksummedAddress'`. */
+	protected get contract(): string {
+		return this.#contract;
+	}
+
 	#lastBlock(): BlockTimestamp {
 		const latest = this.#queries.selectIndexer.get();
 		if (latest === undefined) {

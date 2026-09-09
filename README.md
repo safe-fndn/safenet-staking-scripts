@@ -45,6 +45,8 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
 | `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
 | `CONSENSUS_START_BLOCK`          | Block at which consensus began. Events before this block are ignored.                      | `45210396`                                   |
+| `SENTINEL_ORACLE_ADDRESS`        | Address of the sentinel oracle contract on the consensus chain.                            | _(placeholder)_                              |
+| `SENTINEL_ORACLE_START_BLOCK`    | Block at which the sentinel oracle was deployed.                                           | _(placeholder)_                              |
 
 Every variable can also be passed as a CLI flag using camelCase (e.g. `--databaseFile ./data.db`).
 
