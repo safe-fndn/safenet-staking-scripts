@@ -66,7 +66,7 @@ Indexing is incremental: subsequent runs only fetch events since the last indexe
 
 ### `cmd:participation`
 
-Prints each validator's participation rate (number of consensus signatures / total transactions) over a reward period.
+Prints validator and sentinel participation rates over a reward period in a single table, with a `Category` column distinguishing the two. Validator participation is the number of consensus signatures over the total transactions; sentinel participation is the number of sentinel oracle requests a sentinel revealed for over all requests created in the period.
 
 ```sh
 npm run cmd:participation
@@ -74,11 +74,18 @@ npm run cmd:participation
 # Specify an explicit period (Unix timestamps)
 npm run cmd:participation -- --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 
+# Only print one of the two categories
+npm run cmd:participation -- --category=sentinel
+
 # Write participation rates into a validator-info.json file inside a record directory
 npm run cmd:participation -- --record=./path/to/record
 ```
 
-The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically.
+The optional `--category` flag takes `validator`, `sentinel` or `all` (the default) and acts as a pure row filter, so the table shape and TSV header stay the same regardless of its value. Rows are grouped by category and sorted by address within each group.
+
+Sentinel reveals are attributed to the period of the request they answer rather than the period they happened in, so a reveal landing after the period boundary still counts towards its request. Unlike validators, there is no on-chain registry of sentinels, so only sentinels that revealed at least once appear in the output.
+
+The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically. Only validator rates are recorded — sentinel rates are print-only, and are unaffected by `--category`.
 
 ### `cmd:rewards`
 
