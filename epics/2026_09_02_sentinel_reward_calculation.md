@@ -426,14 +426,9 @@ already mirrors `validator-info.json`'s shape (`address`, `participation_rate_14
 
 ### Test cases
 
-Unit (`src/data/sentinels.test.ts`):
-
-- request/reveal insertion is idempotent under re-indexing, and re-inserting an existing oracle or
-  sentinel does not allocate a new surrogate key
-- participation excludes requests outside the period
-- a reveal whose request was never indexed is skipped without throwing, and does not appear in the
-  numerator
-- reveals from two oracle contracts with a colliding `requestId` stay separate
+The data layer gets no unit tests of its own: neither `AttestationData` nor `StakingData` has any,
+and both are covered entirely through the harness-driven integration tests below. The data-layer
+cases worth covering are therefore folded into the participation integration test.
 
 Integration (`tests/sentinel-participation.test.ts`, `tests/sentinel-rewards.test.ts`), built on
 `createTestSafenet()`:
@@ -443,6 +438,10 @@ Integration (`tests/sentinel-participation.test.ts`, `tests/sentinel-rewards.tes
 - a sentinel exactly at the 70 % boundary is eligible
 - a reveal landing in the period *after* its request still counts toward the request's period,
   mirroring `tests/block-times.test.ts`-style boundary coverage
+- participation excludes requests created outside the period
+- a `Revealed` whose `NewRequest` predates the oracle's configured start block is skipped without
+  throwing, and does not appear in the numerator
+- two oracle contracts with a colliding `requestId` stay separate
 - a period with zero requests yields no payouts and no divide-by-zero
 - validator and sentinel payouts to the **same** address are summed into one distribution entry
 - `sentinelTokenTotal` accounting: two consecutive periods of mixed payouts leave the validator
@@ -454,14 +453,14 @@ Integration (`tests/sentinel-participation.test.ts`, `tests/sentinel-rewards.tes
 
 ### Phase 1 — ABI and data layer
 
-**Files:** `src/abi.ts`, `src/data/sentinels.ts`, `src/data/sentinels.test.ts`
-**Estimate:** ~250 LOC, 3 files
+**Files:** `src/abi.ts`, `src/data/sentinels.ts`
+**Estimate:** ~190 LOC, 2 files
 
 Adds `SENTINEL_ORACLE_ABI` and the `SentinelData` class (the four tables, prepared statements,
-`registerOracle`, `registerRequest`, `registerReveal`, `participation`, `requestCount`) with unit
-tests driven directly against an in-memory `better-sqlite3` handle. Nothing is wired up yet, so
-this PR is reviewable purely as "is the schema and the participation query right?" — which is where
-the surrogate-key design most needs scrutiny.
+`registerOracle`, `registerRequest`, `registerReveal`, `participation`, `requestCount`). Nothing is
+wired up yet, and there are no tests until the harness lands in Phase 3, so this PR is reviewable
+purely as "is the schema and the participation query right?" — which is where the surrogate-key
+design most needs scrutiny.
 
 ### Phase 2 — Indexer, `Safenet` wiring, configuration
 

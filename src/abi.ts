@@ -31,3 +31,8 @@ export const CONSENSUS_ABI = parseAbi([
 	"event TransactionAttested(bytes32 indexed safeTxHash, uint256 indexed chainId, address indexed safe, uint64 epoch, bytes32 signatureId, ((uint256 x, uint256 y) r, uint256 z) attestation)",
 	"function getCoordinator() external view returns (address coordinator)",
 ]);
+
+export const SENTINEL_ORACLE_ABI = parseAbi([
+	"event NewRequest(bytes32 indexed requestId, address indexed sponsor, uint96 fee, uint96 bondTarget, uint96 slashAmount, uint64 commitDeadline, uint64 revealDeadline)",
+	"event Revealed(bytes32 indexed requestId, address indexed sentinel, bool approved, uint96 bondAmount, string reason)",
+]);
