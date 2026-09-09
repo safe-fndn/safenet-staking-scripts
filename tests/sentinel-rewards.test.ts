@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { mergeRewardPayouts, payoutAmount } from "../src/safenet.js";
 import { sentinelRequest } from "./harness/presets.js";
 import { createTestSafenet } from "./harness/scenario.js";
 import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
@@ -120,6 +121,35 @@ describe("sentinel-rewards", () => {
 			[namedAddress("sentinel1")]: PER_SENTINEL,
 		});
 		expect(forfeited).toBe(PER_SENTINEL);
+	});
+
+	it("merges a sentinel grant into the validator payout of the same address", async () => {
+		// Sentinels claim from the same cumulative Merkle drop as validator
+		// stakers, which holds a single cumulative amount per account, so an
+		// address that is both must end up with one summed distribution entry.
+		const stakeRewards = parseSafe("100");
+		const commission = parseSafe("5");
+		const payouts = mergeRewardPayouts(
+			{
+				[namedAddress("staker")]: { stakeRewards, commission, sentinelRewards: 0n },
+			},
+			{
+				[namedAddress("staker")]: PER_SENTINEL,
+				[namedAddress("sentinel1")]: PER_SENTINEL,
+			},
+		);
+
+		expect(payouts).toEqual({
+			[namedAddress("staker")]: { stakeRewards, commission, sentinelRewards: PER_SENTINEL },
+			[namedAddress("sentinel1")]: {
+				stakeRewards: 0n,
+				commission: 0n,
+				sentinelRewards: PER_SENTINEL,
+			},
+		});
+		expect(payoutAmount(payouts[namedAddress("staker")])).toBe(
+			stakeRewards + commission + PER_SENTINEL,
+		);
 	});
 
 	it("pays and forfeits nothing for a period without requests", async () => {

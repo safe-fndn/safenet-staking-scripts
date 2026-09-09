@@ -45,6 +45,20 @@ describe("presentTable", () => {
 		expect(lines[4]).toContain("Unpaid");
 	});
 
+	it("renders one line per footer row", () => {
+		const { lines, writer } = collect();
+		const p = createPresenter<Row>(columns, { writer });
+		p.writeRow({ label: addr1, value: ONE_SAFE * 1000n });
+		p.finish(["Unpaid", "0.5", ""], ["Forfeited", "1.5", ""]);
+
+		expect(lines[3]).toMatch(/^-+\+-+\+-+$/);
+		expect(lines[4]).toContain("Unpaid");
+		expect(lines[4]).toContain("0.5");
+		expect(lines[5]).toContain("Forfeited");
+		expect(lines[5]).toContain("1.5");
+		expect(lines).toHaveLength(6);
+	});
+
 	it("right-aligns numeric column", () => {
 		const { lines, writer } = collect();
 		const p = createPresenter<Row>(columns, { writer });

@@ -186,13 +186,24 @@ describe("self-rewards", () => {
 		const validatorReward = parseSafe("19444.444444444444444444");
 		const commission = parseSafe("277.777777777777777777");
 		const delegateReward = parseSafe("5277.777777777777777778");
+		// `rewards` only computes validator rewards, so the sentinel share of
+		// every split is zero - sentinel grants are merged in by the caller.
+		const sentinelRewards = 0n;
 		expect(payouts).toEqual({
-			[namedAddress("validator1")]: { stakeRewards: validatorReward, commission },
-			[namedAddress("staker2")]: { stakeRewards: validatorReward, commission },
-			[namedAddress("staker3")]: { stakeRewards: validatorReward, commission: 0n },
-			[namedAddress("beneficiary3")]: { stakeRewards: 0n, commission },
-			[namedAddress("staker4")]: { stakeRewards: validatorReward, commission },
-			[namedAddress("delegate")]: { stakeRewards: 4n * delegateReward, commission: 0n },
+			[namedAddress("validator1")]: { stakeRewards: validatorReward, commission, sentinelRewards },
+			[namedAddress("staker2")]: { stakeRewards: validatorReward, commission, sentinelRewards },
+			[namedAddress("staker3")]: {
+				stakeRewards: validatorReward,
+				commission: 0n,
+				sentinelRewards,
+			},
+			[namedAddress("beneficiary3")]: { stakeRewards: 0n, commission, sentinelRewards },
+			[namedAddress("staker4")]: { stakeRewards: validatorReward, commission, sentinelRewards },
+			[namedAddress("delegate")]: {
+				stakeRewards: 4n * delegateReward,
+				commission: 0n,
+				sentinelRewards,
+			},
 		});
 		expect(unpaid).toBe(4n);
 	});

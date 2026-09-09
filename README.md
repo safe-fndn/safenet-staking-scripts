@@ -89,9 +89,11 @@ The `--record` flag expects the root of the `safenet-beta-data` repository and w
 
 ### `cmd:rewards`
 
-Computes and prints SAFE token reward payouts for each recipient over a reward period. Rewards are distributed proportionally to each validator's participation-weighted stake.
+Computes and prints SAFE token reward payouts for each recipient over a reward period. Validator rewards are distributed proportionally to each validator's participation-weighted stake; sentinel grants are paid on top of them, in the same table and the same distribution.
 
 Validators with less than 75% participation generate no rewards for themselves or their delegators. Validators below the 3.5M SAFE minimum self-stake threshold forfeit their commission on delegated stake, but still receive rewards on their own self-stake. Individual payouts below 1 SAFE are carried forward as unpaid. See the [full rewards specification](https://docs.safefoundation.org/safenet/staking/rewards) for details.
+
+Sentinel eligibility is binary: every sentinel that revealed for at least 70% of the sentinel oracle requests created in the period receives the full per-sentinel grant, and every sentinel below the threshold receives nothing. Grants that are not awarded this way are reported as `Forfeited` and — unlike the validator `Unpaid` amount, which is rounding dust carried into the next period — are never spent. The 1 SAFE minimum payout does not apply to sentinel grants.
 
 ```sh
 npm run cmd:rewards
@@ -105,13 +107,19 @@ npm run cmd:rewards -- --kycThreshold=1000 --record=./path/to/record
 # Print rewards as tab-separated values (TSV)
 npm run cmd:rewards -- --tsv
 
-# Show the breakdown of each payout into stake rewards and commission (useful for tax reporting)
+# Show the breakdown of each payout into stake rewards, commission and sentinel grants
+# (useful for tax reporting)
 npm run cmd:rewards -- --split
+
+# Override the per-sentinel grant for the period
+npm run cmd:rewards -- --sentinelRewards=15000
 ```
 
-The optional `--totalRewards` flag overrides the payout amount for the period (in whole SAFE tokens, 18 decimal precision); when omitted, the amount is prorated from the 4.5M SAFE allocated for the Safenet Beta program. The optional `--kycThreshold` flag sets the minimum payout amount, in SAFE tokens, at which a recipient is marked for KYC handling. KYC approval is read from each recipient's distribution entry in the Merkle database via its optional `kyc` boolean field. The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
+The optional `--totalRewards` flag overrides the payout amount for the period (in whole SAFE tokens, 18 decimal precision); when omitted, the amount is prorated from the 4.5M SAFE allocated for the Safenet Beta program. The optional `--sentinelRewards` flag is its sentinel counterpart and overrides the grant paid to each eligible sentinel for the period; when omitted, it is prorated from the 400,000 SAFE granted per sentinel per year. There is deliberately no flag for the annual rate itself — like the 4.5M SAFE validator allocation, it is a program constant in `src/utils/args.ts`. The optional `--kycThreshold` flag sets the minimum payout amount, in SAFE tokens, at which a recipient is marked for KYC handling. KYC approval is read from each recipient's distribution entry in the Merkle database via its optional `kyc` boolean field. The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
 
-When `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are also set, a Safe transaction bundle is written to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json`. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount.
+Validator payouts and sentinel grants are recorded as a single distribution: an address that is both a validator staker and a sentinel gets one distribution entry holding the sum, and sanctions filtering and KYC handling apply to sentinels exactly as they do to validators. Each entry records the sentinel share of its cumulative amount as `sentinelAmount`, which the index sums into `sentinelTokenTotal` in `latest.json`, so that sentinel spend does not eat into the prorated validator budget.
+
+When `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are also set, a Safe transaction bundle is written to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json`. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount. Both programs are funded from the same treasury Safe, so that single `transfer` covers the combined validator and sentinel amount.
 
 ### `cmd:kyc`
 

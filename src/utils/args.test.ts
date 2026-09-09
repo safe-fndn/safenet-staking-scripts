@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { totalRewardsAmount } from "./args.js";
+import { sentinelRewardsAmount, totalRewardsAmount } from "./args.js";
 
 const dateToTimestamp = (date: string): bigint => BigInt(new Date(date).getTime() / 1000);
 
@@ -55,5 +55,26 @@ describe("totalRewardsAmount", () => {
 				record: "/tmp/record",
 			}),
 		).toBe(346156218284760836694871n);
+	});
+});
+
+describe("sentinelRewardsAmount", () => {
+	it("uses the overridden per-sentinel amount", () => {
+		expect(sentinelRewardsAmount({ sentinelRewards: 42n })).toBe(42n);
+	});
+
+	it("computes the per-sentinel amount for a default two-week period", () => {
+		// 400,000 SAFE per year, i.e. 2/52 of that for a two week period.
+		expect(sentinelRewardsAmount({})).toBe(15384615384615384615384n);
+	});
+
+	it("prorates by the actual period duration", () => {
+		const start = dateToTimestamp("2026-04-07T00:00:00.000Z");
+		expect(
+			sentinelRewardsAmount({
+				rewardPeriodStart: start,
+				rewardPeriodEnd: start + 60n * 60n * 24n * 7n, // one week
+			}),
+		).toBe(7692307692307692307692n);
 	});
 });
