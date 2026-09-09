@@ -111,7 +111,7 @@ Use `expect(payouts).toEqual(...)` (not just `toBeDefined`) and always assert `u
 
 ## Two-Chain Architecture
 
-The system spans two blockchains. Staking (stake deposits, validator registration, delegation, sanctions) happens on **Ethereum mainnet** via `STAKING_RPC_URL`. Consensus (transaction proposals, attestations, signing ceremonies) happens on **Gnosis Chain** via `CONSENSUS_RPC_URL`. Each chain has its own viem client, contract address, start block, and block page size. The `StakingData` class owns the staking related tables (which includes data from both Ethereum Mainnet and Gnosis Chain); `AttestationData` owns the consensus-related data (transaction attestations).
+The system spans two blockchains. Staking (stake deposits, validator registration, delegation, sanctions) happens on **Ethereum mainnet** via `STAKING_RPC_URL`. Consensus (transaction proposals, attestations, signing ceremonies) happens on **Gnosis Chain** via `CONSENSUS_RPC_URL`. Each chain has its own viem client, contract address, start block, and block page size. The `StakingData` class owns the staking related tables (which includes data from both Ethereum Mainnet and Gnosis Chain); `AttestationData` owns the consensus-related data (transaction attestations); `SentinelData` owns the sentinel oracle data (requests and reveals), which also lives on Gnosis Chain.
 
 ## Reward Algorithm Parameters
 
@@ -136,7 +136,7 @@ All on-chain event indexers extend the abstract `EventIndexer` class in `src/ind
 - Fetches logs in configurable block-range pages with exponential backoff (`src/utils/backoff.ts`).
 - Persists progress (last indexed block) in SQLite so subsequent runs are incremental.
 - Some indexers ship **seed data** (pre-indexed historical events) under `src/indexing/seeds/` to avoid fetching from genesis. Add seed files there when a new historical dataset is needed.
-- Indexers write into `StakingData` or `AttestationData`; they do not own their own tables.
+- Indexers write into `StakingData`, `AttestationData` or `SentinelData`; they do not own their own tables.
 
 ## Database Schema Conventions
 
