@@ -11,7 +11,7 @@ import { AttestationData } from "./data/attestations.js";
 import { SentinelData } from "./data/sentinels.js";
 import { StakingData } from "./data/staking.js";
 import type { EventIndexer } from "./indexing/events.js";
-import { Sanctions } from "./indexing/sanctions.js";
+import { OnchainSanctionList } from "./indexing/onchain-sanction-list.js";
 import { SentinelOracle } from "./indexing/sentinels.js";
 import { Signatures } from "./indexing/signatures.js";
 import { Stake } from "./indexing/stake.js";
@@ -19,6 +19,7 @@ import { Transactions } from "./indexing/transactions.js";
 import { ValidatorBeneficiaries } from "./indexing/validator-beneficiaries.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
+import { OffchainSanctionList } from "./offchain-sanction-list.js";
 import { type Backoff, backoff } from "./utils/backoff.js";
 import { formatRange } from "./utils/format.js";
 import { sqrtBigInt } from "./utils/math.js";
@@ -114,7 +115,7 @@ type StakingChain = {
 	stake: Stake;
 	validators: Validators;
 	beneficiaries: ValidatorBeneficiaries;
-	sanctions: Sanctions;
+	onchainSanctionList: OnchainSanctionList;
 };
 
 type ConsensusChain = {
@@ -142,18 +143,22 @@ export class Safenet {
 	#backoff: Backoff;
 	#staking: StakingChain;
 	#consensus: ConsensusChain;
+	#offchainSanctionList: OffchainSanctionList;
 
 	private constructor({
 		staking,
 		consensus,
+		offchainSanctionList,
 	}: {
 		staking: StakingChain;
 		consensus: ConsensusChain;
+		offchainSanctionList: OffchainSanctionList;
 	}) {
 		this.#debug = debug("safenet");
 		this.#backoff = backoff({ debug: this.#debug });
 		this.#staking = staking;
 		this.#consensus = consensus;
+		this.#offchainSanctionList = offchainSanctionList;
 	}
 
 	async index(to: Partial<ToTimestamp> = {}): Promise<void> {
@@ -173,7 +178,7 @@ export class Safenet {
 			update(this.#staking.stake),
 			update(this.#staking.validators),
 			update(this.#staking.beneficiaries),
-			update(this.#staking.sanctions),
+			update(this.#staking.onchainSanctionList),
 			update(this.#consensus.stakers),
 			update(this.#consensus.transactions),
 			update(this.#consensus.signatures),
@@ -569,11 +574,19 @@ export class Safenet {
 		);
 	}
 
+	/**
+	 * Returns the accounts excluded from reward payouts: those flagged by the
+	 * onchain Chainalysis oracle as of the given period, unioned with the
+	 * UN, EU, UK, Swiss SECO and US OFAC addresses currently published by
+	 * `sanctions-address-lists`.
+	 */
 	async sanctionedAccounts(to: Partial<ToTimestamp> = {}): Promise<Address[]> {
-		const block = await this.#staking.sanctions.update(to);
-		return this.#staking.staking.sanctionedAccounts({
+		const block = await this.#staking.onchainSanctionList.update(to);
+		const onchain = this.#staking.staking.sanctionedAccounts({
 			toTimestamp: to.toTimestamp ?? block.timestamp,
 		});
+		const published = await this.#offchainSanctionList.accounts();
+		return [...new Set([...onchain, ...published])];
 	}
 
 	async totals(): Promise<Totals> {
@@ -601,6 +614,7 @@ export class Safenet {
 		delegateRegistryStartBlock?: bigint;
 		sanctionsListAddress: Address;
 		sanctionsListStartBlock?: bigint;
+		sanctionsAddressListsUrl?: string;
 		consensusClient: Client;
 		consensusBlockPageSize: bigint;
 		consensusAddress: Address;
@@ -636,7 +650,7 @@ export class Safenet {
 			address: params.delegateRegistryAddress,
 			startBlock: params.delegateRegistryStartBlock,
 		};
-		const sanctionsConfig = {
+		const onchainSanctionListConfig = {
 			...stakingConfig,
 			address: params.sanctionsListAddress,
 			startBlock: params.sanctionsListStartBlock,
@@ -676,7 +690,7 @@ export class Safenet {
 				stake: new Stake(stakingConfig),
 				validators: new Validators(stakingConfig),
 				beneficiaries: new ValidatorBeneficiaries(delegateRegistryConfig),
-				sanctions: new Sanctions(sanctionsConfig),
+				onchainSanctionList: new OnchainSanctionList(onchainSanctionListConfig),
 			},
 			consensus: {
 				attestations: attestationData,
@@ -686,6 +700,7 @@ export class Safenet {
 				sentinels: sentinelData,
 				oracle: new SentinelOracle(sentinelOracleConfig),
 			},
+			offchainSanctionList: new OffchainSanctionList({ baseUrl: params.sanctionsAddressListsUrl }),
 		});
 	}
 }

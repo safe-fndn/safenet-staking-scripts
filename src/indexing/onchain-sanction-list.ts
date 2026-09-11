@@ -10,7 +10,7 @@ const EVENTS = [
 	getAbiItem({ abi: SANCTIONS_LIST_ABI, name: "SanctionedAddressesRemoved" }),
 ];
 
-export class Sanctions extends EventIndexer<typeof EVENTS, StakingData> {
+export class OnchainSanctionList extends EventIndexer<typeof EVENTS, StakingData> {
 	constructor(config: Configuration<StakingData>) {
 		super({
 			name: "sanctions",
