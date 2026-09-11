@@ -40,6 +40,7 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `STAKING_START_BLOCK`            | Block at which the staking contract was deployed.                                          | `24585750`                                   |
 | `SANCTIONS_LIST_ADDRESS`         | Address of the Chainalysis sanctions list oracle.                                          | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
 | `SANCTIONS_LIST_START_BLOCK`     | Block at which the sanctions list oracle was deployed.                                     | `14356508`                                   |
+| `SANCTIONS_ADDRESS_LISTS_URL`    | Base URL for the UN/EU/UK/Swiss SECO/US OFAC address lists (optional, see below).           | _(unset, uses upstream release URL)_         |
 | `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                               | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
 | `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
 | `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
@@ -173,7 +174,7 @@ The `--record` flag expects the root of the `safenet-beta-data` repository and w
 
 ### `cmd:sanctions`
 
-Prints the list of sanctioned accounts that are excluded from reward payouts.
+Prints the list of sanctioned accounts that are excluded from reward payouts: addresses flagged by the on-chain Chainalysis oracle, unioned with the UN, EU, UK, Swiss SECO and US OFAC addresses currently published by [`sanctions-address-lists`](https://github.com/safe-research/sanctions-address-lists). Unlike the on-chain oracle, the published lists have no block height to pin them to, so they always reflect the latest fetch rather than their state at a particular payout period.
 
 ```sh
 npm run cmd:sanctions

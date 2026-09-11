@@ -1,6 +1,6 @@
 import { getAbiItem } from "viem";
 import { SANCTIONS_LIST_ABI } from "../abi.js";
-import type { StakingData } from "../data/staking.js";
+import type { SanctionsData } from "../data/sanctions.js";
 import type { FromBlock } from "../utils/ranges.js";
 import { type BlockTimestamp, type Configuration, EventIndexer, type Log } from "./events.js";
 import { SANCTIONS_LIST_SEED_DATA } from "./seeds/sanctions.js";
@@ -10,8 +10,8 @@ const EVENTS = [
 	getAbiItem({ abi: SANCTIONS_LIST_ABI, name: "SanctionedAddressesRemoved" }),
 ];
 
-export class Sanctions extends EventIndexer<typeof EVENTS, StakingData> {
-	constructor(config: Configuration<StakingData>) {
+export class Sanctions extends EventIndexer<typeof EVENTS, SanctionsData> {
+	constructor(config: Configuration<SanctionsData>) {
 		super({
 			name: "sanctions",
 			events: EVENTS,
