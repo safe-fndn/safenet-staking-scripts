@@ -377,12 +377,12 @@ export class Safenet {
 	 * Rewards are distributed proportionally to each validator's participation-
 	 * weighted stake. Validators below the 75% participation threshold or the
 	 * 3.5M SAFE minimum self-stake forfeit their self-stake earnings. Individual
-	 * payouts below 1 SAFE are carried forward as unpaid.
+	 * payouts below `minPayout` are carried forward as unpaid.
 	 *
 	 * Based on the rewards calculation specification from:
 	 * <https://docs.safefoundation.org/safenet/staking/rewards>
 	 */
-	async rewards(period: TimestampRange, totalRewards: bigint): Promise<Rewards> {
+	async rewards(period: TimestampRange, totalRewards: bigint, minPayout: bigint): Promise<Rewards> {
 		const validators = await this.#validatorRegistrations(period);
 
 		if (validators.length === 0) {
@@ -500,10 +500,12 @@ export class Safenet {
 			}
 		}
 
-		// Remove any payments that are below the minimum payout threshold.
-		const MIN_PAYOUT = parseUnits("1.0", 18);
+		// Remove any payments that are below the minimum payout threshold, as
+		// well as any zero-amount entries left over from stakers and
+		// beneficiaries who were credited with no actual reward or commission.
 		for (const [payee, { stakeRewards, commission }] of addressEntries(payouts)) {
-			if (stakeRewards + commission < MIN_PAYOUT) {
+			const amount = stakeRewards + commission;
+			if (amount === 0n || amount < minPayout) {
 				delete payouts[payee];
 			}
 		}
