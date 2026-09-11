@@ -76,6 +76,7 @@ describe("dust", () => {
 		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("500000"),
+			parseSafe("1"),
 		);
 		const payouts = Object.fromEntries(
 			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [

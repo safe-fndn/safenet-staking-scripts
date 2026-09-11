@@ -181,6 +181,7 @@ describe("self-rewards", () => {
 		const { payouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("100000"),
+			0n,
 		);
 
 		const validatorReward = parseSafe("19444.444444444444444444");
