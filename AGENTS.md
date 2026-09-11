@@ -113,6 +113,8 @@ Use `expect(payouts).toEqual(...)` (not just `toBeDefined`) and always assert `u
 
 The system spans two blockchains. Staking (stake deposits, validator registration, delegation, sanctions) happens on **Ethereum mainnet** via `STAKING_RPC_URL`. Consensus (transaction proposals, attestations, signing ceremonies) happens on **Gnosis Chain** via `CONSENSUS_RPC_URL`. Each chain has its own viem client, contract address, start block, and block page size. The `StakingData` class owns the staking related tables (which includes data from both Ethereum Mainnet and Gnosis Chain); `AttestationData` owns the consensus-related data (transaction attestations); `SentinelData` owns the sentinel oracle data (requests and reveals), which also lives on Gnosis Chain.
 
+`Safenet.sanctionedAccounts()` (`src/safenet.ts`) unions two independent sources: the on-chain Chainalysis oracle (indexed and timestamped like any other chain event, via `src/indexing/sanctions.ts`) and the UN/EU/UK/Swiss SECO/US OFAC address lists fetched live from `sanctions-address-lists` (`src/sanctions-lists.ts`, no on-chain timestamp to pin them to).
+
 ## Reward Algorithm Parameters
 
 Key business-logic constants embedded in `src/safenet.ts`:
