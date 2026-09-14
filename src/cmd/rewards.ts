@@ -35,6 +35,10 @@ main(
 			.string()
 			.transform((v) => parseUnits(v, 18))
 			.optional(),
+		minPayout: z
+			.string()
+			.transform((v) => parseUnits(v, 18))
+			.default(0n),
 		sentinelRewards: z
 			.string()
 			.transform((v) => parseUnits(v, 18))
@@ -60,7 +64,11 @@ main(
 		// rejected. The two calls are awaited in sequence rather than with
 		// `Promise.all`, as each one indexes the period and the indexers are
 		// not safe to run concurrently with themselves.
-		const { payouts: validatorPayouts, unpaid } = await safenet.rewards(period, totalAmount);
+		const { payouts: validatorPayouts, unpaid } = await safenet.rewards(
+			period,
+			totalAmount,
+			args.minPayout,
+		);
 		const { payouts: sentinelPayouts, forfeited } = await safenet.sentinelRewards(
 			period,
 			perSentinelAmount,

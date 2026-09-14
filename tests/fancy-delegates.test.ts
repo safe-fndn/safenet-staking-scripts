@@ -216,6 +216,7 @@ describe("fancy-delegates", () => {
 		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("120000"),
+			0n,
 		);
 		const payouts = Object.fromEntries(
 			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [

@@ -275,6 +275,7 @@ describe("self-stake", () => {
 		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 30n, toTimestamp: 90n },
 			parseSafe("100000"),
+			0n,
 		);
 		const payouts = Object.fromEntries(
 			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [

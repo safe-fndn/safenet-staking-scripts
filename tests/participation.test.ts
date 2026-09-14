@@ -151,6 +151,7 @@ describe("participation", () => {
 		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 60n, toTimestamp: 120n },
 			parseSafe("100000"),
+			0n,
 		);
 		const payouts = Object.fromEntries(
 			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [

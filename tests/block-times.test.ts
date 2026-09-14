@@ -116,6 +116,7 @@ describe("block-times", () => {
 		const { payouts: rewardPayouts, unpaid } = await safenet.rewards(
 			{ fromTimestamp: 80n, toTimestamp: 90n },
 			parseSafe("20"),
+			0n,
 		);
 		const payouts = Object.fromEntries(
 			Object.entries(rewardPayouts).map(([addr, { stakeRewards, commission }]) => [
