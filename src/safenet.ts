@@ -8,6 +8,7 @@ import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "
 import { getBlockNumber, getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { AttestationData } from "./data/attestations.js";
+import { SanctionsData } from "./data/sanctions.js";
 import { SentinelData } from "./data/sentinels.js";
 import { StakingData } from "./data/staking.js";
 import type { EventIndexer } from "./indexing/events.js";
@@ -111,6 +112,7 @@ type StakingChain = {
 		client: Client;
 	};
 	staking: StakingData;
+	sanctionsData: SanctionsData;
 	stake: Stake;
 	validators: Validators;
 	beneficiaries: ValidatorBeneficiaries;
@@ -571,9 +573,14 @@ export class Safenet {
 		);
 	}
 
+	/**
+	 * Returns the accounts excluded from reward payouts, as of the given
+	 * period. See `SanctionsData.sanctionedAccounts` for the sources this
+	 * combines.
+	 */
 	async sanctionedAccounts(to: Partial<ToTimestamp> = {}): Promise<Address[]> {
 		const block = await this.#staking.sanctions.update(to);
-		return this.#staking.staking.sanctionedAccounts({
+		return this.#staking.sanctionsData.sanctionedAccounts({
 			toTimestamp: to.toTimestamp ?? block.timestamp,
 		});
 	}
@@ -603,6 +610,7 @@ export class Safenet {
 		delegateRegistryStartBlock?: bigint;
 		sanctionsListAddress: Address;
 		sanctionsListStartBlock?: bigint;
+		sanctionsAddressListsUrl?: string;
 		consensusClient: Client;
 		consensusBlockPageSize: bigint;
 		consensusAddress: Address;
@@ -622,6 +630,13 @@ export class Safenet {
 		);
 
 		const db = new Sqlite3(params.databaseFile);
+		// `SanctionsData` owns and creates the `sanctions` table, which
+		// `StakingData`'s queries also read from directly, so it must be
+		// constructed first.
+		const sanctionsData = new SanctionsData({
+			db,
+			sanctionsRepoUrl: params.sanctionsAddressListsUrl,
+		});
 		const stakingData = new StakingData({ db });
 		const attestationData = new AttestationData({ db });
 		const sentinelData = new SentinelData({ db });
@@ -640,6 +655,7 @@ export class Safenet {
 		};
 		const sanctionsConfig = {
 			...stakingConfig,
+			data: sanctionsData,
 			address: params.sanctionsListAddress,
 			startBlock: params.sanctionsListStartBlock,
 		};
@@ -675,6 +691,7 @@ export class Safenet {
 					address: params.stakingAddress,
 				},
 				staking: stakingData,
+				sanctionsData,
 				stake: new Stake(stakingConfig),
 				validators: new Validators(stakingConfig),
 				beneficiaries: new ValidatorBeneficiaries(delegateRegistryConfig),

@@ -16,6 +16,7 @@ const SCHEMA = z.object({
 	delegateRegistryStartBlock: z.coerce.bigint().optional(),
 	sanctionsListAddress: z.string().transform((a) => getAddress(a)),
 	sanctionsListStartBlock: z.coerce.bigint(),
+	sanctionsAddressListsUrl: z.url().optional(),
 	consensusRpcUrl: z.url(),
 	consensusAddress: z.string().transform((a) => getAddress(a)),
 	consensusStartBlock: z.coerce.bigint(),

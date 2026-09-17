@@ -6,7 +6,6 @@ import {
 	rangeDuration,
 	reduceRanges,
 	type TimestampRange,
-	type ToTimestamp,
 } from "../utils/ranges.js";
 
 export type StakeSelector = {
@@ -48,16 +47,6 @@ type StakeAmount = {
 
 type SelectStakeAmounts = StakeSelector & TimestampRange;
 
-type Sanction<bool = boolean> = {
-	blockTimestamp: bigint;
-	account: Address;
-	sanctioned: bool;
-};
-
-type SanctionInstant = {
-	blockTimestamp: bigint;
-};
-
 type ValidatorUpdate = {
 	blockTimestamp: bigint;
 	validator: Address;
@@ -96,11 +85,15 @@ type BeneficiarySelector = {
 	toTimestamp: bigint;
 };
 
+/**
+ * `selectStakeAmounts` and `selectStakers` below exclude sanctioned stakers by
+ * reading the `sanctions` table directly, which is owned and created by
+ * `SanctionsData` (`src/data/sanctions.ts`). This only works because
+ * `Safenet.create` constructs `SanctionsData` before `StakingData`.
+ */
 export class StakingData {
 	#db: Database;
 	#queries: {
-		upsertSanction: Statement<Sanction<0 | 1>, number>;
-		selectSanctionedAccounts: Statement<SanctionInstant, Address>;
 		selectLatestStake: Statement<StakeSelector, LatestStakeRow>;
 		upsertStake: Statement<StakeChange, number>;
 		selectStakeAmounts: Statement<SelectStakeAmounts, StakeAmount>;
@@ -119,13 +112,6 @@ export class StakingData {
 	constructor({ db }: { db: Database }) {
 		this.#db = db;
 		this.#db.exec(`
-			CREATE TABLE IF NOT EXISTS sanctions(
-				block_timestamp INTEGER NOT NULL,
-				account TEXT NOT NULL,
-				sanctioned INTEGER NOT NULL,
-				PRIMARY KEY(block_timestamp, account)
-			) WITHOUT ROWID;
-
 			CREATE TABLE IF NOT EXISTS stake(
 				block_timestamp INTEGER NOT NULL,
 				staker TEXT NOT NULL,
@@ -156,29 +142,6 @@ export class StakingData {
 			) WITHOUT ROWID;
 		`);
 		this.#queries = {
-			upsertSanction: this.#db.prepare<Sanction<0 | 1>, number>(`
-				INSERT INTO sanctions(block_timestamp, account, sanctioned)
-				VALUES(@blockTimestamp, @account, @sanctioned)
-				ON CONFLICT(block_timestamp, account)
-				DO UPDATE SET sanctioned = EXCLUDED.sanctioned
-			`),
-			selectSanctionedAccounts: this.#db.prepare<SanctionInstant, Address>(`
-				WITH sanctioned_at_block AS (
-					SELECT account
-					, sanctioned
-					, row_number() OVER (
-						PARTITION BY account
-						ORDER BY block_timestamp DESC
-					) AS n
-					FROM sanctions
-					WHERE block_timestamp <= @blockTimestamp
-				)
-				SELECT account
-				FROM sanctioned_at_block
-				WHERE sanctioned = TRUE
-				AND n = 1
-				ORDER BY account COLLATE NOCASE ASC
-			`),
 			selectLatestStake: this.#db.prepare<StakeSelector, LatestStakeRow>(`
 				SELECT block_timestamp as blockTimestamp
 				, amount
@@ -369,35 +332,6 @@ export class StakingData {
 
 	get db() {
 		return this.#db;
-	}
-
-	registerSanction({ blockTimestamp, account, sanctioned }: Sanction): void {
-		this.#queries.upsertSanction.run({
-			blockTimestamp,
-			account,
-			sanctioned: Number(sanctioned) as 0 | 1,
-		});
-	}
-
-	sanctionedAccounts({ toTimestamp }: ToTimestamp): Address[] {
-		// For sanctions, we see which addresses are sanctioned **at the time
-		// of payout**, i.e. at the end of the period. This means if an address
-		// is added and then later removed within a rewards period, we still
-		// consider them. Conversely, if an address is added partway through the
-		// rewards period, they are considered sanctioned for the total period
-		// and are not considered for the rewards computation. Since rewards
-		// will be computed regularly, we consider sanctions at the moment of
-		// payout (and not the latest sanctions list):
-		// - Since the rewards are done regularly, we will from a practical
-		//   perspective be using the latest sanctions list every time we
-		//   distribute rewards.
-		// - Using sanctions at the moment of payout allows us to recompute
-		//   historic payouts, so if an account was eligible for payouts and
-		//   then later added to the sanctions list (thereby excluding it
-		//   from future payout eligibility), the scripts will still produce
-		//   the same result on the historic data.
-		const blockTimestamp = toTimestamp;
-		return this.#queries.selectSanctionedAccounts.pluck().all({ blockTimestamp });
 	}
 
 	latestStake(selector: StakeSelector): LatestStakeRow | undefined {
