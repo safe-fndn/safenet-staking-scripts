@@ -2,12 +2,10 @@
  * Command to print validator statistics for a given payout period.
  */
 
-import path from "node:path";
 import { type Address, getAddress } from "viem";
 import { z } from "zod";
 import { type Participation, Safenet } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
-import { readJsonFile, writeJsonFile } from "../utils/json.js";
 import {
 	addressColumn,
 	type ColumnDef,
@@ -15,6 +13,7 @@ import {
 	percentColumn,
 } from "../utils/presentation.js";
 import { sortByAddress } from "../utils/sort.js";
+import { recordParticipation } from "../utils/validator-info.js";
 
 type Category = "Validator" | "Sentinel";
 type ParticipationItem = { category: Category; participant: Address; rate: number };
@@ -94,33 +93,10 @@ main(
 		presenter.finish();
 
 		if (args.record !== undefined) {
-			const { total, validators } = validatorParticipation ?? (await safenet.participation(period));
-			const validatorsFile = path.join(args.record, "assets", "validator-info.json");
-			const data = await readJsonFile(
-				validatorsFile,
-				z
-					.looseObject({
-						address: z.string().transform((s) => getAddress(s)),
-						participation_rate_14d: z.number(),
-					})
-					.array(),
-			);
-
-			for (const [validator, count] of Object.entries(validators)) {
-				const participationRate = count / total;
-				const info = data.find(({ address }) => address === validator);
-				if (info !== undefined) {
-					info.participation_rate_14d = participationRate;
-				} else {
-					data.push({
-						address: getAddress(validator),
-						participation_rate_14d: participationRate,
-					});
-				}
+			const participation = validatorParticipation ?? (await safenet.participation(period));
+			if (!(await recordParticipation(args.record, participation))) {
+				console.warn("WARNING: no attested transactions in the period, not recording.");
 			}
-
-			sortByAddress(data, (info) => info.address);
-			await writeJsonFile(validatorsFile, data);
 		}
 	},
 );

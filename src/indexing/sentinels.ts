@@ -6,6 +6,7 @@ import { type Configuration, EventIndexer, type Log } from "./events.js";
 const EVENTS = [
 	getAbiItem({ abi: SENTINEL_ORACLE_ABI, name: "NewRequest" }),
 	getAbiItem({ abi: SENTINEL_ORACLE_ABI, name: "Revealed" }),
+	getAbiItem({ abi: SENTINEL_ORACLE_ABI, name: "OracleResult" }),
 ];
 
 export class SentinelOracle extends EventIndexer<typeof EVENTS, SentinelData> {
@@ -42,6 +43,15 @@ export class SentinelOracle extends EventIndexer<typeof EVENTS, SentinelData> {
 					requestId: log.args.requestId,
 					sentinel: log.args.sentinel,
 					approved: log.args.approved,
+				});
+				break;
+			}
+			case "OracleResult": {
+				// Only that a verdict was reached counts, so neither the verdict
+				// nor the `result` bytes (always empty here) are stored.
+				this.data.registerResult({
+					contract: this.contract,
+					requestId: log.args.requestId,
 				});
 				break;
 			}

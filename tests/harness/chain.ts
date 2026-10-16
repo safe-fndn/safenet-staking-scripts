@@ -18,7 +18,7 @@ import {
 	zeroHash,
 } from "viem";
 import { z } from "zod";
-import { CONSENSUS_ABI } from "../../src/abi.js";
+import { CONSENSUS_ABI, STAKING_ABI } from "../../src/abi.js";
 import { namedAddress } from "./utils.js";
 
 export type LogSpec = {
@@ -233,7 +233,27 @@ export function createMockClient(chain: MockChain): Client {
 						return chain.getLogs(filter);
 					}
 
-					case "eth_call":
+					case "eth_call": {
+						// Contract state is not modelled, so the staking contract
+						// reports no stake.
+						const totalStaked = z
+							.tuple([
+								z.object({
+									to: z.literal(namedAddress("Staking")),
+									data: z.literal(
+										encodeFunctionData({
+											abi: STAKING_ABI,
+											functionName: "totalStakedAmount",
+										}),
+									),
+								}),
+								zHex,
+							])
+							.safeParse(params);
+						if (totalStaked.success) {
+							return encodeAbiParameters(parseAbiParameters("uint256"), [0n]);
+						}
+
 						z.tuple([
 							z.object({
 								to: z.literal(namedAddress("Consensus")),
@@ -249,6 +269,7 @@ export function createMockClient(chain: MockChain): Client {
 						return encodeAbiParameters(parseAbiParameters("address"), [
 							namedAddress("FROSTCoordinator"),
 						]);
+					}
 
 					default:
 						throw new Error(`MockChain: unsupported JSON-RPC method "${method}"`);

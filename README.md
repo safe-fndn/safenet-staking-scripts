@@ -44,10 +44,10 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                               | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
 | `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
 | `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
-| `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
-| `CONSENSUS_START_BLOCK`          | Block at which consensus began. Events before this block are ignored.                      | `45210396`                                   |
-| `SENTINEL_ORACLE_ADDRESS`        | Address of the sentinel oracle contract on the consensus chain.                            | _(placeholder)_                              |
-| `SENTINEL_ORACLE_START_BLOCK`    | Block at which the sentinel oracle was deployed.                                           | _(placeholder)_                              |
+| `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                         | `0xc855761D619f6002923507cE68B84d7689C2aa96` |
+| `CONSENSUS_START_BLOCK`          | Block at which consensus began. Events before this block are ignored.                      | `48635843`                                   |
+| `SENTINEL_ORACLE_ADDRESS`        | Address of the sentinel oracle contract on the consensus chain.                            | `0x4F61B8832978e83b80D69551AEf07557DBE41d03` |
+| `SENTINEL_ORACLE_START_BLOCK`    | Block at which the sentinel oracle was deployed.                                           | `48635850`                                   |
 
 Every variable can also be passed as a CLI flag using camelCase (e.g. `--databaseFile ./data.db`).
 
@@ -86,7 +86,7 @@ The optional `--category` flag takes `validator`, `sentinel` or `all` (the defau
 
 Sentinel reveals are attributed to the period of the request they answer rather than the period they happened in, so a reveal landing after the period boundary still counts towards its request. Unlike validators, there is no on-chain registry of sentinels, so only sentinels that revealed at least once appear in the output.
 
-The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically. Only validator rates are recorded — sentinel rates are print-only, and are unaffected by `--category`.
+The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically. A period without attested transactions has no rates, so the file is left unchanged and a warning is printed. Only validator rates are recorded: sentinel rates are print-only, and are unaffected by `--category`.
 
 ### `cmd:rewards`
 
@@ -161,7 +161,7 @@ npm run cmd:stake -- --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 
 ### `cmd:totals`
 
-Prints the current total staked amount on the network and the total number of transactions checked by Safenet.
+Prints the current total staked amount on the network and the total number of transactions checked by Safenet. A transaction is checked when the sentinel oracle reaches a verdict on it (an `OracleResult` event, approved or denied); timed-out and disputed requests are not counted.
 
 ```sh
 npm run cmd:totals

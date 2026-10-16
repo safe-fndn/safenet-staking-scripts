@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPresenter } from "./presentation.js";
+import { createPresenter, percentColumn } from "./presentation.js";
 
 const addr1 = "0x0000000000000000000000000000000000000001";
 const addr2 = "0x0000000000000000000000000000000000000002";
@@ -124,5 +124,20 @@ describe("presentTsv", () => {
 
 		expect(lines[1]).toContain("\tTRUE");
 		expect(lines[2]).toContain("\tFALSE");
+	});
+});
+
+describe("percentColumn", () => {
+	it("renders the NaN rate of an empty period as n/a", () => {
+		const { lines, writer } = collect();
+		const p = createPresenter<{ rate: number }>(
+			[percentColumn({ header: "Rate", extract: ({ rate }) => rate })],
+			{ tsv: true, writer },
+		);
+		p.writeRow({ rate: 0.5 });
+		p.writeRow({ rate: Number.NaN });
+		p.finish();
+
+		expect(lines).toEqual(["Rate", "50.00%", "n/a"]);
 	});
 });

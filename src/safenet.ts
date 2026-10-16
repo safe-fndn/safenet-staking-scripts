@@ -585,9 +585,16 @@ export class Safenet {
 		});
 	}
 
+	/**
+	 * Compute the current network totals.
+	 *
+	 * Transactions are the sentinel oracle verdicts (`OracleResult`), approved
+	 * or denied. Timed-out and disputed requests are not counted, as they never
+	 * emit a verdict.
+	 */
 	async totals(): Promise<Totals> {
 		const blockNumber = await this.#backoff(() => getBlockNumber(this.#staking.contract.client));
-		await this.#consensus.transactions.update();
+		await this.#consensus.oracle.update();
 		const stake = await this.#backoff(() =>
 			readContract(this.#staking.contract.client, {
 				address: this.#staking.contract.address,
@@ -596,7 +603,7 @@ export class Safenet {
 				blockNumber,
 			}),
 		);
-		const transactions = this.#consensus.attestations.transactionCount();
+		const transactions = this.#consensus.sentinels.resultCount();
 		return { stake, transactions };
 	}
 

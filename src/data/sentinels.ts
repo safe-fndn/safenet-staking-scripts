@@ -27,6 +27,10 @@ export type SentinelReveal<bool = boolean> = SentinelOracleContract & {
 	approved: bool;
 };
 
+export type SentinelResult = SentinelOracleContract & {
+	requestId: Hex;
+};
+
 type SentinelParticipationCount = {
 	sentinel: Address;
 	count: number;
@@ -39,7 +43,9 @@ export class SentinelData {
 		upsertSentinel: Statement<Sentinel, number>;
 		insertRequest: Statement<SentinelRequest, number>;
 		insertReveal: Statement<SentinelReveal<0 | 1>, number>;
+		insertResult: Statement<SentinelResult, number>;
 		selectRequestCount: Statement<TimestampRange, number>;
+		selectResultCount: Statement<[], number>;
 		selectParticipation: Statement<TimestampRange, SentinelParticipationCount>;
 	};
 
@@ -76,6 +82,11 @@ export class SentinelData {
 				sentinel INTEGER NOT NULL,
 				approved INTEGER NOT NULL,
 				PRIMARY KEY(request, sentinel)
+			) WITHOUT ROWID;
+
+			CREATE TABLE IF NOT EXISTS sentinel_results(
+				request INTEGER NOT NULL,
+				PRIMARY KEY(request)
 			) WITHOUT ROWID;
 		`);
 		this.#queries = {
@@ -115,11 +126,27 @@ export class SentinelData {
 				ON CONFLICT(request, sentinel)
 				DO NOTHING
 			`),
+			// The same guarded upsert as `insertReveal` above: a verdict for a
+			// request from before the oracle's start block inserts no row, so it
+			// stays out of the count.
+			insertResult: this.#db.prepare<SentinelResult, number>(`
+				INSERT INTO sentinel_results(request)
+				SELECT r.id
+				FROM sentinel_requests AS r
+				WHERE r.oracle = (SELECT id FROM sentinel_oracles WHERE contract = @contract)
+				AND r.request_id = @requestId
+				ON CONFLICT(request)
+				DO NOTHING
+			`),
 			selectRequestCount: this.#db.prepare<TimestampRange, number>(`
 				SELECT COUNT(*) AS count
 				FROM sentinel_requests
 				WHERE block_timestamp >= @fromTimestamp
 				AND block_timestamp <= @toTimestamp
+			`),
+			selectResultCount: this.#db.prepare<[], number>(`
+				SELECT COUNT(*) AS count
+				FROM sentinel_results
 			`),
 			// Reveals are attributed to the period of the request they belong
 			// to and not to the period they were revealed in, mirroring how
@@ -176,8 +203,16 @@ export class SentinelData {
 		});
 	}
 
+	registerResult({ contract, requestId }: SentinelResult): void {
+		this.#queries.insertResult.run({ contract, requestId });
+	}
+
 	requestCount(period: TimestampRange): number {
 		return this.#queries.selectRequestCount.pluck().get(period) ?? 0;
+	}
+
+	resultCount(): number {
+		return this.#queries.selectResultCount.pluck().get() ?? 0;
 	}
 
 	participation(period: TimestampRange): SentinelParticipationSummary {

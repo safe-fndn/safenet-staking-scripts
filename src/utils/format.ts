@@ -28,6 +28,7 @@ export const formatSafeToken = (amount: bigint): string => {
 };
 
 /**
- * Formats a rate as a percentage.
+ * Formats a rate as a percentage, or `n/a` for the `NaN` rate of an empty period.
  */
-export const formatPercent = (rate: number): string => `${(rate * 100).toFixed(2)}%`;
+export const formatPercent = (rate: number): string =>
+	Number.isNaN(rate) ? "n/a" : `${(rate * 100).toFixed(2)}%`;
