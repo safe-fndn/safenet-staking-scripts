@@ -10,24 +10,23 @@ import { namedAddress, parseSafe } from "./harness/utils.js";
 const TWO_WEEKS = BigInt(60 * 60 * 24 * 7 * 2);
 const MERKLE_ROOT = `0x${"42".repeat(32)}`;
 
-const records = [] as string[];
+const roots = [] as string[];
 
-const latestPath = (record: string) => path.join(record, "assets", "rewards", "latest.json");
+const latestPath = (root: string) => path.join(root, "latest.json");
 
 /**
- * Creates a temporary record directory whose `latest.json` holds exactly `contents`, so that tests
+ * Creates a temporary rewards directory whose `latest.json` holds exactly `contents`, so that tests
  * control the raw on-disk format rather than going through `writeJsonFile`.
  */
-const createRecord = async (contents: string): Promise<string> => {
-	const record = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-merkledb-"));
-	records.push(record);
-	await fs.mkdir(path.join(record, "assets", "rewards"), { recursive: true });
-	await fs.writeFile(latestPath(record), contents, "utf8");
-	return record;
+const createRewardsDirectory = async (contents: string): Promise<string> => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-merkledb-"));
+	roots.push(root);
+	await fs.writeFile(latestPath(root), contents, "utf8");
+	return root;
 };
 
-const readLatest = async (record: string): Promise<Record<string, unknown>> =>
-	JSON.parse(await fs.readFile(latestPath(record), "utf8"));
+const readLatest = async (root: string): Promise<Record<string, unknown>> =>
+	JSON.parse(await fs.readFile(latestPath(root), "utf8"));
 
 // A `latest.json` in the format of the currently pinned rewards DB: `jq --tab --sort-keys`
 // output, with no `updatedAt`.
@@ -47,15 +46,15 @@ const nextPeriod = {
 };
 
 afterEach(async () => {
-	for (const record of records.splice(0)) {
-		await fs.rm(record, { recursive: true, force: true });
+	for (const root of roots.splice(0)) {
+		await fs.rm(root, { recursive: true, force: true });
 	}
 });
 
 describe("merkledb index", () => {
 	it("parses an index without `updatedAt`", async () => {
-		const record = await createRecord(PINNED_LATEST);
-		const index = await new MerkleDb({ record }).index();
+		const root = await createRewardsDirectory(PINNED_LATEST);
+		const index = await new MerkleDb({ root }).index();
 		expect(index).toEqual({
 			epoch: 0,
 			merkleRoot: MERKLE_ROOT,
@@ -67,8 +66,8 @@ describe("merkledb index", () => {
 	});
 
 	it("does not write `updatedAt` when distributing", async () => {
-		const record = await createRecord(PINNED_LATEST);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(PINNED_LATEST);
+		const db = new MerkleDb({ root });
 
 		const update = await db.distribute(
 			nextPeriod,
@@ -78,7 +77,7 @@ describe("merkledb index", () => {
 		);
 		expect(update).not.toBeNull();
 
-		const latest = await readLatest(record);
+		const latest = await readLatest(root);
 		expect(latest).not.toHaveProperty("updatedAt");
 		expect(latest).toMatchObject({
 			epoch: 0,
@@ -88,8 +87,8 @@ describe("merkledb index", () => {
 	});
 
 	it("does not write `updatedAt` when updating KYC", async () => {
-		const record = await createRecord(PINNED_LATEST);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(PINNED_LATEST);
+		const db = new MerkleDb({ root });
 		const validator = namedAddress("validator");
 
 		await db.distribute(
@@ -100,14 +99,14 @@ describe("merkledb index", () => {
 		);
 		await db.kyc(nextPeriod, [validator], []);
 
-		const latest = await readLatest(record);
+		const latest = await readLatest(root);
 		expect(latest).not.toHaveProperty("updatedAt");
 		expect(latest).toMatchObject({ tokenTotal: parseSafe("300000").toString() });
 	});
 
 	it("rebuilds an empty tree when nothing is claimable", async () => {
-		const record = await createRecord(PINNED_LATEST);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(PINNED_LATEST);
+		const db = new MerkleDb({ root });
 		const validator = namedAddress("validator");
 
 		// The only payout is withheld pending KYC, so the tree has no leaves, but the withheld
@@ -132,8 +131,8 @@ describe("merkledb index", () => {
 	});
 
 	it("preserves the unpaid amount when updating KYC", async () => {
-		const record = await createRecord(PINNED_LATEST);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(PINNED_LATEST);
+		const db = new MerkleDb({ root });
 		const validator = namedAddress("validator");
 
 		await db.distribute(
@@ -153,8 +152,8 @@ describe("merkledb index", () => {
 	});
 
 	it("preserves the pinned unpaid amount when updating KYC", async () => {
-		const record = await createRecord(PINNED_LATEST);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(PINNED_LATEST);
+		const db = new MerkleDb({ root });
 
 		// A KYC update right on top of the pinned index, with no paid entries at all.
 		await db.kyc({ toTimestamp: BETA_REWARDS_UNTIL }, [namedAddress("validator")], []);
