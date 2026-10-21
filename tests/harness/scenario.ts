@@ -2,6 +2,7 @@ import {
 	type Address,
 	encodeAbiParameters,
 	encodeEventTopics,
+	encodePacked,
 	type Hex,
 	keccak256,
 	parseAbiParameters,
@@ -227,15 +228,18 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 					eventName: "TransactionProposed",
 					args: {
 						safeTxHash: safeTxHash(event.transaction),
-						chainId: event.transaction.chainId,
-						safe: event.transaction.safe,
+						safeId: encodePacked(
+							["uint96", "address"],
+							[event.transaction.chainId, event.transaction.safe],
+						),
+						oracle: namedAddress("SentinelOracle"),
 					},
 				}) as Hex[],
 				data: encodeAbiParameters(
 					parseAbiParameters(
-						"uint64 epoch, (uint256 chainId, address safe, address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 nonce) transaction",
+						"uint64 epoch, bytes oracleData, (uint256 chainId, address safe, address to, uint256 value, bytes data, uint8 operation, uint256 safeTxGas, uint256 baseGas, uint256 gasPrice, address gasToken, address refundReceiver, uint256 nonce) transaction",
 					),
-					[event.epoch, event.transaction],
+					[event.epoch, "0x", event.transaction],
 				),
 			};
 		}
@@ -247,15 +251,15 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 					eventName: "TransactionAttested",
 					args: {
 						safeTxHash: zeroHash,
-						chainId: 0n,
-						safe: zeroAddress,
+						safeId: zeroHash,
+						oracle: zeroAddress,
 					},
 				}) as Hex[],
 				data: encodeAbiParameters(
 					parseAbiParameters(
-						"uint64 epoch, bytes32 signatureId, ((uint256 x, uint256 y) r, uint256 z) attestation",
+						"uint64 epoch, bytes32 oracleDataHash, bytes32 signatureId, ((uint256 x, uint256 y) r, uint256 z) attestation",
 					),
-					[0n, event.sid, { r: { x: 0n, y: 0n }, z: 0n }],
+					[0n, zeroHash, event.sid, { r: { x: 0n, y: 0n }, z: 0n }],
 				),
 			};
 		}
@@ -341,9 +345,9 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 				}) as Hex[],
 				data: encodeAbiParameters(
 					parseAbiParameters(
-						"uint96 fee, uint96 bondTarget, uint96 slashAmount, uint64 commitDeadline, uint64 revealDeadline",
+						"uint96 fee, uint96 bondTarget, uint24 daoFeeShare, uint96 slashAmount, uint64 commitDeadline, uint64 revealDeadline",
 					),
-					[0n, 0n, 0n, 0n, 0n],
+					[0n, 0n, 0, 0n, 0n, 0n],
 				),
 			};
 		}
