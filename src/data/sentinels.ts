@@ -1,6 +1,6 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { Address, Hex } from "viem";
-import type { TimestampRange } from "../utils/ranges.js";
+import type { SettledRange, TimestampRange } from "../utils/ranges.js";
 
 export type SentinelParticipationSummary = {
 	total: number;
@@ -25,6 +25,7 @@ export type SentinelReveal<bool = boolean> = SentinelOracleContract & {
 	requestId: Hex;
 	sentinel: Address;
 	approved: bool;
+	blockTimestamp: bigint;
 };
 
 type SentinelParticipationCount = {
@@ -41,7 +42,7 @@ export class SentinelData {
 		insertReveal: Statement<SentinelReveal<0 | 1>, number>;
 		selectRequestCount: Statement<TimestampRange, number>;
 		selectRevealedRequestCount: Statement<[], number>;
-		selectParticipation: Statement<TimestampRange, SentinelParticipationCount>;
+		selectParticipation: Statement<SettledRange, SentinelParticipationCount>;
 	};
 
 	constructor({ db }: { db: Database }) {
@@ -76,6 +77,7 @@ export class SentinelData {
 				request INTEGER NOT NULL,
 				sentinel INTEGER NOT NULL,
 				approved INTEGER NOT NULL,
+				block_timestamp INTEGER NOT NULL,
 				PRIMARY KEY(request, sentinel)
 			) WITHOUT ROWID;
 		`);
@@ -106,10 +108,11 @@ export class SentinelData {
 			// `WHERE` clause is also required for SQLite to unambiguously parse
 			// the `ON CONFLICT` clause as an upsert.
 			insertReveal: this.#db.prepare<SentinelReveal<0 | 1>, number>(`
-				INSERT INTO sentinel_reveals(request, sentinel, approved)
+				INSERT INTO sentinel_reveals(request, sentinel, approved, block_timestamp)
 				SELECT r.id
 				, (SELECT id FROM sentinels WHERE address = @sentinel)
 				, @approved
+				, @blockTimestamp
 				FROM sentinel_requests AS r
 				WHERE r.oracle = (SELECT id FROM sentinel_oracles WHERE contract = @contract)
 				AND r.request_id = @requestId
@@ -135,7 +138,11 @@ export class SentinelData {
 			// `AttestationData`. This keeps the numerator and the denominator
 			// keyed on the same unit, so the participation rate is always in
 			// the `[0, 1]` range.
-			selectParticipation: this.#db.prepare<TimestampRange, SentinelParticipationCount>(`
+			//
+			// Reveals after the settlement block are not counted, so that the
+			// result does not depend on how far past the period the database
+			// happens to be indexed.
+			selectParticipation: this.#db.prepare<SettledRange, SentinelParticipationCount>(`
 				SELECT n.address AS sentinel
 				, COUNT(*) AS count
 				FROM sentinel_requests AS r
@@ -145,6 +152,7 @@ export class SentinelData {
 				ON n.id = v.sentinel
 				WHERE r.block_timestamp >= @fromTimestamp
 				AND r.block_timestamp <= @toTimestamp
+				AND v.block_timestamp <= @settlementTimestamp
 				GROUP BY v.sentinel
 			`),
 		};
@@ -163,7 +171,13 @@ export class SentinelData {
 		this.#queries.insertRequest.run({ contract, requestId, blockTimestamp });
 	}
 
-	registerReveal({ contract, requestId, sentinel, approved }: SentinelReveal): void {
+	registerReveal({
+		contract,
+		requestId,
+		sentinel,
+		approved,
+		blockTimestamp,
+	}: SentinelReveal): void {
 		this.#queries.upsertSentinel.run({ address: sentinel });
 
 		// A reveal whose `NewRequest` was never indexed - i.e. the request was
@@ -181,6 +195,7 @@ export class SentinelData {
 			requestId,
 			sentinel,
 			approved: Number(approved) as 0 | 1,
+			blockTimestamp,
 		});
 	}
 
@@ -192,7 +207,7 @@ export class SentinelData {
 		return this.#queries.selectRevealedRequestCount.pluck().get() ?? 0;
 	}
 
-	participation(period: TimestampRange): SentinelParticipationSummary {
+	participation(period: SettledRange): SentinelParticipationSummary {
 		const total = this.requestCount(period);
 		const counts = this.#queries.selectParticipation.all(period);
 		const sentinels = Object.fromEntries(counts.map(({ sentinel, count }) => [sentinel, count]));
