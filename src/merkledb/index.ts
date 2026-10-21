@@ -32,9 +32,21 @@ export type Update = {
 	merkleRoot: Hex;
 };
 
+export type ApprovalsUpdate = Update & {
+	/**
+	 * The KYC-approved accounts that were not yet flagged as such, sorted by address bytes.
+	 */
+	newlyApproved: Address[];
+};
+
 export type Filters = {
 	sanctions: Address[];
 	kycThreshold?: bigint;
+	/**
+	 * The complete list of KYC-approved accounts. It must include every account that is already
+	 * flagged as approved, as approvals are never revoked.
+	 */
+	kycApprovals: Address[];
 };
 
 export type Payout = {
@@ -193,6 +205,43 @@ export class MerkleDb {
 		return { account, data, update };
 	}
 
+	/**
+	 * Applies the complete list of KYC approvals, returning the accounts that were not flagged
+	 * before, sorted by address bytes.
+	 */
+	async #applyApprovals(accounts: Address[]): Promise<Address[]> {
+		// Approvals are sticky, so the approvals must list every account that is already
+		// flagged; a missing one means that the list is incomplete.
+		const approvals = new Set(accounts.map((account) => getAddress(account)));
+		for await (const { account, data } of this.#allDistributions()) {
+			if (data.kyc === true && !approvals.has(account)) {
+				throw new Error(`KYC-approved account ${account} is missing from the approvals`);
+			}
+		}
+
+		const newlyApproved = [] as Address[];
+		for (const account of approvals) {
+			if (await this.#approve(account)) {
+				newlyApproved.push(account);
+			}
+		}
+		return sortByAddress(newlyApproved, (account) => account);
+	}
+
+	/**
+	 * Flags an account as KYC-approved and releases its withheld amount, returning whether it was
+	 * not flagged before. An account with no entry gets one with nothing to claim.
+	 */
+	async #approve(account: Address): Promise<boolean> {
+		const { data, update } = await this.#getDistribution(account);
+		const newlyApproved = data.kyc !== true;
+		data.kyc = true;
+		data.cumulativeAmount += data.kycAmount;
+		data.kycAmount = 0n;
+		await update(data);
+		return newlyApproved;
+	}
+
 	async #distributeTo(
 		{ account, amount, sentinelAmount }: { account: Address } & Payout,
 		kycThreshold?: bigint,
@@ -231,13 +280,7 @@ export class MerkleDb {
 		// sorts by account addresses to ensure that it is stable.
 		const leaves = [] as [Address, Hex][];
 		const sanctioned = new Set(sanctions);
-		for await (const { account, data, update } of this.#allDistributions()) {
-			if (data.kyc === true && data.kycAmount > 0n) {
-				data.cumulativeAmount += data.kycAmount;
-				data.kycAmount = 0n;
-				await update(data);
-			}
-
+		for await (const { account, data } of this.#allDistributions()) {
 			if (sanctioned.has(account)) {
 				// If the account is sanctioned, exclude it from the Merkle
 				// root. This means that if the account has not claimed its
@@ -294,8 +337,8 @@ export class MerkleDb {
 		payouts: Record<Address, Payout>,
 		unpaid: bigint,
 		filters: Filters,
-	): Promise<Update | null> {
-		return this.#locked<Update | null>(async () => {
+	): Promise<ApprovalsUpdate | null> {
+		return this.#locked<ApprovalsUpdate | null>(async () => {
 			// Read the index file, check for common issues such as missing or
 			// overlapping rewards periods.
 			const index = await this.#getIndex();
@@ -309,18 +352,27 @@ export class MerkleDb {
 				}
 			}
 
+			// Apply the approvals before the payouts, so that any withheld amounts are released
+			// in the same tree rebuild, and the period's payouts to them are not withheld.
+			const newlyApproved = await this.#applyApprovals(filters.kycApprovals);
+
 			// Update the distributions with the new payouts.
 			for (const key in payouts) {
 				const account = getAddress(key);
 				await this.#distributeTo({ account, ...payouts[account] }, filters.kycThreshold);
 			}
 
-			return await this.#rebuildTree(period, unpaid, filters.sanctions);
+			const update = await this.#rebuildTree(period, unpaid, filters.sanctions);
+			return { ...update, newlyApproved };
 		});
 	}
 
-	kyc(period: ToTimestamp, accounts: Address[], sanctions: Address[]): Promise<Update> {
-		return this.#locked<Update>(async () => {
+	/**
+	 * Applies the complete list of KYC approvals between two distributions, releasing withheld
+	 * amounts without waiting for the next one.
+	 */
+	kyc(period: ToTimestamp, approvals: Address[], sanctions: Address[]): Promise<ApprovalsUpdate> {
+		return this.#locked<ApprovalsUpdate>(async () => {
 			// Read the index file, ensure that the KYC update is being done
 			// on the correct period.
 			const index = await this.#getIndex();
@@ -331,17 +383,12 @@ export class MerkleDb {
 				}
 			}
 
-			for (const account of accounts) {
-				const { data, update } = await this.#getDistribution(account);
-				data.kyc = true;
-				data.cumulativeAmount += data.kycAmount;
-				data.kycAmount = 0n;
-				await update(data);
-			}
+			const newlyApproved = await this.#applyApprovals(approvals);
 
 			// A KYC update distributes nothing, so the unpaid amount carried forward from the
 			// period's distribution is left as is.
-			return await this.#rebuildTree({}, undefined, sanctions);
+			const update = await this.#rebuildTree({}, undefined, sanctions);
+			return { ...update, newlyApproved };
 		});
 	}
 }

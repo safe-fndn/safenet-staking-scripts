@@ -4,6 +4,7 @@
 
 import { type Address, formatUnits, getAddress, parseUnits } from "viem";
 import { z } from "zod";
+import { kyc as committedKyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
 import {
@@ -69,6 +70,9 @@ main(
 			}
 		}
 
+		const kyc = committedKyc();
+		const kycThreshold = args.kycThreshold ?? kyc.threshold;
+
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 		const db =
@@ -97,7 +101,7 @@ main(
 		);
 		const payouts = mergeRewardPayouts(validatorPayouts, sentinelPayouts);
 
-		const meetsKyc = (amount: bigint) => !!args.kycThreshold && amount >= args.kycThreshold;
+		const meetsKyc = (amount: bigint) => amount >= kycThreshold;
 
 		const presenter = createPresenter<PayoutItem>(
 			[
@@ -149,7 +153,7 @@ main(
 
 		if (db !== undefined) {
 			const sanctions = await safenet.sanctionedAccounts(period);
-			const filters = { sanctions, ...args };
+			const filters = { sanctions, kycThreshold, kycApprovals: kyc.accounts };
 			// Each entry carries its sentinel share alongside the total it is part
 			// of, so that a recipient who is both a validator staker and a
 			// sentinel is distributed to once, without losing track of how much
@@ -168,6 +172,9 @@ main(
 			} else {
 				console.log(`Merkle Root:        ${update.merkleRoot}`);
 				console.log(`Additional Amount:  ${formatSafeToken(update.additionalAmount).trim()}`);
+				for (const account of update.newlyApproved) {
+					console.log(`New KYC Approval:   ${account}`);
+				}
 
 				if (args.transactions !== undefined && args.cumulativeMerkleDropAddress !== undefined) {
 					const safeTokenAddress = await safenet.safeToken();
