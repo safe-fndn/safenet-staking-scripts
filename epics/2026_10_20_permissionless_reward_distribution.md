@@ -700,6 +700,18 @@ Pinning is mentioned only as something anyone may do with the CAR. The runbook p
 
 ---
 
+## Deviations
+
+Changes that came up during implementation. Where they conflict with the rest of this specification, these entries win.
+
+### Phase 1
+
+- `updatedAt` is simply removed, with no handling for older indexes that still carry it. The rewards DB pinned on `rewards.safenet-gov.eth` is the genesis input and has no `updatedAt`, so none should ever be read.
+- `zIndexData` and `zDistributionData` are `z.strictObject`s instead of `z.looseObject`s, and `DistributionData` has no index signature: every field is declared and written, and a file with an unknown field fails to parse. The pinned `latest.json`'s `epoch` (`0`) is declared as `epoch: number`, unused, and carried over unchanged.
+- A rebuild recomputes `tokenTotal` from the entries under `proofs/`. A fixture `latest.json` whose `tokenTotal` doesn't match its proof entries has that total replaced on the first rebuild.
+- Fixed: `MerkleTreeMap` (`src/merkledb/treemap.ts`) used to loop forever with zero leaves, so any rebuild where no account has `cumulativeAmount > 0` hung. An empty tree now has root `zeroHash`, which no proof verifies against. That matches the `CumulativeMerkleDrop` before its first root is set and the `merkleRoot` default of a new distribution entry. Proofs for absent accounts are `null`, as before.
+- Fixed: `kyc()` used to reset `unpaidAmount` to 0. A KYC rebuild distributes nothing, so it now leaves `unpaidAmount` unchanged. Only `distribute` sets it.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
