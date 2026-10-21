@@ -4,10 +4,10 @@ import path from "node:path";
 import { zeroHash } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
 import { MerkleDb } from "../src/merkledb/index.js";
+import { AEGIS_REWARDS_START, BETA_REWARDS_UNTIL } from "../src/utils/sep.js";
 import { namedAddress, parseSafe } from "./harness/utils.js";
 
 const TWO_WEEKS = BigInt(60 * 60 * 24 * 7 * 2);
-const REWARDS_UNTIL = BigInt(Date.UTC(2026, 9, 6) / 1000);
 const MERKLE_ROOT = `0x${"42".repeat(32)}`;
 
 const records = [] as string[];
@@ -40,9 +40,10 @@ const PINNED_LATEST = `{
 }
 `;
 
+// The first Aegis period, following the Beta → Aegis gap after the pinned rewards DB.
 const nextPeriod = {
-	fromTimestamp: REWARDS_UNTIL,
-	toTimestamp: REWARDS_UNTIL + TWO_WEEKS,
+	fromTimestamp: AEGIS_REWARDS_START,
+	toTimestamp: AEGIS_REWARDS_START + TWO_WEEKS,
 };
 
 afterEach(async () => {
@@ -81,7 +82,7 @@ describe("merkledb index", () => {
 		expect(latest).not.toHaveProperty("updatedAt");
 		expect(latest).toMatchObject({
 			epoch: 0,
-			rewardsUntil: "2026-10-20T00:00:00.000Z",
+			rewardsUntil: "2026-10-27T00:00:00.000Z",
 			tokenTotal: parseSafe("300000").toString(),
 		});
 	});
@@ -156,7 +157,7 @@ describe("merkledb index", () => {
 		const db = new MerkleDb({ record });
 
 		// A KYC update right on top of the pinned index, with no paid entries at all.
-		await db.kyc({ toTimestamp: REWARDS_UNTIL }, [namedAddress("validator")], []);
+		await db.kyc({ toTimestamp: BETA_REWARDS_UNTIL }, [namedAddress("validator")], []);
 		expect(await db.index()).toMatchObject({
 			merkleRoot: zeroHash,
 			unpaidAmount: parseSafe("1.5"),
