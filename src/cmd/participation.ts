@@ -29,6 +29,15 @@ const categoryColumn: ColumnDef<ParticipationItem> = {
 	format: ({ category }) => category,
 };
 
+/**
+ * Computes a participation rate. A period without any on-chain activity has a
+ * `total` of zero, in which case every participant took part in all (none) of
+ * the requests, so the rate is defined to be one instead of the `NaN` that
+ * would otherwise end up serialized as `null` in JSON output.
+ */
+const participationRate = (count: number, total: number): number =>
+	total === 0 ? 1 : count / total;
+
 main(
 	{
 		rewardPeriodStart: z.coerce.bigint().optional(),
@@ -58,7 +67,7 @@ main(
 					Object.entries(validators).map(([validator, count]) => ({
 						category: "Validator" as const,
 						participant: getAddress(validator),
-						rate: count / total,
+						rate: participationRate(count, total),
 					})),
 					({ participant }) => participant,
 				),
@@ -73,7 +82,7 @@ main(
 					Object.entries(sentinels).map(([sentinel, count]) => ({
 						category: "Sentinel" as const,
 						participant: getAddress(sentinel),
-						rate: count / total,
+						rate: participationRate(count, total),
 					})),
 					({ participant }) => participant,
 				),
@@ -107,14 +116,14 @@ main(
 			);
 
 			for (const [validator, count] of Object.entries(validators)) {
-				const participationRate = count / total;
+				const rate = participationRate(count, total);
 				const info = data.find(({ address }) => address === validator);
 				if (info !== undefined) {
-					info.participation_rate_14d = participationRate;
+					info.participation_rate_14d = rate;
 				} else {
 					data.push({
 						address: getAddress(validator),
-						participation_rate_14d: participationRate,
+						participation_rate_14d: rate,
 					});
 				}
 			}
