@@ -793,6 +793,20 @@ Changes that came up during implementation. Where they conflict with the rest of
   - `tests/harness/chain.ts`: `MockChain` gets an empty genesis block 0 at t=0, with `parentHash = zeroHash`. The harness sets no consensus start block, so `blockAtTimestamp` needs block 0 to exist. `consensusStartBlock: 1n` doesn't work instead, because `EventIndexer` fetches block 0 for its initial timestamp.
 - The settlement tests live in `tests/sentinel-participation.test.ts`. Phase 7 creates `tests/settlement.test.ts` for attestations.
 
+### Phase 7
+
+- `signing_ceremonies.attested_block_timestamp` (a nullable `INTEGER` with no index) **replaces** `is_transaction_attestation` rather than being added next to it. "Attested" is `attested_block_timestamp IS NOT NULL`, and the settlement predicate already excludes `NULL`, so the flag would be a column nothing queries. Its low-selectivity `signing_ceremony_is_transaction_attestation_idx` is dropped. The new column needs no index, because it is only filtered after the range scan on `completed_block_timestamp`.
+- The ceremony upsert keeps the first attestation timestamp, `COALESCE(attested_block_timestamp, @attestedBlockTimestamp)`. A `Sign` event (which passes `NULL`) and a repeated `TransactionAttested` never overwrite it.
+- A ceremony still belongs to the period its `SignCompleted` falls in (`completed_block_timestamp` in [from, to]). Its `TransactionAttested` must be at or before `settlementTimestamp`, so an attestation after the period end but before settlement counts.
+- A private `Safenet#settle(period): Promise<SettledRange>` computes `settlement()`, indexes every indexer to `settlementTimestamp`, and logs the period. `sentinelParticipation`, `participation`, `rewards`, `validatorStats` and `staked` each call it exactly once. `#validatorRegistrations` no longer indexes.
+- `validatorStats` and `staked`, and so `cmd:validators` and `cmd:stake`, also index to the settlement and fail until it exists, even though they only read staking data. This keeps a single indexing horizon for every period query.
+- The settlement is computed once per public call. `cmd:rewards` (`rewards` + `sentinelRewards`) and `cmd:participation` (`participation` + `sentinelParticipation`) therefore compute it twice. The second time only repeats the block lookup and an index update with nothing left to fetch. Sharing it would change the public method signatures.
+- Files beyond the phase's list:
+  - the seven validator reward tests (`single`, `dust`, `participation`, `self-rewards`, `fancy-delegates`, `block-times` and `self-stake`), extended to settlement with no change in expectations;
+  - `README.md`, where the settlement text now covers validators and sentinels, and `cmd:validators`/`cmd:stake` say they wait for settlement;
+  - `AGENTS.md`, which lists every period query under the settlement note and says `SignCompleted` must be in the period and `TransactionAttested` at or before settlement.
+- `tests/settlement.test.ts` builds late attestations with local helpers (`completedCeremony`, `attestation(seed)`) rather than with a new `presets.ts` option.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

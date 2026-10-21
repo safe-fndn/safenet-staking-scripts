@@ -1,6 +1,6 @@
 import type { Database, Statement } from "better-sqlite3";
 import type { Address, Hex } from "viem";
-import type { TimestampRange } from "../utils/ranges.js";
+import type { SettledRange } from "../utils/ranges.js";
 
 export type ParticipationSummary = {
 	total: number;
@@ -21,8 +21,12 @@ export type SignatureShare = {
 	selectionRoot: Hex;
 };
 
+export type TransactionAttestation = SigningCeremony & {
+	blockTimestamp: bigint;
+};
+
 type SigningCeremonyDetails = SigningCeremony & {
-	isTransactionAttestation: 0 | 1 | null;
+	attestedBlockTimestamp: bigint | null;
 };
 
 type SignatureComplete = {
@@ -49,8 +53,8 @@ export class AttestationData {
 		upsertSigningCeremony: Statement<SigningCeremonyDetails, number>;
 		insertSigningParticipant: Statement<SignatureShare, number>;
 		updateSigningCeremonyCompleted: Statement<SignatureComplete, number>;
-		selectTotalSignatureCount: Statement<TimestampRange, number>;
-		selectParticipation: Statement<TimestampRange, ParticipationCount>;
+		selectTotalSignatureCount: Statement<SettledRange, number>;
+		selectParticipation: Statement<SettledRange, ParticipationCount>;
 	};
 
 	constructor({ db }: { db: Database }) {
@@ -75,14 +79,12 @@ export class AttestationData {
 				sid TEXT NOT NULL,
 				selection INTEGER,
 				completed_block_timestamp INTEGER,
-				is_transaction_attestation INTEGER NOT NULL,
+				attested_block_timestamp INTEGER,
 				PRIMARY KEY(id),
 				UNIQUE(sid)
 			);
 			CREATE INDEX IF NOT EXISTS signing_ceremony_completed_block_timestamp_idx
 			ON signing_ceremonies(completed_block_timestamp);
-			CREATE INDEX IF NOT EXISTS signing_ceremony_is_transaction_attestation_idx
-			ON signing_ceremonies(is_transaction_attestation);
 
 			CREATE TABLE IF NOT EXISTS signing_participants(
 				ceremony INTEGER NOT NULL,
@@ -110,11 +112,14 @@ export class AttestationData {
 				DELETE FROM selections
 				WHERE root = @root
 			`),
+			// A `NULL` attestation timestamp leaves the row's unchanged, and an
+			// existing attestation timestamp is never overwritten, so the
+			// ceremony keeps the first (i.e. earliest indexed) attestation.
 			upsertSigningCeremony: this.#db.prepare<SigningCeremonyDetails, number>(`
-				INSERT INTO signing_ceremonies(sid, selection, completed_block_timestamp, is_transaction_attestation)
-				VALUES(@sid, NULL, NULL, COALESCE(@isTransactionAttestation, FALSE))
+				INSERT INTO signing_ceremonies(sid, selection, completed_block_timestamp, attested_block_timestamp)
+				VALUES(@sid, NULL, NULL, @attestedBlockTimestamp)
 				ON CONFLICT DO UPDATE
-				SET is_transaction_attestation = COALESCE(@isTransactionAttestation, is_transaction_attestation)
+				SET attested_block_timestamp = COALESCE(attested_block_timestamp, @attestedBlockTimestamp)
 			`),
 			insertSigningParticipant: this.#db.prepare<SignatureShare, number>(`
 				INSERT INTO signing_participants(ceremony, participant, selection)
@@ -128,15 +133,22 @@ export class AttestationData {
 				, completed_block_timestamp = @blockTimestamp
 				WHERE sid = @sid
 			`),
-			selectTotalSignatureCount: this.#db.prepare<TimestampRange, number>(`
+			// Only transaction attestations count, i.e. ceremonies with a
+			// `TransactionAttested` event, which can land after the ceremony
+			// completed and even after the period ended. Attestations after the
+			// settlement block are not counted, so that the result does not
+			// depend on how far past the period the database happens to be
+			// indexed. A `NULL` attestation timestamp never matches, so the
+			// predicate also excludes ceremonies that are not attested at all.
+			selectTotalSignatureCount: this.#db.prepare<SettledRange, number>(`
 				SELECT COUNT(*) AS count
 				FROM signing_ceremonies
 				WHERE selection IS NOT NULL
 				AND completed_block_timestamp >= @fromTimestamp
 				AND completed_block_timestamp <= @toTimestamp
-				AND is_transaction_attestation = TRUE
+				AND attested_block_timestamp <= @settlementTimestamp
 			`),
-			selectParticipation: this.#db.prepare<TimestampRange, ParticipationCount>(`
+			selectParticipation: this.#db.prepare<SettledRange, ParticipationCount>(`
 				SELECT a.address AS participant
 				, COUNT(*) AS count
 				FROM signing_ceremonies AS s
@@ -148,7 +160,7 @@ export class AttestationData {
 				WHERE s.selection IS NOT NULL
 				AND s.completed_block_timestamp >= @fromTimestamp
 				AND s.completed_block_timestamp <= @toTimestamp
-				AND is_transaction_attestation = TRUE
+				AND s.attested_block_timestamp <= @settlementTimestamp
 				GROUP BY p.participant
 			`),
 		};
@@ -165,7 +177,7 @@ export class AttestationData {
 	registerSigningCeremony({ sid }: SigningCeremony): void {
 		this.#queries.upsertSigningCeremony.run({
 			sid,
-			isTransactionAttestation: null,
+			attestedBlockTimestamp: null,
 		});
 	}
 
@@ -187,17 +199,17 @@ export class AttestationData {
 		this.#queries.deleteSelection.run({ root: selectionRoot });
 	}
 
-	registerTransactionAttestation({ sid }: SigningCeremony) {
+	registerTransactionAttestation({ sid, blockTimestamp }: TransactionAttestation): void {
 		// Note that we upsert here instead of just `UPDATE`-ing the row, these
 		// events are driven by different indexers which means that it may come
 		// out of order with the corresponding `registerSigningCeremony`.
 		this.#queries.upsertSigningCeremony.run({
 			sid,
-			isTransactionAttestation: 1,
+			attestedBlockTimestamp: blockTimestamp,
 		});
 	}
 
-	participation(period: TimestampRange): ParticipationSummary {
+	participation(period: SettledRange): ParticipationSummary {
 		const total = this.#queries.selectTotalSignatureCount.pluck().get(period) ?? 0;
 		const counts = this.#queries.selectParticipation.all(period);
 		const participants = Object.fromEntries(

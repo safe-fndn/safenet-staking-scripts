@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SETTLEMENT_BLOCKS } from "../src/safenet.js";
 import { attestedTransaction } from "./harness/presets.js";
 import { createTestSafenet } from "./harness/scenario.js";
 import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
@@ -30,6 +31,8 @@ describe("dust", () => {
 						],
 					},
 					...emptyBlocks(10, { assertTimestamp: 120n }),
+					// Up to the settlement timestamp, as every indexer is updated to it.
+					...emptyBlocks(20, { assertTimestamp: 360n }),
 				],
 			},
 			consensus: {
@@ -57,6 +60,8 @@ describe("dust", () => {
 						}),
 					},
 					...emptyBlocks(12, { assertTimestamp: 120n }),
+					// Up to the settlement block 25 + 48 = 73 of the period.
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS), { assertTimestamp: 360n }),
 				],
 			},
 		});
