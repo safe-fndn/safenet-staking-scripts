@@ -807,6 +807,41 @@ Changes that came up during implementation. Where they conflict with the rest of
   - `AGENTS.md`, which lists every period query under the settlement note and says `SignCompleted` must be in the period and `TransactionAttested` at or before settlement.
 - `tests/settlement.test.ts` builds late attestations with local helpers (`completedCeremony`, `attestation(seed)`) rather than with a new `presets.ts` option.
 
+### Phase 8
+
+- The KYC file is `src/distribution/kyc.json`, not `data/kyc.json`. Wherever this spec says `data/kyc.json` or `data/`, read `src/distribution/kyc.json`. `src/distribution/kyc.ts` imports it (`import KYC_JSON from "./kyc.json" with { type: "json" }`), so `tsc` emits it into `dist/` and it's part of the build instead of being loaded relative to the module at runtime. No tsconfig change was needed, because `module: "NodeNext"` turns on `resolveJsonModule`.
+- The KYC threshold lives in the same file (`threshold`), not in `src/utils/sep.ts`. The DAO didn't set it. SEF does, through the same reviewed PRs as the approvals. The 7,500 SAFE value comes from this spec. Before, `--kycThreshold` had no default, and the README examples used `1000`.
+- `src/distribution/kyc.ts` exports only `kyc(): Kyc`, which validates the imported JSON with its zod schema on every load, where `Kyc = { accounts: Address[]; threshold: bigint }`. There is no `KYC_FILE` and no runtime path resolution.
+- The input is a fixed, committed file, so there are no tests for each validation rule. `tests/kyc.test.ts` only checks that the committed file parses to a non-empty `accounts` and a positive `threshold`, and a broken edit fails that test and every command that loads the file. This replaces the loader tests listed under Testing.
+- The schema is a `z.strictObject`.
+  - Accounts must already be checksummed. A lowercase address is rejected rather than normalized.
+  - Accounts must be sorted, and are checked for duplicates without regard to case.
+  - `threshold` is a decimal string matching `^\d+(\.\d{1,18})?$`, parsed with `parseUnits(…, 18)`, and must be greater than 0.
+- `Filters.kycApprovals: Address[]` is required, and `kycThreshold` stays optional. `distribute` reports `newlyApproved` (see `ApprovalsUpdate` below).
+- `distribute` runs these steps in order:
+  1. the contiguity check, which returns `null`;
+  2. the refusal check, which throws `KYC-approved account <addr> is missing from the approvals` if any entry has `kyc: true` but isn't listed;
+  3. flagging every listed account through a private `#approve(account)`, which `kyc()` now shares and which sets `kyc: true` and releases `kycAmount`;
+  4. the payouts;
+  5. the rebuild.
+- A listed account with no entry gets one with nothing to claim (`cumulativeAmount: 0`, `proof: null`), as `kyc()` already did. It is reported in `newlyApproved` once, and not again in later periods.
+- `cmd:rewards` loads the KYC file before indexing, so `--kycThreshold` defaults to the file's threshold. With `--record`, it passes the file's accounts as `kycApprovals` and prints `New KYC Approval: <addr>` for each newly approved account. It no longer spreads `...args` into the filters.
+- `cmd:kyc` takes no accounts on the command line, so `util.parseArgs` rejects any address passed. It always applies the complete list in `src/distribution/kyc.json`, which is therefore the only way to approve an account.
+  - The command stays so that SEF can update the DB between two distributions, for example to release withheld amounts.
+  - It keeps the existing period check: `MerkleDb.kyc()` throws `attempt to update KYC status for wrong rewards period` unless the DB's `rewardsUntil` equals the period's `toTimestamp`.
+  - It prints `Merkle Root: <root>`, then either `New KYC Approval: <addr>` for each newly approved account or `No new KYC approvals.`.
+  - If the rebuilt root equals the previous `merkleRoot`, it prints `Merkle root unchanged, no transaction needed.` and writes no bundle, even with `--transactions`. This depends on the root, not on `newlyApproved`: a newly approved account with nothing withheld leaves the root unchanged, and a newly sanctioned account changes it without any approval.
+- `MerkleDb.kyc(period, approvals, sanctions)` treats `approvals` as the complete list and returns `ApprovalsUpdate` (`Update & { newlyApproved: Address[] }`). `distribute` returns `ApprovalsUpdate | null`.
+  - Both share a private `#applyApprovals`. It throws `KYC-approved account <addr> is missing from the approvals` when a flagged entry is missing, flags every listed account, and returns the newly flagged ones sorted by address.
+  - In `kyc()` this runs after the period check.
+  - A refusal or a period error throws while the lock is held, so `.lock` stays behind and has to be removed by hand. That is intended, because it shouldn't happen in practice.
+- `#rebuildTree` no longer releases `kycAmount` for entries already flagged `kyc: true`. Every rebuild goes through `#applyApprovals` first. A listed account is released by `#approve`, an unlisted flagged account aborts the run, and `#distributeTo` never withholds from a flagged entry, so the branch could no longer be reached. It is removed with no replacement assertion.
+- The `Dockerfile` is unchanged, and the image doesn't copy `data/`. The builder stage already copies `src/`, so `kyc.json` reaches `dist/distribution/` through the build.
+- Files beyond the phase's list:
+  - `README.md`, which describes the threshold default and the approval and refusal behaviour, and drops `--kycThreshold=1000` from its examples;
+  - the three `tests/merkledb-*.test.ts` files, which pass `kycApprovals: []`.
+- `AGENTS.md` has a new "Distribution Inputs" section. Inputs that are neither onchain nor SEP constants are JSON files under `src/`, imported and zod-validated, and pinned by the commit. It also covers the SEF edit process: add an account in sorted position and never remove one, because approvals are sticky.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

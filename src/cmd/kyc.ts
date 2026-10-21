@@ -1,9 +1,10 @@
 /**
- * Command to mark distribution recipients as KYC approved and rebuild the Merkle tree.
+ * Command to apply the committed KYC approvals and rebuild the Merkle tree between distributions.
  */
 
 import { getAddress } from "viem";
 import { z } from "zod";
+import { kyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
 import { main, recordRewardsDirectory, rewardsPeriod } from "../utils/args.js";
@@ -14,7 +15,6 @@ main(
 		rewardPeriodEnd: z.coerce.bigint().optional(),
 		record: z.string(),
 		transactions: z.string().optional(),
-		positionals: z.array(z.string().transform((v) => getAddress(v))).min(1),
 		cumulativeMerkleDropAddress: z
 			.string()
 			.transform((v) => getAddress(v))
@@ -32,10 +32,21 @@ main(
 
 		const db = new MerkleDb({ root: recordRewardsDirectory(args.record) });
 		const sanctions = await safenet.sanctionedAccounts(period);
-		const update = await db.kyc(period, args.positionals, sanctions);
+		const previous = await db.index();
+		const update = await db.kyc(period, kyc().accounts, sanctions);
 		console.log(`Merkle Root:        ${update.merkleRoot}`);
+		if (update.newlyApproved.length === 0) {
+			console.log("No new KYC approvals.");
+		}
+		for (const account of update.newlyApproved) {
+			console.log(`New KYC Approval:   ${account}`);
+		}
 
-		if (args.transactions !== undefined && args.cumulativeMerkleDropAddress !== undefined) {
+		// The root can change without new approvals, for example when an account is newly
+		// sanctioned, and stay the same with them, when they had nothing withheld.
+		if (update.merkleRoot === previous?.merkleRoot) {
+			console.log("Merkle root unchanged, no transaction needed.");
+		} else if (args.transactions !== undefined && args.cumulativeMerkleDropAddress !== undefined) {
 			const bundle = await writeTransactionBundle(args.transactions, `kyc-${period.toTimestamp}`, [
 				{
 					to: args.cumulativeMerkleDropAddress,

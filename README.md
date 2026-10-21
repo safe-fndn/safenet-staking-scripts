@@ -105,10 +105,10 @@ npm run cmd:rewards
 npm run cmd:rewards -- --totalRewards=1000000 --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 
 # Record payouts and update the Merkle distribution database
-npm run cmd:rewards -- --kycThreshold=1000 --record=./path/to/record
+npm run cmd:rewards -- --record=./path/to/record
 
 # Also write the Safe transaction bundle for the distribution
-npm run cmd:rewards -- --kycThreshold=1000 --record=./path/to/record --transactions=./path/to/transactions
+npm run cmd:rewards -- --record=./path/to/record --transactions=./path/to/transactions
 
 # Print rewards as tab-separated values (TSV)
 npm run cmd:rewards -- --tsv
@@ -121,7 +121,7 @@ npm run cmd:rewards -- --split
 npm run cmd:rewards -- --sentinelRewards=15000
 ```
 
-The optional `--totalRewards` flag overrides the payout amount for the period (in whole SAFE tokens, 18 decimal precision); when omitted, the amount is prorated from the 5M SAFE allocated over 52 weeks for the Safenet Aegis validator program, starting on 2026-10-13. With `--record`, it also catches up to what Aegis has distributed so far, so rounding residue and unpaid amounts roll forward into later periods. The optional `--sentinelRewards` flag is its sentinel counterpart and overrides the grant paid to each eligible sentinel for the period; when omitted, it is prorated from the 400,000 SAFE granted per sentinel per year. There is deliberately no flag for the annual rate itself — like the 5M SAFE validator allocation, it is a program constant in `src/utils/sep.ts`. The optional `--minPayout` flag sets the minimum validator payout amount, in SAFE tokens, below which a payout is withheld and carried forward as unpaid instead of distributed; it defaults to `0`, i.e. no minimum. The optional `--kycThreshold` flag sets the minimum payout amount, in SAFE tokens, at which a recipient is marked for KYC handling. KYC approval is read from each recipient's distribution entry in the Merkle database via its optional `kyc` boolean field. The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
+The optional `--totalRewards` flag overrides the payout amount for the period (in whole SAFE tokens, 18 decimal precision); when omitted, the amount is prorated from the 5M SAFE allocated over 52 weeks for the Safenet Aegis validator program, starting on 2026-10-13. With `--record`, it also catches up to what Aegis has distributed so far, so rounding residue and unpaid amounts roll forward into later periods. The optional `--sentinelRewards` flag is its sentinel counterpart and overrides the grant paid to each eligible sentinel for the period; when omitted, it is prorated from the 400,000 SAFE granted per sentinel per year. There is deliberately no flag for the annual rate itself — like the 5M SAFE validator allocation, it is a program constant in `src/utils/sep.ts`. The optional `--minPayout` flag sets the minimum validator payout amount, in SAFE tokens, below which a payout is withheld and carried forward as unpaid instead of distributed; it defaults to `0`, i.e. no minimum. The optional `--kycThreshold` flag sets the minimum payout amount, in SAFE tokens, at or above which a payout to a recipient that is not KYC-approved is withheld in its `kycAmount`; it defaults to the threshold in `src/distribution/kyc.json`. With `--record`, every account listed in `src/distribution/kyc.json` is flagged as KYC-approved (the `kyc` field of its distribution entry) before the period's payouts, releasing any withheld amount in the same rebuild, and the newly approved accounts are printed. Approvals are never revoked, so the command refuses to record while an account already flagged in the Merkle database is missing from `src/distribution/kyc.json`. The `--record` flag expects the root of the `safenet-beta-data` repository and writes cumulative payout data and Merkle proofs into `<record>/assets/rewards/`, updating the index at `<record>/assets/rewards/latest.json`.
 
 Validator payouts and sentinel grants are recorded as a single distribution: an address that is both a validator staker and a sentinel gets one distribution entry holding the sum, and sanctions filtering and KYC handling apply to sentinels exactly as they do to validators. Each entry records the sentinel share of its cumulative amount as `sentinelAmount`, which the index sums into `sentinelTokenTotal` in `latest.json`, so that sentinel spend does not eat into the prorated validator budget.
 
@@ -129,18 +129,13 @@ With `--transactions=<dir>`, a Safe transaction bundle is also written to `<dir>
 
 ### `cmd:kyc`
 
-Marks one or more recipient addresses as KYC-approved in the Merkle distribution database, releases any withheld `kycAmount` into `cumulativeAmount`, and rebuilds the Merkle root and proofs.
+Applies the KYC approvals in `src/distribution/kyc.json` to the Merkle distribution database between two distributions: it flags every listed account as KYC-approved, releases any withheld `kycAmount` into `cumulativeAmount`, and rebuilds the Merkle root and proofs. This releases withheld amounts without waiting for the next `cmd:rewards --record`, which applies the same approvals anyway.
 
 ```sh
-npm run cmd:kyc -- --record=./path/to/record 0x0000000000000000000000000000000000000001
-
-# Approve multiple recipients in one run
-npm run cmd:kyc -- --record=./path/to/record \
-  0x0000000000000000000000000000000000000001 \
-  0x0000000000000000000000000000000000000002
+npm run cmd:kyc -- --record=./path/to/record
 ```
 
-The `--record` flag is required and must point at the root of the `safenet-beta-data` repository. Recipient addresses are passed positionally, are normalized up front, and the command rebuilds the Merkle tree using the current sanctions list before writing the updated root and proofs back into `<record>/assets/rewards/`. With `--transactions=<dir>` and `CUMULATIVE_MERKLE_DROP_ADDRESS` set, it also writes a Safe transaction bundle with the `setMerkleRoot` call to `<dir>/kyc-<periodEnd>.json`.
+Accounts are only ever approved through `src/distribution/kyc.json`; the command takes none on the command line. The `--record` flag is required and must point at the root of the `safenet-beta-data` repository, whose last distribution must end at the period end (`--rewardPeriodEnd`, defaulting to the most recent rewards period). Like `cmd:rewards`, it refuses to run while an account already flagged in the Merkle database is missing from the file. The command rebuilds the Merkle tree using the current sanctions list before writing the updated root and proofs back into `<record>/assets/rewards/`, and prints the newly approved accounts, or `No new KYC approvals.`. With `--transactions=<dir>` and `CUMULATIVE_MERKLE_DROP_ADDRESS` set, it also writes a Safe transaction bundle with the `setMerkleRoot` call to `<dir>/kyc-<periodEnd>.json`, unless the Merkle root is unchanged, in which case it prints `Merkle root unchanged, no transaction needed.` instead.
 
 ### `cmd:validators`
 
