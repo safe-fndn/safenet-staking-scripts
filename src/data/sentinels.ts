@@ -40,6 +40,7 @@ export class SentinelData {
 		insertRequest: Statement<SentinelRequest, number>;
 		insertReveal: Statement<SentinelReveal<0 | 1>, number>;
 		selectRequestCount: Statement<TimestampRange, number>;
+		selectRevealedRequestCount: Statement<[], number>;
 		selectParticipation: Statement<TimestampRange, SentinelParticipationCount>;
 	};
 
@@ -121,6 +122,13 @@ export class SentinelData {
 				WHERE block_timestamp >= @fromTimestamp
 				AND block_timestamp <= @toTimestamp
 			`),
+			// A reveal only exists for an indexed request (see `insertReveal`), so
+			// counting the distinct requests in the reveals table counts the
+			// requests with at least one reveal.
+			selectRevealedRequestCount: this.#db.prepare<[], number>(`
+				SELECT COUNT(DISTINCT request) AS count
+				FROM sentinel_reveals
+			`),
 			// Reveals are attributed to the period of the request they belong
 			// to and not to the period they were revealed in, mirroring how
 			// signature shares are attributed to their signing ceremony in
@@ -178,6 +186,10 @@ export class SentinelData {
 
 	requestCount(period: TimestampRange): number {
 		return this.#queries.selectRequestCount.pluck().get(period) ?? 0;
+	}
+
+	revealedRequestCount(): number {
+		return this.#queries.selectRevealedRequestCount.pluck().get() ?? 0;
 	}
 
 	participation(period: TimestampRange): SentinelParticipationSummary {
