@@ -105,6 +105,9 @@ npm run cmd:rewards -- --totalRewards=1000000 --rewardPeriodStart=1700000000 --r
 # Record payouts and update the Merkle distribution database
 npm run cmd:rewards -- --kycThreshold=1000 --record=./path/to/record
 
+# Also write the Safe transaction bundle for the distribution
+npm run cmd:rewards -- --kycThreshold=1000 --record=./path/to/record --transactions=./path/to/transactions
+
 # Print rewards as tab-separated values (TSV)
 npm run cmd:rewards -- --tsv
 
@@ -120,7 +123,7 @@ The optional `--totalRewards` flag overrides the payout amount for the period (i
 
 Validator payouts and sentinel grants are recorded as a single distribution: an address that is both a validator staker and a sentinel gets one distribution entry holding the sum, and sanctions filtering and KYC handling apply to sentinels exactly as they do to validators. Each entry records the sentinel share of its cumulative amount as `sentinelAmount`, which the index sums into `sentinelTokenTotal` in `latest.json`, so that sentinel spend does not eat into the prorated validator budget.
 
-When `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are also set, a Safe transaction bundle is written to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json`. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount. Both programs are funded from the same treasury Safe, so that single `transfer` covers the combined validator and sentinel amount.
+With `--transactions=<dir>`, a Safe transaction bundle is also written to `<dir>/rewards-<periodEnd>.json`, outside of the rewards directory. It requires `--record` and `CUMULATIVE_MERKLE_DROP_ADDRESS`, and the SAFE token address is read from the staking contract. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount. Both programs are funded from the same treasury Safe, so that single `transfer` covers the combined validator and sentinel amount.
 
 ### `cmd:kyc`
 
@@ -135,7 +138,7 @@ npm run cmd:kyc -- --record=./path/to/record \
   0x0000000000000000000000000000000000000002
 ```
 
-The `--record` flag is required and must point at the root of the `safenet-beta-data` repository. Recipient addresses are passed positionally, are normalized up front, and the command rebuilds the Merkle tree using the current sanctions list before writing the updated root and proofs back into `<record>/assets/rewards/`.
+The `--record` flag is required and must point at the root of the `safenet-beta-data` repository. Recipient addresses are passed positionally, are normalized up front, and the command rebuilds the Merkle tree using the current sanctions list before writing the updated root and proofs back into `<record>/assets/rewards/`. With `--transactions=<dir>` and `CUMULATIVE_MERKLE_DROP_ADDRESS` set, it also writes a Safe transaction bundle with the `setMerkleRoot` call to `<dir>/kyc-<periodEnd>.json`.
 
 ### `cmd:validators`
 

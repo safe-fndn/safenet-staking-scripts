@@ -27,29 +27,53 @@ export type BundleTransaction = {
 	  }
 );
 
+export type TransactionBundle = {
+	version: "1.0";
+	chainId: "1";
+	createdAt: number;
+	meta: Record<string, never>;
+	transactions: {
+		to: Address;
+		value: string;
+		data: Hex | null;
+		contractMethod: NonNullable<BundleTransaction["contractMethod"]> | null;
+		contractInputsValues: Record<string, unknown> | null;
+	}[];
+};
+
+/**
+ * Builds a Safe Transaction Builder bundle for Ethereum mainnet.
+ *
+ * The bundle is a pure function of its inputs, so `createdAt` (in milliseconds since the Unix
+ * epoch) is passed in rather than read from the clock.
+ */
+export const transactionBundle = (
+	transactions: BundleTransaction[],
+	createdAt: number,
+): TransactionBundle => ({
+	version: "1.0",
+	chainId: "1",
+	createdAt,
+	meta: {},
+	transactions: transactions.map((tx) => ({
+		to: tx.to,
+		value: tx.value ?? "0",
+		data: tx.data ?? null,
+		contractMethod: tx.contractMethod ?? null,
+		contractInputsValues: tx.contractInputsValues ?? null,
+	})),
+});
+
+/**
+ * Writes a Safe Transaction Builder bundle to `<dir>/<key>.json`, created at the current time.
+ */
 export const writeTransactionBundle = async (
-	record: string,
+	dir: string,
 	key: string,
 	transactions: BundleTransaction[],
 ): Promise<string> => {
-	const txDir = path.join(record, "assets", "rewards", "transactions");
-	await fs.mkdir(txDir, { recursive: true });
-
-	const bundle = {
-		version: "1.0",
-		chainId: "1",
-		createdAt: Date.now(),
-		meta: {},
-		transactions: transactions.map((tx) => ({
-			to: tx.to,
-			value: tx.value ?? "0",
-			data: tx.data ?? null,
-			contractMethod: tx.contractMethod ?? null,
-			contractInputsValues: tx.contractInputsValues ?? null,
-		})),
-	};
-
-	const txFile = path.join(txDir, `${key}.json`);
-	await writeJsonFile(txFile, bundle);
+	await fs.mkdir(dir, { recursive: true });
+	const txFile = path.join(dir, `${key}.json`);
+	await writeJsonFile(txFile, transactionBundle(transactions, Date.now()));
 	return txFile;
 };
