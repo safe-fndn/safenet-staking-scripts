@@ -8,7 +8,9 @@ export class MerkleTreeMap<K> {
 		const tree = [leaves.map(([, leaf]) => leaf)];
 		while (true) {
 			const row = tree.at(-1);
-			if (row === undefined || row.length === 1) {
+			// An empty tree has no row to reduce, so stop at the leaves rather than reduce an
+			// empty row forever.
+			if (row === undefined || row.length <= 1) {
 				break;
 			}
 			tree.push(
@@ -27,9 +29,12 @@ export class MerkleTreeMap<K> {
 		this.#positions = new Map(leaves.map(([address], i) => [address, i]));
 	}
 
+	/**
+	 * The root of the tree. An empty tree has the zero root, which no proof can verify against,
+	 * matching the `CumulativeMerkleDrop` contract before its first root is set.
+	 */
 	root(): Hex {
-		const [root] = this.#tree.at(-1) ?? [zeroHash];
-		return root;
+		return this.#tree.at(-1)?.at(0) ?? zeroHash;
 	}
 
 	proof(key: K): Hex[] | null {
