@@ -752,6 +752,13 @@ Changes that came up during implementation. Where they conflict with the rest of
 - Phase 3 adds `src/utils/bundle.test.ts`, which tests the pure `transactionBundle()` and the output path of `writeTransactionBundle`.
 - README and AGENTS.md no longer mention a `SAFE_TOKEN_ADDRESS` env var, which never existed. The token address is always read from the staking contract (`Safenet.safeToken()`).
 
+### Phase 4
+
+- `totalRewardsAmount(args, db?: MerkleDb)` takes the database as an optional second argument instead of reading `args.record`, so the export can pass a `MerkleDb` rooted at an unpacked CAR. The `record is not caught up to the end of Beta` error is unchanged.
+- A new `recordRewardsDirectory(record)` in `src/utils/args.ts` maps `--record` to `<record>/assets/rewards`, so `MerkleDb` no longer knows the record layout. Both commands use it.
+- `cmd:rewards` builds its `MerkleDb` once, before indexing, whenever `args.record !== undefined`, and shares it between `totalRewardsAmount` and `distribute`. Recording used to test `if (args.record)`, so the only behaviour change is that an empty `--record=` now records to a relative `assets/rewards` instead of silently skipping. `totalRewardsAmount` already treated an empty string as set.
+- Phase 4 also changes `src/utils/args.test.ts`, `tests/merkledb-gap.test.ts`, `tests/merkledb-index.test.ts` and `AGENTS.md`. Test fixtures create the rewards directory directly, without `assets/rewards`.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

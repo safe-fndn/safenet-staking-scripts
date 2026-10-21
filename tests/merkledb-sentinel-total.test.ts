@@ -17,80 +17,71 @@ const period = (n: number) => ({
 	toTimestamp: AEGIS_REWARDS_START + BigInt(n + 1) * TWO_WEEKS,
 });
 
-const records = [] as string[];
+const roots = [] as string[];
 
 /**
- * Creates a temporary record directory holding a `latest.json` that has nothing distributed yet
+ * Creates a temporary rewards directory holding a `latest.json` that has nothing distributed yet
  * and is caught up to the very start of the rewards program.
  */
-const createRecord = async (index?: Record<string, unknown>): Promise<string> => {
-	const record = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-merkledb-"));
-	records.push(record);
-	await fs.mkdir(path.join(record, "assets", "rewards"), { recursive: true });
-	await writeJsonFile(path.join(record, "assets", "rewards", "latest.json"), {
+const createRewardsDirectory = async (index?: Record<string, unknown>): Promise<string> => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-merkledb-"));
+	roots.push(root);
+	await writeJsonFile(path.join(root, "latest.json"), {
 		epoch: 0,
 		merkleRoot: zeroHash,
 		tokenTotal: 0n,
 		rewardsUntil: new Date(Number(AEGIS_REWARDS_START) * 1000),
 		...index,
 	});
-	return record;
+	return root;
 };
 
 /**
- * Creates a temporary record directory with the Beta token total distributed in its last period,
+ * Creates a temporary rewards directory with the Beta token total distributed in its last period,
  * so that it is caught up to the end of Beta exactly like the pinned rewards DB.
  */
-const createBetaRecord = async (): Promise<string> => {
-	const record = await createRecord({
+const createBetaRewardsDirectory = async (): Promise<string> => {
+	const root = await createRewardsDirectory({
 		rewardsUntil: new Date(Number(BETA_REWARDS_UNTIL - TWO_WEEKS) * 1000),
 	});
-	await new MerkleDb({ record }).distribute(
+	await new MerkleDb({ root }).distribute(
 		{ fromTimestamp: BETA_REWARDS_UNTIL - TWO_WEEKS, toTimestamp: BETA_REWARDS_UNTIL },
 		{ [namedAddress("beta")]: { amount: BETA_TOKEN_TOTAL, sentinelAmount: 0n } },
 		0n,
 		{ sanctions: [] },
 	);
-	return record;
+	return root;
 };
 
 /**
  * Reads the raw distribution entry written for `account`, as it lands on disk.
  */
-const readEntry = async (record: string, account: string): Promise<Record<string, unknown>> => {
-	const pattern = path.join(
-		record,
-		"assets",
-		"rewards",
-		"proofs",
-		"**",
-		`${account.toLowerCase()}.json`,
-	);
+const readEntry = async (root: string, account: string): Promise<Record<string, unknown>> => {
+	const pattern = path.join(root, "proofs", "**", `${account.toLowerCase()}.json`);
 	for await (const entry of fs.glob(pattern)) {
 		return JSON.parse(await fs.readFile(entry, "utf8"));
 	}
 	throw new Error(`no distribution entry for ${account}`);
 };
 
-const budget = (record: string, n: number) => {
+const budget = (root: string, n: number) => {
 	const { fromTimestamp, toTimestamp } = period(n);
-	return totalRewardsAmount({
-		rewardPeriodStart: fromTimestamp,
-		rewardPeriodEnd: toTimestamp,
-		record,
-	});
+	return totalRewardsAmount(
+		{ rewardPeriodStart: fromTimestamp, rewardPeriodEnd: toTimestamp },
+		new MerkleDb({ root }),
+	);
 };
 
 afterEach(async () => {
-	for (const record of records.splice(0)) {
-		await fs.rm(record, { recursive: true, force: true });
+	for (const root of roots.splice(0)) {
+		await fs.rm(root, { recursive: true, force: true });
 	}
 });
 
 describe("merkledb sentinel total", () => {
 	it("defaults the sentinel total for records written before sentinel rewards", async () => {
-		const record = await createRecord({ tokenTotal: parseSafe("1000") });
-		const index = await new MerkleDb({ record }).index();
+		const root = await createRewardsDirectory({ tokenTotal: parseSafe("1000") });
+		const index = await new MerkleDb({ root }).index();
 		expect(index).toMatchObject({
 			tokenTotal: parseSafe("1000"),
 			sentinelTokenTotal: 0n,
@@ -106,10 +97,10 @@ describe("merkledb sentinel total", () => {
 		const validatorPayout = parseSafe("150000");
 		const sentinelPayout = parseSafe("15000");
 
-		const baselineRecord = await createBetaRecord();
-		const baseline = new MerkleDb({ record: baselineRecord });
-		const mixedRecord = await createBetaRecord();
-		const mixed = new MerkleDb({ record: mixedRecord });
+		const baselineRoot = await createBetaRewardsDirectory();
+		const baseline = new MerkleDb({ root: baselineRoot });
+		const mixedRoot = await createBetaRewardsDirectory();
+		const mixed = new MerkleDb({ root: mixedRoot });
 
 		for (const n of [0, 1]) {
 			const baselineUpdate = await baseline.distribute(
@@ -148,16 +139,16 @@ describe("merkledb sentinel total", () => {
 		// 576,923.076923076923076923 SAFE, of which 300,000 SAFE has already been paid out to
 		// validators over the two periods above. Neither the Beta token total nor the 30,000 SAFE
 		// of sentinel spend reduce the budget.
-		expect(await budget(baselineRecord, 2)).toBe(parseSafe("276923.076923076923076923"));
-		expect(await budget(mixedRecord, 2)).toBe(await budget(baselineRecord, 2));
+		expect(await budget(baselineRoot, 2)).toBe(parseSafe("276923.076923076923076923"));
+		expect(await budget(mixedRoot, 2)).toBe(await budget(baselineRoot, 2));
 	});
 
 	it("splits a merged validator and sentinel payout within one entry", async () => {
 		// A sentinel that also runs a validator claims both programs from a single entry, so the
 		// sentinel share has to be tracked per entry rather than inferred from the payout.
 		const both = namedAddress("validator-and-sentinel");
-		const record = await createRecord();
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory();
+		const db = new MerkleDb({ root });
 
 		for (const n of [0, 1]) {
 			await db.distribute(
@@ -168,7 +159,7 @@ describe("merkledb sentinel total", () => {
 			);
 		}
 
-		expect(await readEntry(record, both)).toMatchObject({
+		expect(await readEntry(root, both)).toMatchObject({
 			cumulativeAmount: parseSafe("80000").toString(),
 			sentinelAmount: parseSafe("30000").toString(),
 		});
@@ -182,8 +173,8 @@ describe("merkledb sentinel total", () => {
 		// The total is derived, not accumulated: an entry edited on disk is picked up by the
 		// next rebuild, exactly as `tokenTotal` is.
 		const sentinel = namedAddress("sentinel");
-		const record = await createRecord();
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory();
+		const db = new MerkleDb({ root });
 
 		await db.distribute(
 			period(0),
@@ -207,8 +198,8 @@ describe("merkledb sentinel total", () => {
 	});
 
 	it("preserves the sentinel total across a KYC rebuild", async () => {
-		const record = await createRecord();
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory();
+		const db = new MerkleDb({ root });
 		const sentinel = namedAddress("sentinel");
 		const sentinelPayout = parseSafe("15000");
 
