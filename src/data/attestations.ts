@@ -43,8 +43,6 @@ type ParticipationCount = {
 export class AttestationData {
 	#db: Database;
 	#queries: {
-		upsertIncrementTransactionCount: Statement<[], number>;
-		selectTransactionCount: Statement<[], number>;
 		upsertParticipant: Statement<Participant, number>;
 		upsertSelection: Statement<Selection, number>;
 		deleteSelection: Statement<Selection, number>;
@@ -58,13 +56,6 @@ export class AttestationData {
 	constructor({ db }: { db: Database }) {
 		this.#db = db;
 		this.#db.exec(`
-			CREATE TABLE IF NOT EXISTS transactions(
-				id TEXT NOT NULL,
-				cnt INTEGER NOT NULL,
-				PRIMARY KEY(id),
-				CHECK(id = 0)
-			);
-
 			CREATE TABLE IF NOT EXISTS participants(
 				id INTEGER NOT NULL,
 				address TEXT NOT NULL,
@@ -101,12 +92,6 @@ export class AttestationData {
 			) WITHOUT ROWID;
 		`);
 		this.#queries = {
-			upsertIncrementTransactionCount: this.#db.prepare<[], number>(`
-				INSERT INTO transactions(id, cnt)
-				VALUES(0, 1)
-				ON CONFLICT(id)
-				DO UPDATE SET cnt = cnt + 1
-			`),
 			upsertParticipant: this.#db.prepare<Participant, number>(`
 				INSERT INTO participants(address)
 				VALUES(@address)
@@ -143,11 +128,6 @@ export class AttestationData {
 				, completed_block_timestamp = @blockTimestamp
 				WHERE sid = @sid
 			`),
-			selectTransactionCount: this.#db.prepare<[], number>(`
-				SELECT cnt
-				FROM transactions
-				WHERE id = 0
-			`),
 			selectTotalSignatureCount: this.#db.prepare<TimestampRange, number>(`
 				SELECT COUNT(*) AS count
 				FROM signing_ceremonies
@@ -176,10 +156,6 @@ export class AttestationData {
 
 	get db() {
 		return this.#db;
-	}
-
-	registerTransactionProposal(): void {
-		this.#queries.upsertIncrementTransactionCount.run();
 	}
 
 	registerParticipant({ address }: Participant): void {
@@ -219,10 +195,6 @@ export class AttestationData {
 			sid,
 			isTransactionAttestation: 1,
 		});
-	}
-
-	transactionCount(): number {
-		return this.#queries.selectTransactionCount.pluck().get() ?? 0;
 	}
 
 	participation(period: TimestampRange): ParticipationSummary {

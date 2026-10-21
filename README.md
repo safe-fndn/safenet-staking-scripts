@@ -161,7 +161,7 @@ npm run cmd:stake -- --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 
 ### `cmd:totals`
 
-Prints the current total staked amount on the network and the total number of transactions checked by Safenet.
+Prints the current total staked amount on the network and the total number of transactions checked by Safenet. A transaction is checked when at least one sentinel revealed a verdict for its sentinel oracle request; requests that timed out without any reveal are not counted.
 
 ```sh
 npm run cmd:totals
