@@ -170,7 +170,7 @@ tables:
 
 ## Record Directory & Merkle Distribution
 
-The `--record` flag on several commands accepts the root of the `safenet-beta-data` repository. `MerkleDb` (`src/merkledb/index.ts`) writes cumulative payout data and Merkle proofs to `<record>/assets/rewards/`. The `cmd:rewards` command also emits a Safe transaction bundle to `<record>/assets/rewards/transactions/rewards-<periodEnd>.json` when `CUMULATIVE_MERKLE_DROP_ADDRESS` and `SAFE_TOKEN_ADDRESS` are set. `SAFE_TOKEN_ADDRESS` is fetched dynamically from the staking contract if not explicitly set via env.
+The `--record` flag on several commands accepts the root of the `safenet-beta-data` repository. `MerkleDb` (`src/merkledb/index.ts`) writes cumulative payout data and Merkle proofs to `<record>/assets/rewards/`. With `--transactions <dir>`, `cmd:rewards` and `cmd:kyc` also emit a Safe transaction bundle to `<dir>/rewards-<periodEnd>.json` and `<dir>/kyc-<periodEnd>.json` respectively; this requires `CUMULATIVE_MERKLE_DROP_ADDRESS`, and the SAFE token address is read from the staking contract. Transaction bundles are never written into the rewards directory, which must contain only `latest.json` and `proofs/`. `transactionBundle()` in `src/utils/bundle.ts` builds a bundle as a pure function of its transactions and `createdAt`.
 
 ## Key Dependencies
 
