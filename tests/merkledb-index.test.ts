@@ -73,7 +73,7 @@ describe("merkledb index", () => {
 			nextPeriod,
 			{ [namedAddress("validator")]: { amount: parseSafe("300000"), sentinelAmount: 0n } },
 			0n,
-			{ sanctions: [] },
+			{ sanctions: [], kycApprovals: [] },
 		);
 		expect(update).not.toBeNull();
 
@@ -95,7 +95,7 @@ describe("merkledb index", () => {
 			nextPeriod,
 			{ [validator]: { amount: parseSafe("300000"), sentinelAmount: 0n } },
 			0n,
-			{ sanctions: [] },
+			{ sanctions: [], kycApprovals: [] },
 		);
 		await db.kyc(nextPeriod, [validator], []);
 
@@ -116,14 +116,19 @@ describe("merkledb index", () => {
 			nextPeriod,
 			{ [validator]: { amount: parseSafe("300000"), sentinelAmount: 0n } },
 			0n,
-			{ sanctions: [], kycThreshold: parseSafe("7500") },
+			{ sanctions: [], kycThreshold: parseSafe("7500"), kycApprovals: [] },
 		);
-		expect(update).toEqual({ additionalAmount: parseSafe("299000"), merkleRoot: zeroHash });
+		expect(update).toEqual({
+			additionalAmount: parseSafe("299000"),
+			merkleRoot: zeroHash,
+			newlyApproved: [],
+		});
 
 		// A KYC update for an account with no entry creates one with nothing to claim, so the
 		// tree stays empty.
-		const kyc = await db.kyc(nextPeriod, [namedAddress("unknown")], []);
-		expect(kyc).toEqual({ additionalAmount: 0n, merkleRoot: zeroHash });
+		const unknown = namedAddress("unknown");
+		const kyc = await db.kyc(nextPeriod, [unknown], []);
+		expect(kyc).toEqual({ additionalAmount: 0n, merkleRoot: zeroHash, newlyApproved: [unknown] });
 		expect(await db.index()).toMatchObject({
 			merkleRoot: zeroHash,
 			tokenTotal: parseSafe("300000"),
@@ -139,7 +144,7 @@ describe("merkledb index", () => {
 			nextPeriod,
 			{ [validator]: { amount: parseSafe("300000"), sentinelAmount: 0n } },
 			parseSafe("2.5"),
-			{ sanctions: [], kycThreshold: parseSafe("7500") },
+			{ sanctions: [], kycThreshold: parseSafe("7500"), kycApprovals: [] },
 		);
 		await db.kyc(nextPeriod, [validator], []);
 

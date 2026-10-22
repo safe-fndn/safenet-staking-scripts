@@ -19,7 +19,7 @@ CI only runs `npm run check` — tests are not gated in CI, but run them locally
 
 ## Project Structure & Module Organization
 
-Core TypeScript code lives in `src/`. Use `src/cmd/` for CLI entrypoints, `src/indexing/` for on-chain event indexing and seed data, `src/data/` for reward inputs, `src/utils/` for shared helpers, and `src/merkledb/` for Merkle database logic. Tests live in `tests/`, with reusable fixtures in `tests/harness/`. Operational assets include `.env.sample`, `Dockerfile`, and `bin/entrypoint.sh`.
+Core TypeScript code lives in `src/`. Use `src/cmd/` for CLI entrypoints, `src/indexing/` for on-chain event indexing and seed data, `src/data/` for reward inputs, `src/utils/` for shared helpers, and `src/merkledb/` for Merkle database logic. Versioned distribution inputs, such as `src/distribution/kyc.json`, live next to the module that loads them (see [Distribution Inputs](#distribution-inputs)). Tests live in `tests/`, with reusable fixtures in `tests/harness/`. Operational assets include `.env.sample`, `Dockerfile`, and `bin/entrypoint.sh`.
 
 ## Coding Style & Naming Conventions
 
@@ -175,6 +175,25 @@ tables:
 ## Record Directory & Merkle Distribution
 
 The `--record` flag on several commands accepts the root of the `safenet-beta-data` repository. `MerkleDb` (`src/merkledb/index.ts`) is rooted at a rewards directory (`new MerkleDb({ root })`), where it writes cumulative payout data and Merkle proofs; the commands derive it from `--record` as `<record>/assets/rewards/` (`recordRewardsDirectory()` in `src/utils/args.ts`). With `--transactions <dir>`, `cmd:rewards` and `cmd:kyc` also emit a Safe transaction bundle to `<dir>/rewards-<periodEnd>.json` and `<dir>/kyc-<periodEnd>.json` respectively; this requires `CUMULATIVE_MERKLE_DROP_ADDRESS`, and the SAFE token address is read from the staking contract. Transaction bundles are never written into the rewards directory, which must contain only `latest.json` and `proofs/`. `transactionBundle()` in `src/utils/bundle.ts` builds a bundle as a pure function of its transactions and `createdAt`.
+
+## Distribution Inputs
+
+Some inputs to a distribution are neither onchain nor program constants set by the DAO (those live in `src/utils/sep.ts`). They are JSON files under `src/`, imported with `with { type: "json" }` and validated with zod, so `tsc` emits them into `dist/` and they are part of the build rather than read from disk at runtime. Because they are versioned with the code, the commit that produced a distribution pins them too.
+
+`src/distribution/kyc.json` holds the KYC threshold and the complete list of KYC-approved accounts. `kyc()` in `src/distribution/kyc.ts` returns them validated against a zod schema:
+
+```json
+{
+	"accounts": ["0x…"],
+	"threshold": "7500"
+}
+```
+
+- `threshold` is a decimal amount of whole SAFE tokens (parsed with `parseUnits(…, 18)`). Payouts at or above it are withheld in `kycAmount` for accounts that are not approved.
+- `accounts` are checksummed and sorted by address bytes (`sortByAddress`), with no duplicates. The zod schema rejects anything else, so a broken manual edit fails every command that loads the file, and `tests/kyc.test.ts`.
+- SEF edits the file manually through reviewed PRs. Approving an account means adding it in sorted position. Approvals are sticky: removing an account does not revoke its approval, and `MerkleDb.distribute` refuses to run while an account flagged `kyc: true` in the rewards DB is missing from the file, so never remove one.
+- `MerkleDb.distribute` takes the accounts as `Filters.kycApprovals`. It flags each one before the period's payouts, releasing any withheld amount in the same rebuild, and returns the accounts that were not flagged yet as `newlyApproved`. `cmd:rewards` defaults `--kycThreshold` to the file's threshold and always passes the file's accounts.
+- `MerkleDb.kyc(period, approvals, sanctions)` applies the same complete list between distributions, with the same refusal and `newlyApproved`, and only for the period the rewards DB was last distributed to. `cmd:kyc` always passes the file's accounts and takes none on the command line, so the file is the only way to approve an account.
 
 ## Key Dependencies
 
