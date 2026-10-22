@@ -500,7 +500,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 
 ```
 1 (drop updatedAt) ───────────┐
-3 (tx bundles out) ─► 4 ──────┼─► 14 (manifest/assembly) ──┐
+3 (tx bundles out) ─► 4 ──────┼─► 14a ─► … ─► 14d ─────────┐
 8 (KYC file) ─────────────────┤                            │
 9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
@@ -724,18 +724,35 @@ Moves the mainnet governance test vectors out of `transactions.test.ts` into a t
 
 ### Phase 14 — Package manifest and assembly
 
-**Depends on:** Phases 1, 4, 8, 9c **Files:** `src/distribution/manifest.ts`, `src/distribution/package.ts`, `src/distribution/canonical.ts`, `src/distribution/package.test.ts` **Estimate:** ~260 LOC, 4 files
+Split into 14a–14d before implementation, following the review feedback on Phases 9–13, to keep each PR small. Each sub-phase is its own commit, branch and PR, and Phase 14 has no commit of its own.
 
-Covers:
+### Phase 14a — Canonical JSON
 
-- the manifest schema, including `sanctions.offchain.repository` (see Phase 9d deviations).
-- canonical JSON (sorted keys, tabs).
-- writing `allocations.json` and the manifest next to a `MerkleDb` output.
-- copying a previous rewards DB, with or without a manifest, into a working directory without its manifest or allocations.
+**Depends on:** Phases 1, 4 **Files:** `src/utils/json.ts`, `src/utils/json.test.ts`, `tests/fixtures/canonical/**` **Estimate:** ~80 LOC, 2 files + fixtures
+
+Canonical JSON: recursively sorted keys, tab indentation, a trailing newline, and `bigint`s as decimal strings. It reproduces the currently pinned `latest.json` and `proofs/` byte for byte. `writeJsonFile` writes canonical JSON, so `MerkleDb` and every other JSON output become canonical.
+
+### Phase 14b — Manifest schema
+
+**Depends on:** 14a, Phases 9c, 10a, 11d, 12a **Files:** `src/distribution/manifest.ts`, `src/distribution/manifest.test.ts` **Estimate:** ~120 LOC, 2 files
+
+The zod schema and type of `manifest.json`, including `sanctions.offchain.repository` (see the Phase 9d deviations). It reuses the types from earlier phases for the `ipfs`, `governance`, `sanctions.offchain` and `previous` blocks.
+
+### Phase 14c — `allocations.json`
+
+**Depends on:** 14a, Phase 8 **Files:** `src/distribution/allocations.ts`, `src/distribution/allocations.test.ts` **Estimate:** ~100 LOC, 2 files
+
+The schema of `allocations.json`, and building it from a period's rewards and the `MerkleDb` update: each recipient's payout with a status, sorted by address bytes.
+
+### Phase 14d — Package assembly
+
+**Depends on:** 14b, 14c, Phase 12a **Files:** `src/distribution/package.ts`, `src/distribution/package.test.ts` **Estimate:** ~100 LOC, 2 files
+
+Writes `allocations.json` and the manifest next to a `MerkleDb` output, and copies a previous rewards DB, with or without a manifest, into a working directory without its manifest or allocations.
 
 ### Phase 15 — `cmd:export`
 
-**Depends on:** Phases 2, 7, 12b, 13d, 14 **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
+**Depends on:** Phases 2, 7, 12b, 13d, 14d **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
 
 Wires the pieces together:
 
@@ -1202,6 +1219,21 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 ### Phase 13d
 
 - None. After 13d, `src/` and `tests/` are identical to the unsplit Phase 13.
+
+### Phase 14a
+
+- Canonical JSON is `canonicalJson(value): string` in `src/utils/json.ts`, next to `writeJsonFile` and `jsonReplacer`, not in `src/distribution/canonical.ts`. That way `MerkleDb` can use it without `src/merkledb/` importing from `src/distribution/`. Its tests are in `src/utils/json.test.ts`.
+- Values are converted exactly as `JSON.stringify` with `jsonReplacer` converts them: `bigint` becomes a decimal string, `Date` an ISO string, and `undefined` fields are dropped. They are then printed with keys sorted recursively, tab indentation, `{}`/`[]` inline and a trailing newline. A top-level `undefined` throws.
+- Keys are sorted in JavaScript string order (UTF-16 code units, the default `Array.prototype.sort()`). Every key the package uses is ASCII, so the pinned files are unchanged. Integer-like keys get no special order, so `"10"` sorts before `"9"`. Strings are escaped the way `JSON.stringify` escapes them. The code doesn't mention `jq`, which was only how the old data repository formatted its files.
+- `writeJsonFile` writes canonical JSON instead of insertion-ordered JSON, so every JSON file the tool writes is canonical. That covers `MerkleDb`'s `latest.json` and proofs, `cmd:totals`, `cmd:participation` and the `--transactions` bundles. There is no separate canonical writer. Phases 14d and 15 write the manifest, allocations and release assets with `writeJsonFile`.
+  - The `--transactions` bundles now have sorted keys. Their content is unchanged, and the Safe Transaction Builder doesn't depend on key order.
+  - `cmd:rewards --record` and `cmd:kyc` now write the rewards DB in the pinned format directly.
+  - `network-info.json` and `validator-info.json` already had sorted keys, so they are unchanged.
+- The fixture `tests/fixtures/canonical/` holds the pinned `latest.json` and the proof of `0x0484…2993`, copied unchanged.
+- Real-data check, not committed: re-serializing all 209 `.json` files of the pinned rewards DB reproduces them byte for byte.
+- Before 14a, `MerkleDb` did **not** write canonical JSON. Its keys came out in zod schema order (for example `tokenTotal` before `sentinelTokenTotal`, and `kycAmount` before `kyc`), so none of the 209 files it rewrote were canonical. It now writes canonical files with no change to `src/merkledb/index.ts`, and `tests/merkledb-index.test.ts` checks this. Real-data check, not committed: a `MerkleDb.kyc()` rebuild of the pinned rewards DB writes 209 of 209 canonical files. Their content differs only by the expected `sentinelTokenTotal`/`sentinelAmount` of `"0"`.
+- `proposal()` no longer builds its keys in sorted order, which overrides the Phase 11e note saying it does. The `transactions` and `actions` tests serialize with `canonicalJson`.
+- 14a also changes `src/distribution/transactions.ts`, its test, `src/distribution/actions.test.ts` and `tests/merkledb-index.test.ts`.
 
 ## Open Questions and Assumptions
 

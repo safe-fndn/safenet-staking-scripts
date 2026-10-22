@@ -11,7 +11,7 @@ import {
 	UPDATE,
 } from "../../tests/harness/governance.js";
 import { ERC20_ABI, REALITY_ETH_ERC20_ABI, REALITY_MODULE_ABI } from "../abi.js";
-import { jsonReplacer } from "../utils/json.js";
+import { canonicalJson } from "../utils/json.js";
 import {
 	ANSWER_YES,
 	actionBundles,
@@ -150,8 +150,6 @@ describe("executeBundle", () => {
 });
 
 describe("actionBundles", () => {
-	const json = (value: unknown) => JSON.stringify(value, jsonReplacer, "\t");
-
 	it("builds the three bundles", () => {
 		expect(actionBundles(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP)).toEqual({
 			answer: answerBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP),
@@ -161,10 +159,10 @@ describe("actionBundles", () => {
 	});
 
 	it("is deterministic", () => {
-		const encoded = json(actionBundles(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP));
-		expect(json(actionBundles(proposal(UPDATE, CONFIG), CONFIG, SETTLEMENT_TIMESTAMP))).toBe(
-			encoded,
-		);
+		const encoded = canonicalJson(actionBundles(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP));
+		expect(
+			canonicalJson(actionBundles(proposal(UPDATE, CONFIG), CONFIG, SETTLEMENT_TIMESTAMP)),
+		).toBe(encoded);
 	});
 
 	it("is created at the settlement", () => {
