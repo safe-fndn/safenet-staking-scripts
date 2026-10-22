@@ -11,18 +11,17 @@ const DAY = BigInt(60 * 60 * 24);
 const WEEK = 7n * DAY;
 const MERKLE_ROOT = `0x${"42".repeat(32)}`;
 
-const records = [] as string[];
+const roots = [] as string[];
 
 /**
- * Creates a temporary record directory whose `latest.json` has rewards distributed until
+ * Creates a temporary rewards directory whose `latest.json` has rewards distributed until
  * `rewardsUntil`, in the format of the currently pinned rewards DB.
  */
-const createRecord = async (rewardsUntil: bigint): Promise<string> => {
-	const record = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-merkledb-"));
-	records.push(record);
-	await fs.mkdir(path.join(record, "assets", "rewards"), { recursive: true });
+const createRewardsDirectory = async (rewardsUntil: bigint): Promise<string> => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-merkledb-"));
+	roots.push(root);
 	await fs.writeFile(
-		path.join(record, "assets", "rewards", "latest.json"),
+		path.join(root, "latest.json"),
 		`{
 	"epoch": 0,
 	"merkleRoot": "${MERKLE_ROOT}",
@@ -33,7 +32,7 @@ const createRecord = async (rewardsUntil: bigint): Promise<string> => {
 `,
 		"utf8",
 	);
-	return record;
+	return root;
 };
 
 const distribute = (db: MerkleDb, fromTimestamp: bigint, toTimestamp: bigint) =>
@@ -45,15 +44,15 @@ const distribute = (db: MerkleDb, fromTimestamp: bigint, toTimestamp: bigint) =>
 	);
 
 afterEach(async () => {
-	for (const record of records.splice(0)) {
-		await fs.rm(record, { recursive: true, force: true });
+	for (const root of roots.splice(0)) {
+		await fs.rm(root, { recursive: true, force: true });
 	}
 });
 
 describe("merkledb beta to aegis gap", () => {
 	it("accepts the first Aegis period after the last Beta period", async () => {
-		const record = await createRecord(BETA_REWARDS_UNTIL);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(BETA_REWARDS_UNTIL);
+		const db = new MerkleDb({ root });
 
 		// No rewards are paid for the week between the end of Beta and the start of Aegis.
 		const aegis = AEGIS_REWARDS_START;
@@ -80,8 +79,8 @@ describe("merkledb beta to aegis gap", () => {
 		["leaving a longer gap", AEGIS_REWARDS_START + WEEK, AEGIS_REWARDS_START + 3n * WEEK],
 		["empty", AEGIS_REWARDS_START, AEGIS_REWARDS_START],
 	])("rejects a period %s", async (_, from, to) => {
-		const record = await createRecord(BETA_REWARDS_UNTIL);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(BETA_REWARDS_UNTIL);
+		const db = new MerkleDb({ root });
 
 		expect(await distribute(db, from, to)).toBeNull();
 		expect(await db.index()).toMatchObject({
@@ -95,8 +94,8 @@ describe("merkledb beta to aegis gap", () => {
 		["Aegis", AEGIS_REWARDS_START],
 		["Aegis", AEGIS_REWARDS_START + 2n * WEEK],
 	])("rejects a one week gap during %s", async (_, rewardsUntil) => {
-		const record = await createRecord(rewardsUntil);
-		const db = new MerkleDb({ record });
+		const root = await createRewardsDirectory(rewardsUntil);
+		const db = new MerkleDb({ root });
 
 		expect(await distribute(db, rewardsUntil + WEEK, rewardsUntil + 3n * WEEK)).toBeNull();
 		expect(await db.index()).toMatchObject({ tokenTotal: 0n });

@@ -1,9 +1,10 @@
+import path from "node:path";
 import util, { type ParseArgsOptionsConfig } from "node:util";
 import debug from "debug";
 import { configDotenv } from "dotenv";
 import { type Client, createClient, getAddress, http, type Prettify } from "viem";
 import { z } from "zod";
-import { MerkleDb, nextRewardsStart } from "../merkledb/index.js";
+import { type MerkleDb, nextRewardsStart } from "../merkledb/index.js";
 import { dateToTimestamp, type TimestampRange } from "../utils/ranges.js";
 import {
 	AEGIS_REWARDS_START,
@@ -165,12 +166,20 @@ export const rewardsPeriod = (period: {
 	return { fromTimestamp, toTimestamp };
 };
 
-export const totalRewardsAmount = async (args: {
-	rewardPeriodStart?: bigint;
-	rewardPeriodEnd?: bigint;
-	totalRewards?: bigint;
-	record?: string;
-}): Promise<bigint> => {
+/**
+ * Returns the rewards directory of a `--record` root, which is where its `MerkleDb` lives.
+ */
+export const recordRewardsDirectory = (record: string): string =>
+	path.join(record, "assets", "rewards");
+
+export const totalRewardsAmount = async (
+	args: {
+		rewardPeriodStart?: bigint;
+		rewardPeriodEnd?: bigint;
+		totalRewards?: bigint;
+	},
+	db?: MerkleDb,
+): Promise<bigint> => {
 	if (args.totalRewards !== undefined) {
 		return args.totalRewards;
 	}
@@ -178,8 +187,8 @@ export const totalRewardsAmount = async (args: {
 	// As per the Safenet Aegis SEP, a total of 5M SAFE tokens are
 	// distributed evenly over 52 weeks of rewards starting on October 13th,
 	// 2026. The amount for a given period is therefore prorated by its duration
-	// (which is not guaranteed to be exactly two weeks). When a `record`
-	// directory is provided, we account for what has already been distributed:
+	// (which is not guaranteed to be exactly two weeks). When a record's
+	// `MerkleDb` is provided, we account for what has already been distributed:
 	// this both absorbs the rounding remainder into the final periods and rolls
 	// past unpaid amounts forward into future periods (since `tokenTotal` only
 	// tracks committed payouts, not the carried-over `unpaidAmount`).
@@ -195,13 +204,12 @@ export const totalRewardsAmount = async (args: {
 	const period = rewardsPeriod(args);
 	const periodDuration = period.toTimestamp - period.fromTimestamp;
 
-	if (args.record === undefined) {
+	if (db === undefined) {
 		return (AEGIS_VALIDATOR_REWARDS * periodDuration) / AEGIS_VALIDATOR_REWARDS_DURATION;
 	}
 
 	// Aegis rewards are always recorded on top of the rewards DB pinned at the
 	// end of Beta, so a record from before then is not an Aegis record.
-	const db = new MerkleDb({ record: args.record });
 	const index = await db.index();
 	if (
 		index?.rewardsUntil === undefined ||
