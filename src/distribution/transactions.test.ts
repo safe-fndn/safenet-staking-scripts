@@ -1,3 +1,4 @@
+import { base32upper } from "multiformats/bases/base32";
 import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import {
@@ -17,6 +18,7 @@ import {
 } from "viem";
 import { describe, expect, it } from "vitest";
 import { CUMULATIVE_MERKLE_DROP_ABI, ENS_RESOLVER_ABI, ERC20_ABI, MULTI_SEND_ABI } from "../abi.js";
+import { jsonReplacer } from "../utils/json.js";
 import {
 	buildQuestion,
 	type DistributionUpdate,
@@ -28,8 +30,10 @@ import {
 	governanceTransaction,
 	MULTI_SEND_CALL_ONLY,
 	multiSend,
+	proposal,
 	questionId,
 	transactionHash,
+	zProposal,
 } from "./transactions.js";
 
 // Every vector below was read from Ethereum mainnet at block 26247049 with read-only `eth_call`s
@@ -256,6 +260,76 @@ describe("question", () => {
 	it("matches the module's getQuestionId", () => {
 		expect(questionId(QUESTION, CONFIG)).toBe(QUESTION_ID);
 		expect(questionId("hello", CONFIG, 1n)).toBe(OTHER_QUESTION_ID);
+	});
+});
+
+describe("proposal", () => {
+	const expected = {
+		calls: [
+			{ data: TRANSFER_DATA, operation: 0, to: SAFE_TOKEN, value: 0n },
+			{ data: SET_MERKLE_ROOT_DATA, operation: 0, to: CUMULATIVE_MERKLE_DROP, value: 0n },
+			{ data: SET_CONTENTHASH_DATA, operation: 0, to: RESOLVER, value: 0n },
+		],
+		proposalId: PINNED_CID,
+		questionId: QUESTION_ID,
+		transaction: {
+			data: BATCH_DATA,
+			hash: TX_HASH,
+			operation: 1,
+			to: MULTI_SEND_CALL_ONLY,
+			value: 0n,
+		},
+	};
+	const json = (value: unknown) => JSON.stringify(value, jsonReplacer, "\t");
+
+	it("derives the proposal ID, question ID, transaction and calls", () => {
+		const derived = proposal(UPDATE, CONFIG);
+		expect(derived).toEqual(expected);
+		expect(derived.transaction.data).toBe(multiSend(derived.calls).data);
+	});
+
+	it("round-trips through its schema and is deterministic", () => {
+		const encoded = json(proposal(UPDATE, CONFIG));
+		expect(json(proposal(UPDATE, CONFIG))).toBe(encoded);
+		const decoded = zProposal.parse(JSON.parse(encoded));
+		expect(decoded).toEqual(expected);
+		expect(json(decoded)).toBe(encoded);
+	});
+
+	it("rejects malformed proposals", () => {
+		const valid = JSON.parse(json(proposal(UPDATE, CONFIG)));
+		const [call, ...otherCalls] = valid.calls;
+		const withCall = (changes: object) => ({
+			...valid,
+			calls: [{ ...call, ...changes }, ...otherCalls],
+		});
+		const withTransaction = (changes: object) => ({
+			...valid,
+			transaction: { ...valid.transaction, ...changes },
+		});
+		const invalid = [
+			{ ...valid, proposalId: CID.parse(PINNED_CID).toV0().toString() },
+			{ ...valid, proposalId: CID.parse(PINNED_CID).toString(base32upper) },
+			{ ...valid, questionId: QUESTION_ID.toUpperCase() },
+			{ ...valid, extra: true },
+			{ ...valid, transaction: undefined },
+			{ ...valid, calls: valid.calls.slice(0, 2) },
+			{ ...valid, calls: [...valid.calls, call] },
+			withTransaction({ to: SAFE_TOKEN }),
+			withTransaction({ to: MULTI_SEND_CALL_ONLY.toLowerCase() }),
+			withTransaction({ operation: 0 }),
+			withTransaction({ hash: TX_HASH.toUpperCase() }),
+			withTransaction({ extra: true }),
+			withCall({ to: call.to.toLowerCase() }),
+			withCall({ operation: 1 }),
+			withCall({ value: "01" }),
+			withCall({ value: 0 }),
+			withCall({ data: "0xA9" }),
+			withCall({ hash: TX_HASH }),
+		];
+		for (const value of invalid) {
+			expect(zProposal.safeParse(value).success, JSON.stringify(value)).toBe(false);
+		}
 	});
 });
 

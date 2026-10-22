@@ -7,7 +7,8 @@
  * are batched into a single `MultiSendCallOnly` delegatecall. The package CID is pinned onchain as
  * the ENSIP-7 `contenthash` of the rewards ENS name. The Zodiac transaction hash and the
  * Reality.eth question follow `RealityModule.sol` of `gnosisguild/zodiac-module-reality` exactly,
- * and the tests check them against the deployed module.
+ * and the tests check them against the deployed module. `proposal()` combines them into the
+ * contents of `proposal.json`.
  */
 
 import { CID } from "multiformats/cid";
@@ -16,14 +17,17 @@ import {
 	concat,
 	encodeFunctionData,
 	encodePacked,
+	getAddress,
 	type Hex,
 	hashTypedData,
 	hexToBytes,
+	isAddress,
 	keccak256,
 	namehash,
 	size,
 	toHex,
 } from "viem";
+import { z } from "zod";
 import { CUMULATIVE_MERKLE_DROP_ABI, ENS_RESOLVER_ABI, ERC20_ABI, MULTI_SEND_ABI } from "../abi.js";
 
 /**
@@ -106,6 +110,20 @@ export type ProposalTransaction = GovernanceTransaction & {
 	 * distribution's proposal has one transaction, so its nonce is 0.
 	 */
 	hash: Hex;
+};
+
+/**
+ * The contents of `proposal.json`.
+ */
+export type Proposal = {
+	/** The three calls that `transaction` batches, in execution order. */
+	calls: [GovernanceCall, GovernanceCall, GovernanceCall];
+	/** The package CID as a CIDv1 base32 string. */
+	proposalId: string;
+	/** The Reality.eth question ID of the proposal with nonce `0`. */
+	questionId: Hex;
+	/** The proposal's only transaction, the `MultiSendCallOnly` delegatecall of `calls`. */
+	transaction: ProposalTransaction;
 };
 
 const DAG_PB = 0x70;
@@ -296,3 +314,81 @@ export const questionId = (
 		),
 	);
 };
+
+/**
+ * Builds the proposal of a distribution: its ID is the package CID, it executes the Governance
+ * Safe transaction with its Zodiac hash, and its question ID is the one `addProposal` (nonce `0`)
+ * asks. It also lists the batched calls, so that answerers can review each one.
+ */
+export const proposal = (update: DistributionUpdate, config: GovernanceConfiguration): Proposal => {
+	const proposalId = update.cid.toString();
+	// Keys in sorted order, so that the proposal serializes exactly as it parses.
+	const [transfer, setMerkleRoot, setContenthash] = governanceCalls(update, config).map(
+		({ data, operation, to, value }) => ({ data, operation, to, value }),
+	);
+	const calls: Proposal["calls"] = [transfer, setMerkleRoot, setContenthash];
+	const { data, operation, to, value } = multiSend(calls);
+	const hash = transactionHash(config.module, { to, value, data, operation }, 0n);
+	return {
+		calls,
+		proposalId,
+		questionId: questionId(buildQuestion(proposalId, [hash]), config),
+		transaction: { data, hash, operation, to, value },
+	};
+};
+
+const zChecksummedAddress = z
+	.string()
+	.refine((s) => isAddress(s, { strict: false }) && getAddress(s) === s, {
+		message: "expected a checksummed address",
+	})
+	.transform((s) => s as Address);
+const zBytes32 = z
+	.string()
+	.regex(/^0x[0-9a-f]{64}$/, { message: "expected lowercase 32-byte hex" })
+	.transform((s) => s as Hex);
+const zData = z
+	.string()
+	.regex(/^0x([0-9a-f]{2})*$/, { message: "expected lowercase hex bytes" })
+	.transform((s) => s as Hex);
+const zValue = z
+	.string()
+	.regex(/^(0|[1-9]\d*)$/, { message: "expected a decimal integer" })
+	.transform((s) => BigInt(s));
+const zProposalCall = z.strictObject({
+	data: zData,
+	operation: z.literal(0),
+	to: zChecksummedAddress,
+	value: zValue,
+});
+const zProposalTransaction = z.strictObject({
+	data: zData,
+	hash: zBytes32,
+	operation: z.literal(1),
+	to: z.literal(MULTI_SEND_CALL_ONLY),
+	value: zValue,
+});
+
+/**
+ * The `proposal.json` schema. Addresses are checksummed, hex is lowercase, `value` is a decimal
+ * string, the proposal ID must be a CIDv1 base32 string of a package CID, and the transaction must
+ * be a `MultiSendCallOnly` delegatecall of exactly three calls. It checks the shape only:
+ * `cmd:verify` re-derives the proposal and compares.
+ */
+export const zProposal = z.strictObject({
+	calls: z.tuple([zProposalCall, zProposalCall, zProposalCall]),
+	proposalId: z.string().refine(
+		(s) => {
+			try {
+				const cid = CID.parse(s);
+				assertPackageCid(cid);
+				return cid.toString() === s;
+			} catch {
+				return false;
+			}
+		},
+		{ message: "expected a CIDv1 base32 package CID" },
+	),
+	questionId: zBytes32,
+	transaction: zProposalTransaction,
+}) satisfies z.ZodType<Proposal, unknown>;
