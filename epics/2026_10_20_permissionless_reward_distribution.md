@@ -504,7 +504,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 8 (KYC file) ─────────────────┤                            │
 9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
-5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15a ─► …15e ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
+5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15a ─► …15g ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
 10a (pack) ┬─► 11a ─► … ─► 11e ─► 13a ─► … ─► 13d ─────────┤                                ▲
            └─► 10b (unpack) ─► 12a ─► 12b (previous) ──────┘                                │
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
@@ -752,7 +752,7 @@ Writes `allocations.json` and the manifest next to a `MerkleDb` output, and copi
 
 ### Phase 15 — `cmd:export`
 
-Split into 15a–15e before implementation, to keep each PR small. Each sub-phase is its own commit, branch and PR, and Phase 15 has no commit of its own.
+Split into sub-phases before implementation to keep each PR small. The export pipeline was split further into 15c–15e during review. Each sub-phase is its own commit, branch and PR, and Phase 15 has no commit of its own.
 
 ### Phase 15a — Governance configuration
 
@@ -766,34 +766,51 @@ Reads the `GovernanceConfiguration` from the Reality Module, its oracle and ENS 
 
 The manifest's `generator` block. The commit comes from `GIT_COMMIT` when set, and otherwise from `git rev-parse HEAD`. The export refuses to run on a dirty tree.
 
-### Phase 15c — Export pipeline
+### Phase 15c — Shared payout flattening
 
-**Depends on:** 15a, 15b, Phases 2, 7, 9c, 13d, 14d **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~150 LOC, 2 files
+**Depends on:** 15b **Files:** `src/safenet.ts`, `src/cmd/rewards.ts`, `tests/harness/scenario.ts` **Estimate:** ~40 LOC, 3 files
 
-A library function that wires the pieces together:
-1. resolve the previous rewards DB;
-2. run `rewards` and `sentinelRewards` and pin the sanctions;
-3. run `distribute` with the sanctions, threshold and approvals from `kyc.json`;
-4. assemble the package and pack it;
+A refactor with no behaviour change. It moves the flattening from `RewardSplit` to `Payout` out of `cmd:rewards` into a shared `distributionPayouts`, and adds `createTestParameters` to the test harness, so the export can reuse both.
+
+### Phase 15d — Export inputs
+
+**Depends on:** 15c, 15a, Phase 12b **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~100 LOC, 2 files
+
+The first half of the export pipeline:
+- check the staking chain;
+- read one block number;
+- read the governance configuration and resolve the previous rewards DB at that block;
+- check that the period follows the previous rewards DB;
+- compute the effective reward amounts.
+
+### Phase 15e — Export package
+
+**Depends on:** 15d, 15b, Phases 7, 9c, 13d, 14d **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~150 LOC, 2 files
+
+The second half of the pipeline:
+1. run `rewards`, `sentinelRewards` and the pinned sanctions;
+2. run `distribute` with the threshold and approvals from `kyc.json`;
+3. build the allocations and the manifest;
+4. write the package files and pack them;
 5. build the proposal and the action bundles.
 
 It returns the results in memory and has no CLI.
 
-### Phase 15d — Release assets
+### Phase 15f — Release assets
 
-**Depends on:** 15c **Files:** `src/distribution/release.ts`, `src/distribution/release.test.ts` **Estimate:** ~80 LOC, 2 files
+**Depends on:** 15e **Files:** `src/distribution/release.ts`, `src/distribution/release.test.ts` **Estimate:** ~80 LOC, 2 files
 
 Writes the release assets (`rewards-<t>.car`, `cid.txt`, `merkle-root.txt`, `proposal.json`, the three action bundles and `manifest.json`) and their `SHA256SUMS`.
 
-### Phase 15e — `cmd:export`
+### Phase 15g — `cmd:export`
 
-**Depends on:** 15d **Files:** `src/cmd/export.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~100 LOC, 5 files
+**Depends on:** 15f **Files:** `src/cmd/export.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~100 LOC, 5 files
 
-The command, with its flags and configuration: `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `--previousCar`, `--out`, and the required period.
+The command, with its flags and configuration: `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `GIT_COMMIT`, `--previousCar`, `--out`, and the required period.
 
 ### Phase 16 — `cmd:verify` (offline)
 
-**Depends on:** Phase 15e **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
+**Depends on:** Phase 15g **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
 
 Re-exports from the manifest (including `previous.cid`) into a temporary directory and compares every file, the CID and every derived asset, printing a per-file diff. It refuses a manifest whose `sanctions.offchain.repository` differs from the configured `SANCTIONS_ADDRESS_REPO`, with an error naming both.
 
@@ -1345,7 +1362,7 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
   - `headCommit(dir?)`, which returns `null` outside a work tree. Phase 16 uses it for its warning;
   - `uncommittedChanges(dir?)`;
   - `GENERATOR_REPOSITORY` and `COMMIT_PATTERN`.
-- `GIT_COMMIT` is a parameter. 15e adds it to `src/utils/args.ts`, so `GITHUB_TOKEN` stays the only environment variable read directly. A `GIT_COMMIT` that isn't 40 lowercase hex characters is refused, never normalized.
+- `GIT_COMMIT` is a parameter. 15g (`cmd:export`) adds it to `src/utils/args.ts`, so `GITHUB_TOKEN` stays the only environment variable read directly. A `GIT_COMMIT` that isn't 40 lowercase hex characters is refused, never normalized.
 - Git runs through `execFile` in the directory of `generator.ts`, not in the working directory. That way it checks the checkout of the code that builds the package.
 - **With a work tree:**
   - `HEAD` must equal `GIT_COMMIT` if it is set.
@@ -1355,6 +1372,48 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 - Untracked and ignored files don't count as dirty (`--untracked-files=no`). This covers export outputs, `*.db` files and scratch directories.
 - `repository` is the constant `GENERATOR_REPOSITORY` (`https://github.com/safe-fndn/safenet-staking-scripts`), not derived from a git remote.
 - The tests use real temporary git repos, isolated from the user's and the system's git config.
+
+### Phase 15c–15e (unsplit)
+
+These entries describe the export pipeline as a whole, as first implemented. The 15c, 15d and 15e entries below say how it was split, and they win where they differ.
+
+- `exportPackage(safenet, config, params, dir)` returns `{ cid, car, dir, manifest, allocations, proposal, bundles }`:
+  - `config` (`ExportConfiguration`) is a superset of the `Safenet.create` fields, plus `CarSource`, `cumulativeMerkleDropAddress`, `realityModuleAddress` and `rewardsEnsName`.
+  - `params` (`ExportParameters`) is `{ period, totalRewards?, sentinelRewards?, minPayout, generator }`.
+  - `dir` is owned by the caller and must be missing or empty. It ends up holding the finished package.
+- The generator is an input, not computed inside, so 15g (`cmd:export`) calls `generator({ gitCommit })` before any RPC call and Phase 16 can pass the manifest's own generator. `minPayout` is required, and 15g chooses its default.
+- Order of steps:
+  1. Check that the staking chain is chain 1.
+  2. Read one block number.
+  3. Read `governanceConfiguration` and `resolvePreviousRewardsDb` at that block, unpacking into an `mkdtemp` directory that is always removed.
+  4. Assert that `previous.ensResolver` equals `governance.ensResolver`.
+  5. Check that `period.fromTimestamp` equals `nextRewardsStart(previous.rewardsUntil)` before any indexing.
+  6. Run `settlement`, `rewards`, `sentinelRewards` and `pinnedSanctionedAccounts`.
+  7. `distribute` into `copyRewardsDb(previous.dir, dir)`, using the pinned sanctions and `kyc()`. A `null` update is an error.
+  8. Build the allocations and the manifest, write the package files and `packDirectory`.
+  9. Build `proposal()` and `actionBundles(…, settlementTimestamp)`.
+- `totalRewards` is `totalRewardsAmount(…, new MerkleDb({ root: previous.dir }))`, which is the override if given and otherwise the 2a Aegis budget measured against the previous rewards DB. `sentinelRewards` is `sentinelRewardsAmount`, which is the override if given and otherwise 400,000 SAFE a year prorated over the period. `parameters` records the effective values.
+- Where the manifest values come from:
+  - `chains.staking.boundaryBlock`: `blockAtTimestamp(stakingClient, toTimestamp)`;
+  - `chains.consensus` blocks: `Safenet.settlement`;
+  - chain IDs: the two clients;
+  - `distribution.tokenTotal`: the new `latest.json`;
+  - `distribution.safeToken`: `Staking.SAFE_TOKEN()`;
+  - `sanctions.offchain.repository`: `sanctionsAddressRepo`, which falls back to its default.
+- A flagged account missing from `kyc.json` is refused by `distribute`'s existing check.
+- `distributionPayouts(payouts)`, the flattening from `RewardSplit` to `Payout`, moves to `src/safenet.ts` and `cmd:rewards` uses it. Its keys are checksummed. 15c also changes `src/cmd/rewards.ts`, and adds `createTestParameters` to `tests/harness/scenario.ts`.
+- Test setup: `tests/export.test.ts` serves the governance, ENS, drop and `SAFE_TOKEN()` calls from the `CONFIG` vector by wrapping the mock staking client, and stubs `pinnedSanctionedAccounts`, because harness chains start at t=0. It overrides `totalRewards`, because the 2a default needs a record from after the end of Beta.
+- What the tests check:
+  - the full expected manifest and allocations, including every status;
+  - that the output is canonical and the CID equals `packDirectory`;
+  - that two runs give byte-identical results;
+  - that a root mismatch and a missing approval are refused.
+
+### Phase 15c
+
+- 15c is a refactor and adds no `export.ts`. `distributionPayouts` in `src/safenet.ts` replaces the inline flattening in `cmd:rewards` and the copy of it in `allocations.test.ts`. It iterates with `addressEntries`, so its keys are checksummed, which changes nothing for `Safenet`'s already-checksummed payouts.
+- `tests/harness/scenario.ts` gains `createTestParameters(scenario)`, which returns the `Safenet.create` parameters with both mock clients. `createTestSafenet` is built on it, and 15d is its first other user.
+- A test for `distributionPayouts` sits next to the `mergeRewardPayouts` test in `tests/sentinel-rewards.test.ts`. 15c therefore also changes that file and `src/distribution/allocations.test.ts`.
 
 ## Open Questions and Assumptions
 

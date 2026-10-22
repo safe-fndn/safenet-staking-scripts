@@ -5,7 +5,7 @@ import { type Address, getAddress, zeroHash } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
 import { namedAddress, parseSafe } from "../../tests/harness/utils.js";
 import { type Filters, MerkleDb } from "../merkledb/index.js";
-import { payoutAmount, type RewardSplit } from "../safenet.js";
+import { distributionPayouts, payoutAmount, type RewardSplit } from "../safenet.js";
 import { canonicalJson, writeJsonFile } from "../utils/json.js";
 import { AEGIS_REWARDS_START } from "../utils/sep.js";
 import { sortByAddress } from "../utils/sort.js";
@@ -116,16 +116,9 @@ describe("buildAllocations", () => {
 			rewardsUntil: new Date(Number(AEGIS_REWARDS_START) * 1000),
 		});
 		const db = new MerkleDb({ root });
-		const flat = Object.fromEntries(
-			// `MerkleDb.distribute` needs checksummed keys, as `Safenet` produces them.
-			Object.entries(PAYOUTS).map(([account, split]) => [
-				getAddress(account),
-				{ amount: payoutAmount(split), sentinelAmount: split.sentinelRewards },
-			]),
-		);
 		const update = await db.distribute(
 			{ fromTimestamp: AEGIS_REWARDS_START, toTimestamp: AEGIS_REWARDS_START + TWO_WEEKS },
-			flat,
+			distributionPayouts(PAYOUTS),
 			0n,
 			FILTERS,
 		);
