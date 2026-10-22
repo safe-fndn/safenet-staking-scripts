@@ -38,7 +38,7 @@ import {
 	UPDATE,
 } from "../../tests/harness/governance.js";
 import { CUMULATIVE_MERKLE_DROP_ABI, ENS_RESOLVER_ABI, ERC20_ABI, MULTI_SEND_ABI } from "../abi.js";
-import { jsonReplacer } from "../utils/json.js";
+import { canonicalJson } from "../utils/json.js";
 import {
 	buildQuestion,
 	decodeContenthash,
@@ -220,8 +220,6 @@ describe("proposal", () => {
 			value: 0n,
 		},
 	};
-	const json = (value: unknown) => JSON.stringify(value, jsonReplacer, "\t");
-
 	it("derives the proposal ID, question ID, transaction and calls", () => {
 		const derived = proposal(UPDATE, CONFIG);
 		expect(derived).toEqual(expected);
@@ -229,15 +227,15 @@ describe("proposal", () => {
 	});
 
 	it("round-trips through its schema and is deterministic", () => {
-		const encoded = json(proposal(UPDATE, CONFIG));
-		expect(json(proposal(UPDATE, CONFIG))).toBe(encoded);
+		const encoded = canonicalJson(proposal(UPDATE, CONFIG));
+		expect(canonicalJson(proposal(UPDATE, CONFIG))).toBe(encoded);
 		const decoded = zProposal.parse(JSON.parse(encoded));
 		expect(decoded).toEqual(expected);
-		expect(json(decoded)).toBe(encoded);
+		expect(canonicalJson(decoded)).toBe(encoded);
 	});
 
 	it("rejects malformed proposals", () => {
-		const valid = JSON.parse(json(proposal(UPDATE, CONFIG)));
+		const valid = JSON.parse(canonicalJson(proposal(UPDATE, CONFIG)));
 		const [call, ...otherCalls] = valid.calls;
 		const withCall = (changes: object) => ({
 			...valid,
