@@ -357,6 +357,7 @@ Zodiac transaction hashes use EIP-712 with domain `EIP712Domain(uint256 chainId,
   "sanctions": {
     "offchain": {
       "release": "data-2026-10-26",
+      "repository": "safe-fndn/sanctions-address-lists",
       "sha256": {
         "ch-seco": "…",
         "eu": "…",
@@ -501,7 +502,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 1 (drop updatedAt) ───────────┐
 3 (tx bundles out) ─► 4 ──────┼─► 14 (manifest/assembly) ──┐
 8 (KYC file) ─────────────────┤                            │
-9 (sanctions snapshots) ──────┘                            │
+9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
 5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
 10 (IPFS) ─┬─► 11 (transactions) ─► 13 (action bundles) ───┤                                ▲
@@ -509,9 +510,9 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
 ```
 
-Phase 13 also depends on Phase 3 for the pure `transactionBundle()`. The **Depends on** lines below are authoritative.
+Phase 13 also depends on Phase 3 for the pure `transactionBundle()`. Phases 9d (docs) and 9e (GitHub token) follow 9c. The **Depends on** lines below are authoritative.
 
-Phases 1, 2, 3, 5, 8, 9, 10 and 18 can all be developed in parallel.
+Phases 1, 2, 3, 5, 8, 9a, 10 and 18 can all be developed in parallel.
 
 ### Phase 1 — Drop `updatedAt` from the Merkle DB index
 
@@ -588,9 +589,37 @@ Covers:
 
 ### Phase 9 — Pinned sanctions snapshots
 
-**Files:** `src/data/sanctions.ts`, `src/data/sanctions.test.ts`, `src/safenet.ts` **Estimate:** ~120 LOC, 3 files
+Split into 9a–9d during review to keep each PR small. Each sub-phase is its own commit, branch and PR. Phase 9 has no commit of its own.
 
-Resolves the `data-*` tag for a period, fetches from it, and exposes the per-source SHA-256. `sanctionedAccounts()` keeps its current semantics when no period tag is requested.
+### Phase 9a — GitHub releases client
+
+**Files:** `src/utils/gh.ts`, `src/utils/gh.test.ts` **Estimate:** ~100 LOC, 2 files
+
+A small client for a GitHub repository's releases, so the GitHub logic is separate from the sanctions logic. It holds the zod parser for an `owner/name` repository, lists a repository's release tags through the unauthenticated REST API (paged, with the existing backoff), and downloads a release asset's raw bytes from `https://github.com/<repo>/releases/download/<tag>/<asset>`.
+
+### Phase 9b — Sanctions lists from a GitHub repository
+
+**Depends on:** 9a **Files:** `src/data/sanctions.ts`, `src/data/sanctions.test.ts`, `src/safenet.ts`, `src/utils/args.ts`, `.env.sample` **Estimate:** ~80 LOC, 5 files
+
+Replaces `SANCTIONS_ADDRESS_LISTS_URL` with `SANCTIONS_ADDRESS_REPO` (default `safe-fndn/sanctions-address-lists`), so the lists are loaded from a release of the configured repository instead of an arbitrary URL. `sanctionedAccounts()` keeps its semantics and fetches the `latest` release through the 9a client.
+
+### Phase 9c — Pinned sanctions snapshots
+
+**Depends on:** 9b **Files:** `src/data/sanctions.ts`, `src/data/sanctions.test.ts`, `src/safenet.ts` **Estimate:** ~150 LOC, 3 files
+
+Resolves the `data-*` tag for a period, fetches from it, and exposes the per-source SHA-256, with an optional `expected` release and hashes to verify against. `sanctionedAccounts()` keeps its current semantics.
+
+### Phase 9d — Sanctions documentation
+
+**Depends on:** 9c **Files:** `README.md`, `AGENTS.md`, `.env.sample`, `epics/2026_10_20_permissionless_reward_distribution.md` **Estimate:** docs only
+
+Documents the repository setting and the snapshot rule, and records the Phase 9 sub-phases and their deviations in this specification.
+
+### Phase 9e — Optional GitHub token
+
+**Depends on:** 9d **Files:** `src/utils/gh.ts`, `src/utils/gh.test.ts`, `.env.sample`, `README.md`, `AGENTS.md` **Estimate:** ~50 LOC, 5 files
+
+The unauthenticated GitHub REST API allows 60 requests an hour per IP, which shared Actions runners can exhaust. When `GITHUB_TOKEN` is set, `gh.ts` sends it with its GitHub requests. As an exception to the `src/utils/args.ts` convention, `gh.ts` reads `process.env.GITHUB_TOKEN` directly, and the token is not part of argument parsing. GitHub Actions provides it, and an empty or unset value means unauthenticated requests.
 
 ### Phase 10 — Deterministic IPFS packing
 
@@ -632,11 +661,11 @@ Builds `propose.json`, `answer.json` and `execute.json` from `proposal.json` and
 
 ### Phase 14 — Package manifest and assembly
 
-**Depends on:** Phases 1, 4, 8, 9 **Files:** `src/distribution/manifest.ts`, `src/distribution/package.ts`, `src/distribution/canonical.ts`, `src/distribution/package.test.ts` **Estimate:** ~260 LOC, 4 files
+**Depends on:** Phases 1, 4, 8, 9c **Files:** `src/distribution/manifest.ts`, `src/distribution/package.ts`, `src/distribution/canonical.ts`, `src/distribution/package.test.ts` **Estimate:** ~260 LOC, 4 files
 
 Covers:
 
-- the manifest schema.
+- the manifest schema, including `sanctions.offchain.repository` (see Phase 9d deviations).
 - canonical JSON (sorted keys, tabs).
 - writing `allocations.json` and the manifest next to a `MerkleDb` output.
 - copying a previous rewards DB, with or without a manifest, into a working directory without its manifest or allocations.
@@ -659,7 +688,7 @@ Wires the pieces together:
 
 **Depends on:** Phase 15 **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
 
-Re-exports from the manifest (including `previous.cid`) into a temporary directory and compares every file, the CID and every derived asset, printing a per-file diff.
+Re-exports from the manifest (including `previous.cid`) into a temporary directory and compares every file, the CID and every derived asset, printing a per-file diff. It refuses a manifest whose `sanctions.offchain.repository` differs from the configured `SANCTIONS_ADDRESS_REPO`, with an error naming both.
 
 ### Phase 17 — Onchain consistency checks
 
@@ -841,6 +870,62 @@ Changes that came up during implementation. Where they conflict with the rest of
   - `README.md`, which describes the threshold default and the approval and refusal behaviour, and drops `--kycThreshold=1000` from its examples;
   - the three `tests/merkledb-*.test.ts` files, which pass `kycApprovals: []`.
 - `AGENTS.md` has a new "Distribution Inputs" section. Inputs that are neither onchain nor SEP constants are JSON files under `src/`, imported and zod-validated, and pinned by the commit. It also covers the SEF edit process: add an account in sorted position and never remove one, because approvals are sticky.
+
+### Phase 9
+
+These entries describe the behaviour of Phase 9 as a whole. The 9a–9d entries below say how it was split and win where they differ.
+
+- **Choosing the snapshot.** A period's snapshot is the newest `data-YYYY-MM-DD` release whose UTC day has *ended* at or before `toTimestamp` (`Date.UTC(Y, M-1, D)/1000 + 86400 ≤ toTimestamp`), because the upstream publish job can re-upload `data-D` until day D is over.
+  - The date comes from the tag name only. GitHub's `published_at`/`created_at` are ignored.
+  - Tags that don't match `^data-\d{4}-\d{2}-\d{2}$`, or aren't real calendar dates, are skipped, and `latest` is never selected.
+  - When no snapshot qualifies, the call throws `no sanctions address lists snapshot ended by <toTimestamp>`, with no fallback to `latest`.
+  - A snapshot of any age is accepted, because upstream only publishes on days when the lists change.
+- **Finding the tags.** Tags come from the unauthenticated GitHub REST API (`https://api.github.com/repos/<repo>/releases?per_page=100&page=N`). The listing is paged until a page has fewer than 100 entries, and every request goes through the existing backoff.
+- **Configurable source.** The lists come from one GitHub repository, `SANCTIONS_ADDRESS_REPO` (`--sanctionsAddressRepo`), which replaces `SANCTIONS_ADDRESS_LISTS_URL`, so wherever this spec says `SANCTIONS_ADDRESS_LISTS_URL`, read `SANCTIONS_ADDRESS_REPO`. Lists can no longer be loaded from an arbitrary URL.
+  - The value is a GitHub `owner/name`, parsed by `zGitHubRepository` (see Phase 9a).
+  - It defaults to `DEFAULT_SANCTIONS_ADDRESS_REPO` = `safe-fndn/sanctions-address-lists` (the repository moved from `safe-research`), applied in `SanctionsData` like other optional config.
+  - Every URL derives from it: live lists from `https://github.com/<repo>/releases/download/latest/<source>.json`, snapshots from `…/releases/download/<tag>/<source>.json`, and the listing from `https://api.github.com/repos/<repo>/releases`.
+- **Hashing.** The SHA-256 is computed over the raw bytes of each `<source>.json` asset as served, before parsing, as lowercase hex with no `0x`, so `sha256sum` reproduces it. Hashes are keyed by source ID (`un`, `eu`, `uk`, `ch-seco`, `us-ofac`), matching `manifest.sanctions.offchain.sha256`. Upstream's `manifest.json` is neither fetched nor hashed.
+- **API.** `selectSnapshotRelease(releases, { toTimestamp })` is pure, and `SanctionsData.snapshotRelease(period)` resolves the tag.
+  - `SanctionsData.pinnedSanctionedAccounts(period, expected?)` and `Safenet.pinnedSanctionedAccounts(period, expected?)` return `{ accounts, offchain: { release, sha256 } }`, where `offchain` is exactly the manifest's `sanctions.offchain` and `accounts` is the onchain sanctions at `toTimestamp` plus the snapshot lists.
+  - With `expected`, a different resolved tag throws `sanctions address lists snapshot <resolved> does not match expected <release>`, and a different hash throws `sanctions address list <source> in <release> has SHA-256 <actual>, expected <expected>`.
+  - Hash checks run outside the backoff and are not retried. Network and HTTP errors, including a 404 for a missing asset, are retried and then thrown.
+- **Indexing.** `Safenet.pinnedSanctionedAccounts` indexes only the sanctions indexer, up to `toTimestamp`, like `sanctionedAccounts`. The onchain sanctions query is bounded by `toTimestamp`.
+- **Commands.** `sanctionedAccounts()` keeps its live `latest` semantics, and `cmd:rewards`, `cmd:kyc` and `cmd:sanctions` are unchanged in this phase.
+- **Files.** Each sub-phase lists its own files. `src/utils/args.ts` and `.env.sample` are in 9b, and `README.md` and `AGENTS.md` are in 9d.
+
+### Phase 9a
+
+- `src/utils/gh.ts` exports functions, not a class, like `blockAtTimestamp`: `releaseTags(repo, withBackoff?)` and `releaseAsset(repo, { tag, asset }, withBackoff?)`. The backoff defaults to `backoff({ debug: debug("safenet:gh") })`, and callers pass their own to keep their debug namespace.
+- `zGitHubRepository` parses `owner/name` into `GitHubRepository` (`` `${string}/${string}` ``). The owner is 1–39 alphanumerics with single inner hyphens, and the name is 1–100 of `[A-Za-z0-9._-]`, but not `.` or `..`.
+- `releaseTags` returns tags in API order from `https://api.github.com/repos/<repo>/releases?per_page=100&page=N`, paging until a page has fewer than 100 entries. A page of exactly 100 therefore costs one more request, for an empty page. Only the request is retried; a malformed listing throws at once.
+- `releaseAsset` returns the raw bytes as served, so a caller can hash them before parsing. A non-OK response, including a 404, throws `failed to fetch '<url>': <status> <statusText>` after the retries.
+- `tag` and `asset` are URL-encoded with `encodeURIComponent`. This changes nothing for `latest`, `data-YYYY-MM-DD` or `<source>.json`.
+- Requests are unauthenticated and send no `Accept` or API-version headers, as before.
+
+### Phase 9b
+
+- `SANCTIONS_ADDRESS_REPO` (`--sanctionsAddressRepo`) is parsed with `zGitHubRepository.optional()` and typed `GitHubRepository` through `Safenet.create` and `SanctionsDataConfiguration.sanctionsAddressRepo`. Since the type carries the validation, `SanctionsData` does not validate again.
+- The default is `DEFAULT_SANCTIONS_ADDRESS_REPO` in `src/data/sanctions.ts`, applied with `??` in the `SanctionsData` constructor, like other optional config. The args field has no `.default()`.
+- The default moves from `safe-research` to `safe-fndn`, because the upstream repository moved.
+- `sanctionedAccounts()` fetches `<source>.json` from the `latest` tag with `releaseAsset(repo, { tag, asset }, this.#backoff)`, keeping the `safenet:sanctions-lists` debug namespace. The internal list fetch takes the tag as a parameter.
+- JSON parsing now happens after the backoff instead of inside it (`response.json()`), so a malformed list throws at once instead of being retried. HTTP errors are still retried and then thrown, with the same `failed to fetch '<url>': <status> <statusText>` message.
+
+### Phase 9c
+
+- `snapshotRelease(period)` gets its tags from the 9a `releaseTags(repo, this.#backoff)` and applies `selectSnapshotRelease`. Paging is not tested again in `sanctions.test.ts`.
+- Live and pinned lists share one code path that takes a tag. `#fetchOffchainSource(tag, source)` hashes the raw `releaseAsset` bytes and returns `{ sha256, accounts }`. `sanctionedAccounts()` passes `latest`, and `pinnedSanctionedAccounts` passes the resolved `data-*` tag.
+- The `expected` release is checked before any asset is fetched. Hashes are compared after all five assets have downloaded, outside the backoff, so a mismatch is never retried.
+- The tests check hashes against constants computed with `sha256sum`, not against an in-test `createHash`.
+
+### Phase 9d
+
+- `README.md` matches the unsplit Phase 9 word for word. `AGENTS.md` differs only in its `SanctionsData` paragraph, which names the `src/utils/gh.ts` releases client (`releaseTags`, `releaseAsset`) instead of saying the URLs derive from the repository, and says the SHA-256 is over each source's raw asset.
+- `AGENTS.md` mentions `src/utils/gh.ts` only in the `SanctionsData` paragraph, not in the project structure notes.
+- `.env.sample` is also in 9d: its `SANCTIONS_ADDRESS_REPO` comment gets back the original's sentence about the dated snapshot releases.
+- **The manifest records the repository.** A release tag and its hashes only identify the lists within one repository, so `manifest.sanctions.offchain` gains `repository` (the configured `SANCTIONS_ADDRESS_REPO`, an `owner/name`).
+  - `pinnedSanctionedAccounts` and `OffchainSanctions` are unchanged. The export (Phases 14–15) takes the repository from the configuration, through a `SanctionsData` accessor if needed, and writes it next to `release` and `sha256`.
+  - `cmd:verify` (Phase 16) refuses a manifest whose repository differs from the configured one, with an error naming both, instead of reporting a confusing tag or hash mismatch.
 
 ## Open Questions and Assumptions
 
