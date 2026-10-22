@@ -44,6 +44,7 @@ main(
 			.transform((v) => parseUnits(v, 18))
 			.optional(),
 		record: z.string().optional(),
+		transactions: z.string().optional(),
 		cumulativeMerkleDropAddress: z
 			.string()
 			.transform((v) => getAddress(v))
@@ -51,6 +52,17 @@ main(
 		split: z.boolean().optional(),
 	},
 	async (args) => {
+		// Check up front, so that a misconfigured run fails before recording
+		// anything rather than after.
+		if (args.transactions !== undefined) {
+			if (args.record === undefined) {
+				throw new Error("--transactions requires --record");
+			}
+			if (args.cumulativeMerkleDropAddress === undefined) {
+				throw new Error("--transactions requires CUMULATIVE_MERKLE_DROP_ADDRESS");
+			}
+		}
+
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 		const totalAmount = await totalRewardsAmount(args);
@@ -148,10 +160,10 @@ main(
 				console.log(`Merkle Root:        ${update.merkleRoot}`);
 				console.log(`Additional Amount:  ${formatSafeToken(update.additionalAmount).trim()}`);
 
-				if (args.cumulativeMerkleDropAddress !== undefined) {
+				if (args.transactions !== undefined && args.cumulativeMerkleDropAddress !== undefined) {
 					const safeTokenAddress = await safenet.safeToken();
 					const bundle = await writeTransactionBundle(
-						args.record,
+						args.transactions,
 						`rewards-${period.toTimestamp}`,
 						[
 							{
