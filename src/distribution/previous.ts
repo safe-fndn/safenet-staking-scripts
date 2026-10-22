@@ -1,18 +1,29 @@
 /**
- * Fetching of a rewards DB by its CID.
+ * Resolution of the previous rewards DB, the one a distribution builds on.
  *
- * The CAR holding a rewards DB can come from any source, a local file or an IPFS trustless
- * gateway, because it is verified block by block against the CID before anything is written.
+ * The previous rewards DB is never chosen by the operator: it is the CID that the ENSIP-7
+ * `contenthash` of the rewards ENS name pins, and its `latest.json` Merkle root must equal the
+ * root of the Cumulative Merkle Drop. The CAR holding it can come from any source, a local file or
+ * an IPFS trustless gateway, because it is verified block by block against that CID.
  */
 
 import { readFile } from "node:fs/promises";
 import debug from "debug";
 import type { CID } from "multiformats/cid";
-import type { Hex } from "viem";
+import { type Address, type Client, type Hex, namehash, zeroAddress } from "viem";
+import { getBlockNumber, readContract } from "viem/actions";
+import { CUMULATIVE_MERKLE_DROP_ABI, ENS_REGISTRY_ABI, ENS_RESOLVER_ABI } from "../abi.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { type Backoff, backoff } from "../utils/backoff.js";
 import { dateToTimestamp } from "../utils/ranges.js";
 import { packDirectory, unpackCar } from "./ipfs.js";
+import { decodeContenthash } from "./transactions.js";
+
+/**
+ * The ENS registry, at the same address on every network it is deployed on. It is not
+ * configuration: only the ENS name is.
+ */
+export const ENS_REGISTRY: Address = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e";
 
 /**
  * The IPFS trustless gateway CARs are fetched from when `IPFS_GATEWAY_URL` is unset: the gateway
@@ -46,6 +57,14 @@ export type RewardsDb = {
 };
 
 /**
+ * The previous rewards DB, together with the ENS resolver that pins it.
+ */
+export type PreviousRewardsDb = RewardsDb & {
+	/** The resolver of the rewards ENS name, which a distribution sets the new `contenthash` on. */
+	ensResolver: Address;
+};
+
+/**
  * Where to get a rewards DB's CAR from: a local file if `previousCar` is set, and the
  * `ipfsGatewayUrl` trustless gateway (`DEFAULT_IPFS_GATEWAY_URL` if unset) otherwise.
  */
@@ -55,9 +74,9 @@ export type CarSource = {
 };
 
 export type Options = {
-	/** Retries gateway requests. */
+	/** Retries RPC and gateway requests. */
 	withBackoff?: Backoff;
-	/** Reports a re-pack CID mismatch, which does not fail the fetch. */
+	/** Reports a re-pack CID mismatch, which does not fail the resolution. */
 	warn?: (message: string) => void;
 };
 
@@ -66,6 +85,44 @@ const defaults = (options: Options): Required<Options> => ({
 	withBackoff: options.withBackoff ?? backoff({ debug: log }),
 	warn: options.warn ?? log,
 });
+
+/**
+ * Reads the ENS resolver and the package CID that the `contenthash` of `ensName` pins. It throws
+ * if the name has no resolver, no `contenthash`, or one that is not a package CID.
+ */
+export const ensContenthash = async (
+	client: Client,
+	{ ensName, blockNumber }: { ensName: string; blockNumber?: bigint },
+	options: Pick<Options, "withBackoff"> = {},
+): Promise<{ cid: CID; ensResolver: Address }> => {
+	const { withBackoff } = defaults(options);
+	const node = namehash(ensName);
+	const ensResolver = await withBackoff(() =>
+		readContract(client, {
+			address: ENS_REGISTRY,
+			abi: ENS_REGISTRY_ABI,
+			functionName: "resolver",
+			args: [node],
+			blockNumber,
+		}),
+	);
+	if (ensResolver === zeroAddress) {
+		throw new Error(`ENS name ${ensName} has no resolver`);
+	}
+	const contenthash = await withBackoff(() =>
+		readContract(client, {
+			address: ensResolver,
+			abi: ENS_RESOLVER_ABI,
+			functionName: "contenthash",
+			args: [node],
+			blockNumber,
+		}),
+	);
+	if (contenthash === "0x") {
+		throw new Error(`ENS name ${ensName} has no contenthash`);
+	}
+	return { cid: decodeContenthash(contenthash), ensResolver };
+};
 
 /**
  * The trustless gateway URL of a CID's CAR, `<gateway>/ipfs/<cid>?format=car`.
@@ -131,4 +188,44 @@ export const fetchRewardsDb = async (
 		rewardsUntil: dateToTimestamp(index.rewardsUntil),
 		dir,
 	};
+};
+
+/**
+ * Resolves the previous rewards DB, the one the `contenthash` of `ensName` pins, and unpacks it
+ * into `dir`, which must be empty or missing. Its `latest.json` Merkle root must equal
+ * `cumulativeMerkleDrop.merkleRoot()`, otherwise it throws: the two canonical references to the
+ * latest rewards DB must agree. Both are read at the same block.
+ */
+export const resolvePreviousRewardsDb = async (
+	client: Client,
+	{ ensName, cumulativeMerkleDrop }: { ensName: string; cumulativeMerkleDrop: Address },
+	source: CarSource,
+	dir: string,
+	options: Options = {},
+): Promise<PreviousRewardsDb> => {
+	const { withBackoff, warn } = defaults(options);
+	const blockNumber = await withBackoff(() => getBlockNumber(client, { cacheTime: 0 }));
+	const { cid, ensResolver } = await ensContenthash(
+		client,
+		{ ensName, blockNumber },
+		{ withBackoff },
+	);
+	const merkleRoot = await withBackoff(() =>
+		readContract(client, {
+			address: cumulativeMerkleDrop,
+			abi: CUMULATIVE_MERKLE_DROP_ABI,
+			functionName: "merkleRoot",
+			blockNumber,
+		}),
+	);
+	log(`${ensName} pins ${cid} at block ${blockNumber}, with Merkle root ${merkleRoot}`);
+
+	const previous = await fetchRewardsDb(cid, source, dir, { withBackoff, warn });
+	if (previous.merkleRoot.toLowerCase() !== merkleRoot.toLowerCase()) {
+		throw new Error(
+			`rewards DB ${cid} pinned by ${ensName} has Merkle root ${previous.merkleRoot}, ` +
+				`but CumulativeMerkleDrop ${cumulativeMerkleDrop} has Merkle root ${merkleRoot}`,
+		);
+	}
+	return { ...previous, ensResolver };
 };
