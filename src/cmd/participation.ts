@@ -6,6 +6,7 @@ import path from "node:path";
 import { type Address, getAddress } from "viem";
 import { z } from "zod";
 import { type Participation, Safenet } from "../safenet.js";
+import { addressEntries } from "../utils/addresses.js";
 import { main, rewardsPeriod } from "../utils/args.js";
 import { readJsonFile, writeJsonFile } from "../utils/json.js";
 import {
@@ -64,9 +65,9 @@ main(
 			const { total, validators } = validatorParticipation;
 			rows.push(
 				...sortByAddress(
-					Object.entries(validators).map(([validator, count]) => ({
+					addressEntries(validators).map(([participant, count]) => ({
 						category: "Validator" as const,
-						participant: getAddress(validator),
+						participant,
 						rate: participationRate(count, total),
 					})),
 					({ participant }) => participant,
@@ -79,9 +80,9 @@ main(
 			const { total, sentinels } = await safenet.sentinelParticipation(period);
 			rows.push(
 				...sortByAddress(
-					Object.entries(sentinels).map(([sentinel, count]) => ({
+					addressEntries(sentinels).map(([participant, count]) => ({
 						category: "Sentinel" as const,
-						participant: getAddress(sentinel),
+						participant,
 						rate: participationRate(count, total),
 					})),
 					({ participant }) => participant,
@@ -115,14 +116,14 @@ main(
 					.array(),
 			);
 
-			for (const [validator, count] of Object.entries(validators)) {
+			for (const [validator, count] of addressEntries(validators)) {
 				const rate = participationRate(count, total);
 				const info = data.find(({ address }) => address === validator);
 				if (info !== undefined) {
 					info.participation_rate_14d = rate;
 				} else {
 					data.push({
-						address: getAddress(validator),
+						address: validator,
 						participation_rate_14d: rate,
 					});
 				}

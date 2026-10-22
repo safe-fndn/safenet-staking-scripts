@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { zeroHash } from "viem";
+import { type Address, zeroHash } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
 import { MerkleDb } from "../src/merkledb/index.js";
 import { totalRewardsAmount } from "../src/utils/args.js";
@@ -187,6 +187,24 @@ describe("merkledb sentinel total", () => {
 			tokenTotal: parseSafe("315000"),
 			sentinelTokenTotal: parseSafe("15000"),
 		});
+	});
+
+	it("rejects a payout keyed by a non-checksummed address", async () => {
+		// Payout keys are expected to be checksummed already; a lowercase key used to miss its own
+		// lookup and fail with an opaque `Cannot mix BigInt and other types` error instead.
+		const record = await createRecord();
+		const db = new MerkleDb({ record });
+		const account = namedAddress("validator").toLowerCase() as Address;
+
+		await expect(
+			db.distribute(
+				period(0),
+				{ [account]: { amount: parseSafe("300000"), sentinelAmount: 0n } },
+				0n,
+				{ sanctions: [] },
+			),
+		).rejects.toThrow(`"${account}" is not a checksummed address`);
+		expect(await db.index()).toMatchObject({ tokenTotal: 0n });
 	});
 
 	it("preserves the sentinel total across a KYC rebuild", async () => {

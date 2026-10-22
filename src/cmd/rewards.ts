@@ -6,6 +6,7 @@ import { type Address, formatUnits, getAddress, parseUnits } from "viem";
 import { z } from "zod";
 import { MerkleDb } from "../merkledb/index.js";
 import { mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
+import { addressEntries } from "../utils/addresses.js";
 import { main, rewardsPeriod, sentinelRewardsAmount, totalRewardsAmount } from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
 import { formatSafeToken } from "../utils/format.js";
@@ -112,8 +113,8 @@ main(
 			args,
 		);
 
-		for (const [recipient, split] of Object.entries(payouts)) {
-			presenter.writeRow({ recipient: getAddress(recipient), ...split });
+		for (const [recipient, split] of addressEntries(payouts)) {
+			presenter.writeRow({ recipient, ...split });
 		}
 
 		// Forfeited sentinel grants are reported separately from the validator
@@ -134,7 +135,7 @@ main(
 			// sentinel is distributed to once, without losing track of how much
 			// of the distribution the sentinel program funded.
 			const flatPayouts = Object.fromEntries(
-				Object.entries(payouts).map(([addr, split]) => [
+				addressEntries(payouts).map(([addr, split]) => [
 					addr,
 					{ amount: payoutAmount(split), sentinelAmount: split.sentinelRewards },
 				]),

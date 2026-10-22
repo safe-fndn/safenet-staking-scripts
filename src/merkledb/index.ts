@@ -9,6 +9,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { type Address, encodePacked, getAddress, type Hex, isHex, keccak256, zeroHash } from "viem";
 import { z } from "zod";
+import { addressEntries } from "../utils/addresses.js";
 import { readJsonFile, writeJsonFile } from "../utils/json.js";
 import {
 	dateToTimestamp,
@@ -294,9 +295,8 @@ export class MerkleDb {
 			}
 
 			// Update the distributions with the new payouts.
-			for (const key in payouts) {
-				const account = getAddress(key);
-				await this.#distributeTo({ account, ...payouts[account] }, filters.kycThreshold);
+			for (const [account, payout] of addressEntries(payouts)) {
+				await this.#distributeTo({ account, ...payout }, filters.kycThreshold);
 			}
 
 			return await this.#rebuildTree(period, unpaid, filters.sanctions);
