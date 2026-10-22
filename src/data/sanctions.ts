@@ -8,16 +8,18 @@
  * - The UN, EU, UK, Swiss SECO and US OFAC address lists published as
  *   release assets of a `sanctions-address-lists` GitHub repository
  *   (<https://github.com/safe-fndn/sanctions-address-lists> unless
- *   configured otherwise), fetched live from its `latest` release since
- *   there is no on-chain timestamp to pin them to.
+ *   configured otherwise). These have no on-chain timestamp, so they are
+ *   either fetched live from the moving `latest` release, or pinned to the
+ *   dated `data-YYYY-MM-DD` snapshot release for a period.
  */
 
+import { createHash } from "node:crypto";
 import type { Database, Statement } from "better-sqlite3";
 import debug from "debug";
 import { type Address, getAddress, isAddress } from "viem";
 import { z } from "zod";
 import { type Backoff, backoff } from "../utils/backoff.js";
-import { type GitHubRepository, releaseAsset } from "../utils/gh.js";
+import { type GitHubRepository, releaseAsset, releaseTags } from "../utils/gh.js";
 import type { ToTimestamp } from "../utils/ranges.js";
 
 type Sanction<bool = boolean> = {
@@ -33,12 +35,66 @@ type SanctionInstant = {
 /** Per-jurisdiction source identifiers, matching the release asset file names. */
 const OFFCHAIN_SOURCES = ["un", "eu", "uk", "ch-seco", "us-ofac"] as const;
 
-type OffchainSource = (typeof OFFCHAIN_SOURCES)[number];
+export type OffchainSource = (typeof OFFCHAIN_SOURCES)[number];
 
 /** The GitHub repository that publishes the offchain address lists, unless configured otherwise. */
 export const DEFAULT_SANCTIONS_ADDRESS_REPO: GitHubRepository = "safe-fndn/sanctions-address-lists";
 
+const SNAPSHOT_RELEASE_PATTERN = /^data-(\d{4})-(\d{2})-(\d{2})$/;
+const DAY = 60n * 60n * 24n;
+
 const zAddressList = z.array(z.string());
+
+/**
+ * The offchain address lists a set of sanctioned accounts was computed from:
+ * the `data-YYYY-MM-DD` snapshot release, and the SHA-256 (lowercase hex) of
+ * each source's raw `<source>.json` release asset.
+ */
+export type OffchainSanctions = {
+	release: string;
+	sha256: Record<OffchainSource, string>;
+};
+
+export type PinnedSanctionedAccounts = {
+	accounts: Address[];
+	offchain: OffchainSanctions;
+};
+
+type OffchainList = {
+	sha256: string;
+	accounts: Address[];
+};
+
+/**
+ * Selects the snapshot release for a period: the newest `data-YYYY-MM-DD`
+ * release whose UTC day ended at or before `toTimestamp`. The upstream publish
+ * job may re-upload a snapshot's assets until its day is over, so a snapshot
+ * only counts once it can no longer change. Returns `null` if there is none.
+ */
+export const selectSnapshotRelease = (
+	releases: string[],
+	{ toTimestamp }: ToTimestamp,
+): string | null => {
+	let selected: { release: string; day: bigint } | null = null;
+	for (const release of releases) {
+		const match = SNAPSHOT_RELEASE_PATTERN.exec(release);
+		if (match === null) {
+			continue;
+		}
+		const [year, month, day] = match.slice(1).map(Number);
+		const date = new Date(Date.UTC(year, month - 1, day));
+		// `Date.UTC` rolls out-of-range parts over (`data-2026-02-30` is 2026-03-02). Checking the
+		// year and month also catches a bad day.
+		if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1) {
+			continue;
+		}
+		const start = BigInt(date.getTime() / 1000);
+		if (start + DAY <= toTimestamp && (selected === null || start > selected.day)) {
+			selected = { release, day: start };
+		}
+	}
+	return selected?.release ?? null;
+};
 
 export type SanctionsDataConfiguration = {
 	db: Database;
@@ -131,12 +187,15 @@ export class SanctionsData {
 		return this.#queries.selectSanctionedAccounts.pluck().all({ blockTimestamp });
 	}
 
-	async #fetchOffchainSource(tag: string, source: OffchainSource): Promise<Address[]> {
+	async #fetchOffchainSource(tag: string, source: OffchainSource): Promise<OffchainList> {
+		// The hash is over the raw asset bytes, as served, so that it can be
+		// checked against the release with nothing more than `sha256sum`.
 		const raw = await releaseAsset(
 			this.#sanctionsAddressRepo,
 			{ tag, asset: `${source}.json` },
 			this.#backoff,
 		);
+		const sha256 = createHash("sha256").update(raw).digest("hex");
 		const body = JSON.parse(new TextDecoder().decode(raw));
 
 		// The published lists are address-only screening: addresses are only
@@ -144,17 +203,34 @@ export class SanctionsData {
 		// inferred from names or enriched from third parties. We additionally
 		// filter out anything that does not parse as an address here, in case a
 		// future format revision mixes in metadata we do not expect.
-		return zAddressList
+		const accounts = zAddressList
 			.parse(body)
 			.filter((address) => isAddress(address))
 			.map((address) => getAddress(address));
+		return { sha256, accounts };
 	}
 
-	async #offchainSanctionedAccounts(tag: string): Promise<Address[]> {
+	async #offchainLists(tag: string): Promise<Record<OffchainSource, OffchainList>> {
 		const lists = await Promise.all(
-			OFFCHAIN_SOURCES.map((source) => this.#fetchOffchainSource(tag, source)),
+			OFFCHAIN_SOURCES.map(async (source) => {
+				const list = await this.#fetchOffchainSource(tag, source);
+				return [source, list] as const;
+			}),
 		);
-		return [...new Set(lists.flat())];
+		return Object.fromEntries(lists) as Record<OffchainSource, OffchainList>;
+	}
+
+	/**
+	 * Resolves the `data-YYYY-MM-DD` snapshot release of the offchain address
+	 * lists for a period. See `selectSnapshotRelease` for the rule.
+	 */
+	async snapshotRelease(period: ToTimestamp): Promise<string> {
+		const tags = await releaseTags(this.#sanctionsAddressRepo, this.#backoff);
+		const release = selectSnapshotRelease(tags, period);
+		if (release === null) {
+			throw new Error(`no sanctions address lists snapshot ended by ${period.toTimestamp}`);
+		}
+		return release;
 	}
 
 	/**
@@ -165,7 +241,46 @@ export class SanctionsData {
 	 */
 	async sanctionedAccounts({ toTimestamp }: ToTimestamp): Promise<Address[]> {
 		const onchain = this.#onchainSanctionedAccounts({ toTimestamp });
-		const offchain = await this.#offchainSanctionedAccounts("latest");
+		const lists = await this.#offchainLists("latest");
+		const offchain = Object.values(lists).flatMap(({ accounts }) => accounts);
 		return [...new Set([...onchain, ...offchain])];
+	}
+
+	/**
+	 * Returns the accounts sanctioned for a period, like `sanctionedAccounts`,
+	 * but with the offchain lists pinned to the period's snapshot release (see
+	 * `snapshotRelease`), along with the release and per-source hashes used.
+	 *
+	 * When `expected` is given, the resolved release and every hash must match
+	 * it, so a recorded result can be checked against the published snapshot.
+	 */
+	async pinnedSanctionedAccounts(
+		period: ToTimestamp,
+		expected?: OffchainSanctions,
+	): Promise<PinnedSanctionedAccounts> {
+		const release = await this.snapshotRelease(period);
+		if (expected !== undefined && release !== expected.release) {
+			throw new Error(
+				`sanctions address lists snapshot ${release} does not match expected ${expected.release}`,
+			);
+		}
+
+		const lists = await this.#offchainLists(release);
+		const sha256 = {} as Record<OffchainSource, string>;
+		for (const source of OFFCHAIN_SOURCES) {
+			sha256[source] = lists[source].sha256;
+			if (expected !== undefined && sha256[source] !== expected.sha256[source]) {
+				throw new Error(
+					`sanctions address list ${source} in ${release} has SHA-256 ${sha256[source]}, expected ${expected.sha256[source]}`,
+				);
+			}
+		}
+
+		const onchain = this.#onchainSanctionedAccounts(period);
+		const offchain = Object.values(lists).flatMap(({ accounts }) => accounts);
+		return {
+			accounts: [...new Set([...onchain, ...offchain])],
+			offchain: { release, sha256 },
+		};
 	}
 }
