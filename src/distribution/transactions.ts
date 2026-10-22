@@ -5,7 +5,8 @@
  * funding amount) and of the ENS name and resolver, so that the export and `cmd:verify` derive
  * identical transactions. The distribution's calls are batched into a single `MultiSendCallOnly`
  * delegatecall. The package CID is pinned onchain as the ENSIP-7 `contenthash` of the
- * rewards ENS name.
+ * rewards ENS name. The Zodiac transaction hash follows `RealityModule.sol` of
+ * `gnosisguild/zodiac-module-reality` exactly, and the tests check it against the deployed module.
  */
 
 import { CID } from "multiformats/cid";
@@ -15,12 +16,19 @@ import {
 	encodeFunctionData,
 	encodePacked,
 	type Hex,
+	hashTypedData,
 	hexToBytes,
 	namehash,
 	size,
 	toHex,
 } from "viem";
 import { CUMULATIVE_MERKLE_DROP_ABI, ENS_RESOLVER_ABI, ERC20_ABI, MULTI_SEND_ABI } from "../abi.js";
+
+/**
+ * The chain the Governance Safe and its Reality Module live on, Ethereum mainnet. It is the
+ * `chainId` of the module's EIP-712 domain.
+ */
+export const GOVERNANCE_CHAIN_ID = 1;
 
 /**
  * The canonical `MultiSendCallOnly` of Safe 1.4.1 (`safe-deployments`), the version of the
@@ -58,6 +66,14 @@ export type GovernanceTransaction = {
  * A call batched into a `MultiSendCallOnly` transaction, which only allows calls.
  */
 export type GovernanceCall = GovernanceTransaction & { operation: 0 };
+
+export type ProposalTransaction = GovernanceTransaction & {
+	/**
+	 * The Zodiac transaction hash, whose nonce is the transaction's index in the proposal. A
+	 * distribution's proposal has one transaction, so its nonce is 0.
+	 */
+	hash: Hex;
+};
 
 const DAG_PB = 0x70;
 const SHA2_256 = 0x12;
@@ -178,3 +194,30 @@ export const governanceTransaction = (
 	update: DistributionUpdate,
 	config: { ensName: string; ensResolver: Address },
 ): GovernanceTransaction => multiSend(governanceCalls(update, config));
+
+/**
+ * The Zodiac transaction hash, `RealityModule.getTransactionHash(to, value, data, operation,
+ * nonce)`: the EIP-712 hash of `Transaction(address to,uint256 value,bytes data,uint8
+ * operation,uint256 nonce)` in the domain `EIP712Domain(uint256 chainId,address
+ * verifyingContract)` of the module on Ethereum mainnet. The nonce is the transaction's index in
+ * the proposal.
+ */
+export const transactionHash = (
+	module: Address,
+	transaction: { to: Address; value: bigint; data: Hex; operation: number },
+	nonce: bigint,
+): Hex =>
+	hashTypedData({
+		domain: { chainId: GOVERNANCE_CHAIN_ID, verifyingContract: module },
+		types: {
+			Transaction: [
+				{ name: "to", type: "address" },
+				{ name: "value", type: "uint256" },
+				{ name: "data", type: "bytes" },
+				{ name: "operation", type: "uint8" },
+				{ name: "nonce", type: "uint256" },
+			],
+		},
+		primaryType: "Transaction",
+		message: { ...transaction, nonce },
+	});

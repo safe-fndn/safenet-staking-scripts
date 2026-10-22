@@ -1082,6 +1082,11 @@ These entries describe the behaviour of Phase 11 as a whole. The 11a–11e entri
   - 11d calls `buildQuestion` with a one-element hash array, keeping the module's `bytes32[]` signature.
   - In 11e, `proposal.json` becomes `{ calls: [3 × { data, operation: 0, to, value }], proposalId, questionId, transaction: { data, hash, operation: 1, to, value } }`.
 
+### Phase 11c
+
+- `ProposalTransaction` describes the one batched transaction, whose nonce is 0. `transactionHash(module, tx, nonce)` still takes the nonce explicitly, matching `getTransactionHash`.
+- It is tested against the deployed module's `getTransactionHash(MULTI_SEND_CALL_ONLY, 0, BATCH_DATA, 1, 0)` at block 26247609, and against a value/delegatecall/nonce-7 vector at block 26247049.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
