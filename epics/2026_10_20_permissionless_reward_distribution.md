@@ -505,7 +505,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
 5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
-10a (pack) ┬─► 11 (transactions) ─► 13 (action bundles) ───┤                                ▲
+10a (pack) ┬─► 11a ─► … ─► 11e ─► 13 (action bundles) ─────┤                                ▲
            └─► 10b (unpack) ─► 12 (previous resolution) ───┘                                │
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
 ```
@@ -639,20 +639,48 @@ Adds `ipfs-unixfs-exporter`. Implements `unpackCar(car, expectedCid, dir)`, whic
 
 ### Phase 11 — Governance Safe transactions
 
-**Depends on:** Phase 10a (CID type) **Files:** `src/abi.ts`, `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~230 LOC, 3 files
+Split into 11a–11e during review, so that each PR adds one group of `src/distribution/transactions.ts` functions. These are pure functions with no RPC. Each sub-phase adds only the ABI entries its own code uses. The read-side and proposal ABIs move to the phases that first use them:
 
-Adds ABIs for:
+- Phase 12: the ENS registry's `resolver`, the resolver's `contenthash`, and the Cumulative Merkle Drop's `merkleRoot`.
+- Phase 13: the Reality Module's `addProposal` and `executeProposalWithIndex`, `RealityETH_ERC20.submitAnswerERC20`, and ERC-20 `approve`.
+- Phase 15: the Reality Module's config getters, and `RealityETH_ERC20.token`.
+- Phase 17: the Reality Module's `getTransactionHash`, `buildQuestion` and `getQuestionId` views, and ERC-20 `balanceOf`.
 
-- ERC-20 and the Cumulative Merkle Drop.
-- the ENS registry, and the resolver (`setContenthash`/`contenthash`).
-- the Reality Module: `addProposal`, `executeProposalWithIndex`, `getTransactionHash`, `getQuestionId`, and the config getters.
-- `RealityETH_ERC20`: `submitAnswerERC20` and `token`.
+Each sub-phase is its own commit, branch and PR, and Phase 11 has no commit of its own.
 
-Builds the three calls, the ENSIP-7 `contenthash` encoding and decoding, the Zodiac hashes, the question text and ID, and `proposal.json`. These are pure functions with no RPC.
+### Phase 11a — ENSIP-7 `contenthash`
+
+**Depends on:** Phase 10a (CID type) **Files:** `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~90 LOC, 2 files
+
+`encodeContenthash(cid)` and `decodeContenthash(hex)` for `ipfs-ns` (`0xe301` ‖ CIDv1 bytes). Decoding rejects anything that is not a package CID, because Phase 12 decodes the onchain value. Tested against the onchain record of `rewards.safenet-gov.eth`.
+
+### Phase 11b — Governance Safe calls
+
+**Depends on:** 11a **Files:** `src/abi.ts`, `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~90 LOC, 3 files
+
+`governanceTransactions(update, { ensName, ensResolver })` returns the three calls in order: the SAFE `transfer` to the Cumulative Merkle Drop, `setMerkleRoot`, and `setContenthash`. Adds the ERC-20 `transfer`, `setMerkleRoot` and `setContenthash` ABI entries.
+
+### Phase 11c — Zodiac transaction hash
+
+**Depends on:** 11b **Files:** `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~60 LOC, 2 files
+
+`transactionHash(module, tx, nonce)`, the Reality Module's EIP-712 transaction hash. Tested against the deployed module's `getTransactionHash`.
+
+### Phase 11d — Reality.eth question
+
+**Depends on:** 11c **Files:** `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~90 LOC, 2 files
+
+`buildQuestion(proposalId, txHashes)` and `questionId(question, config, nonce)`, with the `GovernanceConfiguration` type. Tested against the deployed module's `buildQuestion` and `getQuestionId`.
+
+### Phase 11e — `proposal.json`
+
+**Depends on:** 11d **Files:** `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~90 LOC, 2 files
+
+`proposal(update, config)` and its `zProposal` schema, which Phases 13–16 consume.
 
 ### Phase 12 — Previous rewards DB resolution
 
-**Depends on:** Phases 10b, 11 (CAR verification, ENS ABIs) **Files:** `src/distribution/previous.ts`, `src/distribution/previous.test.ts`, `src/utils/args.ts`, `.env.sample` **Estimate:** ~180 LOC, 4 files
+**Depends on:** Phases 10b, 11a (CAR verification, `contenthash` decoding) **Files:** `src/abi.ts`, `src/distribution/previous.ts`, `src/distribution/previous.test.ts`, `src/utils/args.ts`, `.env.sample` **Estimate:** ~180 LOC, 5 files
 
 Resolves the previous rewards DB as follows:
 
@@ -665,7 +693,7 @@ Adds `IPFS_GATEWAY_URL`.
 
 ### Phase 13 — Action bundles
 
-**Depends on:** Phases 3, 11 **Files:** `src/distribution/actions.ts`, `src/distribution/actions.test.ts` **Estimate:** ~150 LOC, 2 files
+**Depends on:** Phases 3, 11e **Files:** `src/abi.ts`, `src/distribution/actions.ts`, `src/distribution/actions.test.ts` **Estimate:** ~150 LOC, 3 files
 
 Builds `propose.json`, `answer.json` and `execute.json` from `proposal.json` and the governance configuration, using the pure `transactionBundle()` from Phase 3.
 
@@ -682,7 +710,7 @@ Covers:
 
 ### Phase 15 — `cmd:export`
 
-**Depends on:** Phases 2, 7, 12, 13, 14 **Files:** `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 6 files
+**Depends on:** Phases 2, 7, 12, 13, 14 **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
 
 Wires the pieces together:
 
@@ -702,7 +730,7 @@ Re-exports from the manifest (including `previous.cid`) into a temporary directo
 
 ### Phase 17 — Onchain consistency checks
 
-**Depends on:** Phase 16 **Files:** `src/distribution/onchain.ts`, `src/cmd/verify.ts`, `README.md` **Estimate:** ~150 LOC, 3 files
+**Depends on:** Phase 16 **Files:** `src/abi.ts`, `src/distribution/onchain.ts`, `src/cmd/verify.ts`, `README.md` **Estimate:** ~150 LOC, 4 files
 
 Checks that:
 
@@ -980,6 +1008,40 @@ These entries describe the behaviour of Phase 10 as a whole. The 10a and 10b ent
 ### Phase 10b
 
 - None. `src/`, `tests/`, `package.json` and `package-lock.json` are identical to the unsplit Phase 10. Unpacking Kubo's CAR of the pinned rewards DB reproduces the source tree.
+
+### Phase 11
+
+These entries describe the behaviour of Phase 11 as a whole. The 11a–11e entries below say how it was split, and they win where they differ.
+
+- The deployed module's question template is **6**, not 5 as the Assumptions say (read at mainnet block 26247049). Everything else in the governance setup record matches. The tooling reads the template from chain anyway.
+- The arbitrator getter is `questionArbitrator()`, not `arbitrator()`, in both the Zodiac source and the deployed module. The manifest key stays `arbitrator`.
+- The transfer goes to the Cumulative Merkle Drop, and its amount is `MerkleDb` `update.additionalAmount`, which is the manifest's `distribution.additionalAmount`. It is always included, even when the amount is 0, so a proposal always has exactly three transactions.
+- The EIP-712 domain's `chainId` is the constant `GOVERNANCE_CHAIN_ID = 1`, not configuration, matching the bundles' fixed `chainId: "1"`.
+- `decodeContenthash` and `encodeContenthash` accept only `0xe301` followed by a CIDv1 sha2-256 dag-pb CID with no trailing bytes. Other namespaces, an empty record, CIDv0 (which needs an explicit check, because `CID.decode` accepts its bytes), raw-codec CIDs and garbage are rejected.
+- `zProposal` is a `z.strictObject` that checks shape only, and Phase 16 re-derives and compares:
+  - `proposalId` must parse as a package CID whose base32 `toString()` equals the input;
+  - `questionId` and `hash` are lowercase 32-byte hex, and `data` is lowercase hex;
+  - `to` is checksummed, `operation` is the literal `0`, and `value` is a canonical decimal string;
+  - `transactions` is a tuple of exactly 3.
+- `proposal()` builds each transaction's keys in sorted order (`data, hash, operation, to, value`), so the object serializes the same way it parses.
+- `GovernanceConfiguration` uses `bigint` for every numeric field, including the uint32 timeout, cooldown and expiration. Its keys are exactly those of the manifest's `governance` block: `answerExpiration`, `arbitrator`, `avatar`, `bondToken`, `ensName`, `ensResolver`, `minimumBond`, `module`, `oracle`, `questionCooldown`, `questionTimeout`, `templateId`.
+- `src/distribution/transactions.ts` exports:
+  - `encodeContenthash`/`decodeContenthash`;
+  - `governanceTransactions(update, { ensName, ensResolver })`;
+  - `transactionHash(module, tx, nonce)`;
+  - `buildQuestion(proposalId, txHashes)`;
+  - `questionId(question, config, nonce = 0n)`;
+  - `proposal(update, config)`;
+  - `zProposal`.
+
+  `DistributionUpdate` is `{ additionalAmount, cid, cumulativeMerkleDrop, merkleRoot, safeToken }`.
+- Each ABI entry is added by the phase that first uses it (see Phase 11). The ENS registry address (`0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e`) is not a constant yet; Phase 12 or 15 decides where it lives.
+- The test vectors are read-only mainnet `eth_call`s at block 26247049: the module's `getTransactionHash`, `buildQuestion` and `getQuestionId` for a proposal re-proposing the pinned CID and root, plus the configuration getters and the onchain `contenthash`. They are hard-coded, so the tests make no network calls. The implementation follows `gnosisguild/zodiac-module-reality@main`.
+
+### Phase 11a
+
+- 11a's code and tests are the contenthash part of the unsplit Phase 11, unchanged. Only the module header and the test vector comment are narrowed to what 11a contains, and later sub-phases extend them.
+- The ABI entries for the vector calls (ENS registry `resolver`, resolver `contenthash`) are not added. The vector is hard-coded, and Phase 12 adds those entries.
 
 ## Open Questions and Assumptions
 
