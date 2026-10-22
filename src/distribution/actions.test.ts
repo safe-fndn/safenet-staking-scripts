@@ -1,6 +1,7 @@
 import { decodeFunctionData, type Hex, slice } from "viem";
 import { describe, expect, it } from "vitest";
 import {
+	BATCH_DATA,
 	CONFIG,
 	MODULE,
 	PINNED_CID,
@@ -10,8 +11,15 @@ import {
 	UPDATE,
 } from "../../tests/harness/governance.js";
 import { ERC20_ABI, REALITY_ETH_ERC20_ABI, REALITY_MODULE_ABI } from "../abi.js";
-import { ANSWER_YES, answerBundle, proposeBundle } from "./actions.js";
-import { proposal } from "./transactions.js";
+import { jsonReplacer } from "../utils/json.js";
+import {
+	ANSWER_YES,
+	actionBundles,
+	answerBundle,
+	executeBundle,
+	proposeBundle,
+} from "./actions.js";
+import { MULTI_SEND_CALL_ONLY, proposal } from "./transactions.js";
 
 // The proposal re-proposes the pinned CID and root with the mainnet vectors of
 // `tests/harness/governance.ts`. Its settlement is an arbitrary timestamp.
@@ -102,5 +110,67 @@ describe("answerBundle", () => {
 			args: [QUESTION_ID, ANSWER_YES, 0n, MINIMUM_BOND],
 		});
 		expect(ANSWER_YES).toBe(`0x${"0".repeat(63)}1`);
+	});
+});
+
+describe("executeBundle", () => {
+	it("executes the proposal's only transaction with index 0", () => {
+		const bundle = executeBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP);
+		expect(bundle).toEqual({
+			version: "1.0",
+			chainId: "1",
+			createdAt: CREATED_AT,
+			meta: {},
+			transactions: [
+				{
+					to: MODULE,
+					value: "0",
+					data: expect.any(String),
+					contractMethod: null,
+					contractInputsValues: null,
+				},
+			],
+		});
+		expect(bundle).not.toHaveProperty("createdFromSafeAddress");
+
+		const [{ data }] = bundle.transactions;
+		expect(selector(data)).toBe("0x14604b8c");
+		expect(decodeFunctionData({ abi: REALITY_MODULE_ABI, data: data as Hex })).toEqual({
+			functionName: "executeProposalWithIndex",
+			args: [PINNED_CID, [TX_HASH], MULTI_SEND_CALL_ONLY, 0n, BATCH_DATA, 1, 0n],
+		});
+	});
+
+	it("commits to the proposal's transaction", () => {
+		const [{ data }] = executeBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP).transactions;
+		const { args } = decodeFunctionData({ abi: REALITY_MODULE_ABI, data: data as Hex });
+		const { hash, to, value, data: transactionData, operation } = PROPOSAL.transaction;
+		expect(args).toEqual([PINNED_CID, [hash], to, value, transactionData, operation, 0n]);
+	});
+});
+
+describe("actionBundles", () => {
+	const json = (value: unknown) => JSON.stringify(value, jsonReplacer, "\t");
+
+	it("builds the three bundles", () => {
+		expect(actionBundles(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP)).toEqual({
+			answer: answerBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP),
+			execute: executeBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP),
+			propose: proposeBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP),
+		});
+	});
+
+	it("is deterministic", () => {
+		const encoded = json(actionBundles(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP));
+		expect(json(actionBundles(proposal(UPDATE, CONFIG), CONFIG, SETTLEMENT_TIMESTAMP))).toBe(
+			encoded,
+		);
+	});
+
+	it("is created at the settlement", () => {
+		const bundles = actionBundles(PROPOSAL, CONFIG, 1n);
+		for (const bundle of Object.values(bundles)) {
+			expect(bundle.createdAt).toBe(1000);
+		}
 	});
 });

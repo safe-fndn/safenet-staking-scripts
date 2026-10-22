@@ -61,6 +61,7 @@ export const MULTI_SEND_ABI = parseAbi(["function multiSend(bytes transactions) 
 
 export const REALITY_MODULE_ABI = parseAbi([
 	"function addProposal(string proposalId, bytes32[] txHashes) external",
+	"function executeProposalWithIndex(string proposalId, bytes32[] txHashes, address to, uint256 value, bytes data, uint8 operation, uint256 txIndex) external",
 ]);
 
 export const REALITY_ETH_ERC20_ABI = parseAbi([
