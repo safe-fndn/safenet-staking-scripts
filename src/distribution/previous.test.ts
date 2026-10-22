@@ -210,6 +210,23 @@ describe("resolvePreviousRewardsDb", () => {
 		expect(chain.blockTags).toEqual(Array(3).fill(toHex(BLOCK_NUMBER)));
 	});
 
+	it("reads the chain at a given block", async () => {
+		const db = await rewardsDb();
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
+		stubFetch(() => new Response(db.car));
+
+		const previous = await resolvePreviousRewardsDb(
+			chain.client,
+			{ ensName: ENS_NAME, cumulativeMerkleDrop: DROP, blockNumber: 42n },
+			{},
+			db.dir,
+			{ withBackoff: fastBackoff, warn: vi.fn() },
+		);
+
+		expect(previous.cid).toEqual(db.cid);
+		expect(chain.blockTags).toEqual(Array(3).fill(toHex(42)));
+	});
+
 	it("fetches from the configured gateway", async () => {
 		const db = await rewardsDb();
 		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
