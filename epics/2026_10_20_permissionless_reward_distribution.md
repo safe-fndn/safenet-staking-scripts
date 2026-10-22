@@ -505,14 +505,14 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
 5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
-10 (IPFS) ─┬─► 11 (transactions) ─► 13 (action bundles) ───┤                                ▲
-           └─► 12 (previous resolution) ───────────────────┘                                │
+10a (pack) ┬─► 11 (transactions) ─► 13 (action bundles) ───┤                                ▲
+           └─► 10b (unpack) ─► 12 (previous resolution) ───┘                                │
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
 ```
 
 Phase 13 also depends on Phase 3 for the pure `transactionBundle()`. Phases 9d (docs) and 9e (GitHub token) follow 9c. The **Depends on** lines below are authoritative.
 
-Phases 1, 2, 3, 5, 8, 9a, 10 and 18 can all be developed in parallel.
+Phases 1, 2, 3, 5, 8, 9a, 10a and 18 can all be developed in parallel.
 
 ### Phase 1 — Drop `updatedAt` from the Merkle DB index
 
@@ -623,13 +623,23 @@ The unauthenticated GitHub REST API allows 60 requests an hour per IP, which sha
 
 ### Phase 10 — Deterministic IPFS packing
 
-**Files:** `package.json`, `package-lock.json` (generated), `src/distribution/ipfs.ts`, `src/distribution/ipfs.test.ts`, `tests/fixtures/ipfs/**` **Estimate:** ~230 LOC excluding the lockfile, 5 files + fixtures
+Split into 10a and 10b during review to keep each PR small. Each sub-phase is its own commit, branch and PR. Phase 10 has no commit of its own.
 
-Adds `ipfs-unixfs-importer`, `ipfs-unixfs-exporter`, `@ipld/car` and `multiformats`. Implements `packDirectory(dir) → { cid, car }` with the fixed import parameters, and `unpackCar(car, expectedCid, dir)`, which rejects any block whose hash does not match and any root other than `expectedCid`. Includes the Kubo cross-check vector.
+### Phase 10a — Deterministic IPFS packing
+
+**Files:** `package.json`, `package-lock.json` (generated), `src/distribution/ipfs.ts`, `src/distribution/ipfs.test.ts`, `tests/fixtures/ipfs/**` **Estimate:** ~180 LOC excluding the lockfile, 4 files + fixtures
+
+Adds `ipfs-unixfs-importer`, `@ipld/car`, `@ipld/dag-pb` and `multiformats`. Implements `packDirectory(dir) → { cid, car }` with the fixed import parameters and a deterministic CAR block order, and exports the parameters for the manifest's `ipfs` block. Includes the Kubo cross-check vector for both the CID and the CAR bytes.
+
+### Phase 10b — Verified CAR unpacking
+
+**Depends on:** 10a **Files:** `package.json`, `package-lock.json` (generated), `src/distribution/ipfs.ts`, `src/distribution/ipfs.test.ts`, `epics/2026_10_20_permissionless_reward_distribution.md` **Estimate:** ~200 LOC excluding the lockfile, 5 files
+
+Adds `ipfs-unixfs-exporter`. Implements `unpackCar(car, expectedCid, dir)`, which verifies the whole CAR in memory before writing anything: it rejects any block whose hash does not match, any root other than `expectedCid`, missing and unreferenced blocks, and anything `packDirectory` cannot produce. Records the Phase 10 sub-phases and their deviations in this specification.
 
 ### Phase 11 — Governance Safe transactions
 
-**Depends on:** Phase 10 (CID type) **Files:** `src/abi.ts`, `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~230 LOC, 3 files
+**Depends on:** Phase 10a (CID type) **Files:** `src/abi.ts`, `src/distribution/transactions.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~230 LOC, 3 files
 
 Adds ABIs for:
 
@@ -642,7 +652,7 @@ Builds the three calls, the ENSIP-7 `contenthash` encoding and decoding, the Zod
 
 ### Phase 12 — Previous rewards DB resolution
 
-**Depends on:** Phases 10, 11 (CAR verification, ENS ABIs) **Files:** `src/distribution/previous.ts`, `src/distribution/previous.test.ts`, `src/utils/args.ts`, `.env.sample` **Estimate:** ~180 LOC, 4 files
+**Depends on:** Phases 10b, 11 (CAR verification, ENS ABIs) **Files:** `src/distribution/previous.ts`, `src/distribution/previous.test.ts`, `src/utils/args.ts`, `.env.sample` **Estimate:** ~180 LOC, 4 files
 
 Resolves the previous rewards DB as follows:
 
@@ -934,6 +944,38 @@ These entries describe the behaviour of Phase 9 as a whole. The 9a–9d entries 
 - The token is never put in a URL. Errors stay `failed to fetch '<url>': <status> <statusText>`, so neither errors nor backoff logs contain it.
 - A rejected token (401/403) is retried and then thrown like any other HTTP error, with no fallback to unauthenticated requests.
 - Actions doesn't export `GITHUB_TOKEN` as an environment variable by itself, so the workflow steps in Phases 18 and 19 that resolve a sanctions snapshot set `env: GITHUB_TOKEN: ${{ github.token }}`.
+
+### Phase 10
+
+These entries describe the behaviour of Phase 10 as a whole. The 10a and 10b entries below say how it was split and win where they differ.
+
+- `@ipld/dag-pb` is an extra direct dependency (it was already transitive). Packing decodes dag-pb links to order the CAR blocks, and the tests use it to build hostile CARs. No blockstore package is used: in-memory `Map`s implement the importer's and exporter's `put`/`get`. `multiformats` supplies `CID`, `raw` and `sha256`.
+- `src/distribution/ipfs.ts` exports:
+  - `IPFS_PARAMETERS` (`as const`), exactly the manifest's `ipfs` block, and its type `IpfsParameters`;
+  - `CHUNK_SIZE` (262144), `MAX_CHILDREN_PER_NODE` (174, Kubo's balanced default) and `HAMT_SHARDING_SIZE` (262144);
+  - `Packed = { cid: CID; car: Uint8Array }`, with `multiformats`' `CID`. `cid.toString()` is CIDv1 base32.
+- Every importer option is explicit: `cidVersion: 1`, `rawLeaves: true`, `reduceSingleLeafToSelf: true`, `fixedSize(262144)`, `balanced(174)`, `shardSplitThresholdBytes: Infinity`, `wrapWithDirectory: false`, and no `mtime`/`mode`. Importer paths get a fixed `root/` prefix, which appears in no block, so the importer yields the directory's own CID.
+- Kubo shards a directory once its node reaches 256 KiB. `packDirectory` never shards, and instead throws `directory … is too large to pack unsharded` for a directory block of 262144 bytes or more, rather than silently differing from Kubo. The byte-prefix layout of `proofs/` keeps every directory far below that.
+- The packing walk is depth-first, with names in byte order, and includes empty directories. Symlinks and other non-regular files are refused, and so are hidden names (`invalid entry name ".…"`), which Kubo would skip silently. That also catches a leftover `MerkleDb` `.lock`.
+- The CAR's block order is a pre-order DFS from the root in link order, each block at its first occurrence only. That is `ipfs dag export`'s order, and the CAR is byte-identical to Kubo's.
+- `car` is a `Uint8Array` in and out, with no streams or paths. Packages are a few MB, every caller already holds the bytes (a gateway `arrayBuffer()`, `readFile`, 9a's `releaseAsset()`), and unpacking verifies the whole DAG before writing anything.
+- `unpackCar(car, expectedCid, dir)` verifies everything in memory before writing anything. It rejects:
+  - a CAR that isn't version 1, or whose roots aren't exactly `[expectedCid]`;
+  - any CID that isn't CIDv1 sha2-256 with the dag-pb or raw codec, which excludes identity CIDs and CIDv0;
+  - a block whose hash doesn't match its CID, a missing block (`CAR is missing block <cid>`), and unreferenced blocks (`CAR has N unreferenced blocks, such as <cid>`). Duplicate blocks are accepted;
+  - a root that isn't a directory, and any node other than a UnixFS `directory`, a UnixFS `file` or a raw leaf (`is an unsupported <type> node`), which covers symlinks, HAMT shards, `metadata`, UnixFS `raw` and dag-cbor/json;
+  - an `mtime` or a non-default `mode`. An explicit default `mode` can't be told apart from a missing one, so it is accepted, and modes are never applied;
+  - entry names that are empty, start with `.`, contain `/`, `\` or NUL, or are duplicated in a directory. Packing uses the same name check.
+- The target `dir` is created if it is missing and must otherwise be empty. Files are written with flag `wx`, so nothing is ever overwritten.
+- The fixture is `tests/fixtures/ipfs/` (`hello.json`, an empty `empty`, `nested/a.txt`, `nested/deeper/data.json`). The test copies it to a temp directory and adds `empty-dir/` and a deterministic 2×256 KiB + 1000 B `large.bin` (3 raw leaves). Its CID and its CAR's SHA-256 are Kubo 0.43.1 constants, and the command that computed them is recorded in the test.
+- Real-data check, not committed: `packDirectory` on a scratch copy of the Beta rewards directory reproduces the pinned `bafybeiczeo7uiupwte7dfa3yaus6dogwauxbookpvcgmxebbga5jtp7afq`, its CAR is byte-identical to Kubo's, and `unpackCar` round-trips it.
+- `npm run build` only compiles `src/cmd/*.ts`, so `ipfs.ts` reaches `dist/` once Phase 15 imports it.
+
+### Phase 10a
+
+- 10a's code and tests are a strict subset of the unsplit Phase 10, ending at `packDirectory`. `assertEntryName(name, path)` is a module-level helper that 10b reuses for unpacking.
+- `ipfs-unixfs-exporter` is not in 10a's lockfile at all, not even transitively.
+- `@ipld/dag-pb` is needed in 10a both to order the CAR blocks and to inspect the CAR in tests. It is used for hostile CARs only from 10b.
 
 ## Open Questions and Assumptions
 
