@@ -1130,6 +1130,12 @@ These entries describe the behaviour of Phase 12 as a whole. The 12a and 12b ent
 - Two tests are new: one for a missing `latest.json` and one for a missing `rewardsUntil`. The tests make no RPC calls.
 - The `.env.sample` comment for `IPFS_GATEWAY_URL` already mentions the ENS-pinned CID, which describes what the variable is for, even though the ENS read only arrives in 12b.
 
+### Phase 12b
+
+- `src/abi.ts` and `previous.ts` are identical to the unsplit Phase 12. The tests differ only by 12a's two refusal tests.
+- 12a's gateway, local-CAR, package-files, retry, recovery, different-CID and re-pack tests go through `resolvePreviousRewardsDb` again, as in the unsplit phase, so they also check the ENS read, the resolver and the same-block reads. `fetchRewardsDb` keeps its own `describe`, with the happy path and the two refusal tests.
+- Read-only mainnet re-check: the pinned CID, root `0x6689…fdef` (equal to the drop's), `rewardsUntil` 1791244800 and resolver `0xF291…AC15`, with no re-pack warning.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
