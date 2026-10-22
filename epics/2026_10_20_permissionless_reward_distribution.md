@@ -1087,6 +1087,12 @@ These entries describe the behaviour of Phase 11 as a whole. The 11a–11e entri
 - `ProposalTransaction` describes the one batched transaction, whose nonce is 0. `transactionHash(module, tx, nonce)` still takes the nonce explicitly, matching `getTransactionHash`.
 - It is tested against the deployed module's `getTransactionHash(MULTI_SEND_CALL_ONLY, 0, BATCH_DATA, 1, 0)` at block 26247609, and against a value/delegatecall/nonce-7 vector at block 26247049.
 
+### Phase 11d
+
+- `buildQuestion(proposalId, txHashes)` keeps the module's `bytes32[]` signature, and a distribution passes a one-element array.
+- `governanceCalls` and `governanceTransaction` now take `Pick<GovernanceConfiguration, "ensName" | "ensResolver">`.
+- It is tested against the deployed module's `buildQuestion` and `getQuestionId` for the batched transaction at block 26247609, and against `getQuestionId("hello", 1)` at block 26247049. The configuration getters read at 26247049 agree with the question vectors at 26247609.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
