@@ -37,3 +37,17 @@ export const SENTINEL_ORACLE_ABI = parseAbi([
 	"event Revealed(bytes32 indexed requestId, address indexed sentinel, bool approved, uint96 bondAmount, string reason)",
 	"event OracleResult(bytes32 indexed requestId, address indexed sponsor, bytes result, bool approved)",
 ]);
+
+export const ERC20_ABI = parseAbi([
+	"function transfer(address to, uint256 amount) external returns (bool success)",
+]);
+
+export const CUMULATIVE_MERKLE_DROP_ABI = parseAbi([
+	"function setMerkleRoot(bytes32 merkleRoot_) external",
+]);
+
+export const ENS_RESOLVER_ABI = parseAbi([
+	"function setContenthash(bytes32 node, bytes hash) external",
+]);
+
+export const MULTI_SEND_ABI = parseAbi(["function multiSend(bytes transactions) external payable"]);
