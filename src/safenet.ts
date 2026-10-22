@@ -23,6 +23,7 @@ import { Validators } from "./indexing/validators.js";
 import { type Backoff, backoff } from "./utils/backoff.js";
 import { blockAtTimestamp } from "./utils/blocks.js";
 import { formatRange } from "./utils/format.js";
+import type { GitHubRepository } from "./utils/gh.js";
 import { sqrtBigInt } from "./utils/math.js";
 import {
 	rangeDuration,
@@ -727,7 +728,7 @@ export class Safenet {
 		delegateRegistryStartBlock?: bigint;
 		sanctionsListAddress: Address;
 		sanctionsListStartBlock?: bigint;
-		sanctionsAddressListsUrl?: string;
+		sanctionsAddressRepo?: GitHubRepository;
 		consensusClient: Client;
 		consensusBlockPageSize: bigint;
 		consensusAddress: Address;
@@ -752,7 +753,7 @@ export class Safenet {
 		// constructed first.
 		const sanctionsData = new SanctionsData({
 			db,
-			sanctionsRepoUrl: params.sanctionsAddressListsUrl,
+			sanctionsAddressRepo: params.sanctionsAddressRepo,
 		});
 		const stakingData = new StakingData({ db });
 		const attestationData = new AttestationData({ db });
