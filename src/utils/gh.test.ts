@@ -31,6 +31,7 @@ const tags = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => 
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+	vi.unstubAllEnvs();
 });
 
 describe("zGitHubRepository", () => {
@@ -167,5 +168,79 @@ describe("releaseAsset", () => {
 			releaseAsset(REPO, { tag: "data-2026-10-26", asset: "un.json" }, fastBackoff),
 		).rejects.toThrow(`failed to fetch '${assetUrl}': 404 Not Found`);
 		expect(urls()).toEqual([assetUrl, assetUrl, assetUrl]);
+	});
+});
+
+describe("GITHUB_TOKEN", () => {
+	const TOKEN = "ghs_0123456789abcdefghijklmnopqrstuvwxyz";
+
+	/** Stubs `fetch`, recording the `Authorization` header of every request by URL. */
+	const stubAuthorization = (status = 200) => {
+		const requests: [string, string | null][] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+				const url = String(input);
+				requests.push([url, new Headers(init?.headers).get("authorization")]);
+				if (status !== 200) {
+					return new Response("", { status, statusText: "Unauthorized" });
+				}
+				return url.startsWith("https://api.github.com/")
+					? Response.json([{ tag_name: "latest" }])
+					: new Response("[]");
+			}),
+		);
+		return requests;
+	};
+
+	const asset = { tag: "data-2026-10-26", asset: "un.json" };
+
+	it("authenticates release listing requests when set", async () => {
+		vi.stubEnv("GITHUB_TOKEN", TOKEN);
+		const requests = stubAuthorization();
+		await releaseTags(REPO, fastBackoff);
+		expect(requests).toEqual([[releasesUrl(1), `Bearer ${TOKEN}`]]);
+	});
+
+	it("reads the token on every request", async () => {
+		const requests = stubAuthorization();
+		vi.stubEnv("GITHUB_TOKEN", "first");
+		await releaseTags(REPO, fastBackoff);
+		vi.stubEnv("GITHUB_TOKEN", "second");
+		await releaseTags(REPO, fastBackoff);
+		expect(requests.map(([, authorization]) => authorization)).toEqual([
+			"Bearer first",
+			"Bearer second",
+		]);
+	});
+
+	it("sends no token when unset or empty", async () => {
+		const requests = stubAuthorization();
+		vi.stubEnv("GITHUB_TOKEN", undefined);
+		await releaseTags(REPO, fastBackoff);
+		vi.stubEnv("GITHUB_TOKEN", "");
+		await releaseTags(REPO, fastBackoff);
+		expect(requests).toEqual([
+			[releasesUrl(1), null],
+			[releasesUrl(1), null],
+		]);
+	});
+
+	it("never sends the token with asset downloads", async () => {
+		vi.stubEnv("GITHUB_TOKEN", TOKEN);
+		const requests = stubAuthorization();
+		await releaseAsset(REPO, asset, fastBackoff);
+		expect(requests).toEqual([
+			["https://github.com/example/lists/releases/download/data-2026-10-26/un.json", null],
+		]);
+	});
+
+	it("keeps the token out of error messages", async () => {
+		vi.stubEnv("GITHUB_TOKEN", TOKEN);
+		stubAuthorization(401);
+		const error = await releaseTags(REPO, fastBackoff).catch((err: Error) => err);
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toBe(`failed to fetch '${releasesUrl(1)}': 401 Unauthorized`);
+		expect((error as Error).message).not.toContain(TOKEN);
 	});
 });
