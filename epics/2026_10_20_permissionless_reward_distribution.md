@@ -1195,6 +1195,10 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 
 - None. `proposeBundle` and the shared `createdAt` helper match the unsplit Phase 13. Only the module header is narrowed to proposing, and `REALITY_MODULE_ABI` holds `addProposal` alone.
 
+### Phase 13c
+
+- None. `answerBundle` and `ANSWER_YES` match the unsplit Phase 13. The ERC-20 `approve` and `REALITY_ETH_ERC20_ABI` (`submitAnswerERC20`) entries are added here.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
