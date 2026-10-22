@@ -1285,6 +1285,20 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
   - each account's `cumulativeAmount + kycAmount` equals its payout;
   - each status matches where the amount landed and whether a proof exists.
 
+### Phase 14d
+
+- `src/distribution/package.ts` exports `copyRewardsDb(from, dir)`, `writePackageFiles(dir, { allocations, manifest })`, `MANIFEST_FILE` and `ALLOCATIONS_FILE`.
+- Both functions check the whole layout, including the `proofs/` tree:
+  - `latest.json` is required;
+  - `proofs/` is optional, and may contain only `<b0>/<b1>/<b2>/<b3>/0x<address>.json`, where each `<bN>` is two lowercase hex digits matching the address;
+  - only the allowed extra files may appear.
+
+  Anything else is refused, such as a `.lock`, `transactions/` or a misplaced proof, and the target is left untouched.
+- `copyRewardsDb` refuses unexpected files in the previous rewards DB rather than ignoring them. It accepts a DB with or without `manifest.json`/`allocations.json`, but never copies those two files. The target must be missing or empty.
+- `writePackageFiles` validates both files with `zAllocations`/`zManifest` before writing anything. It refuses a directory that already contains either file, or anything outside the layout. Afterwards the directory holds exactly `allocations.json`, `latest.json`, `manifest.json` and `proofs/`. It doesn't cross-check the manifest against `latest.json`; Phase 16's re-derivation does that.
+- The example manifest moved from `manifest.test.ts` to the test-only `tests/harness/manifest.ts`, so 14d also changes `src/distribution/manifest.test.ts`.
+- An end-to-end test runs `copyRewardsDb` → `distribute` → `writePackageFiles` → `packDirectory` → `unpackCar` and checks that the files come back identical. It then copies the unpacked package again, as the next export's previous DB.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
