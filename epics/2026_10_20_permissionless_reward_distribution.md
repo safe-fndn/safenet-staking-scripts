@@ -1401,6 +1401,10 @@ These entries describe the export pipeline as a whole, as first implemented. The
   - `distribution.safeToken`: `Staking.SAFE_TOKEN()`;
   - `sanctions.offchain.repository`: `sanctionsAddressRepo`, which falls back to its default.
 - A flagged account missing from `kyc.json` is refused by `distribute`'s existing check.
+- The user's decisions:
+  - Sanctioned and KYC-withheld payouts remain in `tokenTotal`, and are therefore funded by the transfer to the drop, as `MerkleDb` does today.
+  - `cmd:export` defaults `minPayout` to 0 for Aegis.
+  - `safeToken()` is read at `latest`, because the token address is immutable.
 - `distributionPayouts(payouts)`, the flattening from `RewardSplit` to `Payout`, moves to `src/safenet.ts` and `cmd:rewards` uses it. Its keys are checksummed. 15c also changes `src/cmd/rewards.ts`, and adds `createTestParameters` to `tests/harness/scenario.ts`.
 - Test setup: `tests/export.test.ts` serves the governance, ENS, drop and `SAFE_TOKEN()` calls from the `CONFIG` vector by wrapping the mock staking client, and stubs `pinnedSanctionedAccounts`, because harness chains start at t=0. It overrides `totalRewards`, because the 2a default needs a record from after the end of Beta.
 - What the tests check:
@@ -1414,6 +1418,22 @@ These entries describe the export pipeline as a whole, as first implemented. The
 - 15c is a refactor and adds no `export.ts`. `distributionPayouts` in `src/safenet.ts` replaces the inline flattening in `cmd:rewards` and the copy of it in `allocations.test.ts`. It iterates with `addressEntries`, so its keys are checksummed, which changes nothing for `Safenet`'s already-checksummed payouts.
 - `tests/harness/scenario.ts` gains `createTestParameters(scenario)`, which returns the `Safenet.create` parameters with both mock clients. `createTestSafenet` is built on it, and 15d is its first other user.
 - A test for `distributionPayouts` sits next to the `mergeRewardPayouts` test in `tests/sentinel-rewards.test.ts`. 15c therefore also changes that file and `src/distribution/allocations.test.ts`.
+
+### Phase 15d
+
+- `src/distribution/export.ts` exports `ExportConfiguration` (unchanged from the unsplit 15c), `ExportPeriod = { period, totalRewards?, sentinelRewards? }`, `ExportInputs` and `exportInputs(config, exportPeriod, dir)`. `exportInputs` takes a `Pick` of only the configuration it reads.
+- The steps carried over from the unsplit 15c are unchanged: the chain-ID check, one block number, governance and the previous DB at that block, the ENS resolver assert, the continuity refusal, and the temporary directory with cleanup in `finally`.
+- `copyRewardsDb(previous.dir, dir)` runs inside 15d right after the continuity check, so the temporary directory never outlives the call. The default amounts are computed against the copy in `dir`, which has the same `latest.json`. On any refusal, `dir` is never created.
+- `ExportInputs` is `{ stakingChainId, blockNumber, governance, previous: { cid, merkleRoot, rewardsUntil }, totalRewards, sentinelRewards }`.
+- The tests use a fake `custom`-transport client with no `MockChain`, and a previous DB in the end-of-Beta state, so the 2a default amount can be checked exactly. They stub `TMPDIR` per test to check that the temporary directory is removed on success and on failure. They cover:
+  - the happy path;
+  - all 14 reads happening at one block;
+  - the copy in `dir`;
+  - the overrides;
+  - the chain-ID refusal;
+  - the root mismatch;
+  - an ENS resolver mismatch, possible only with an inconsistent RPC;
+  - three continuity refusals.
 
 ## Open Questions and Assumptions
 
