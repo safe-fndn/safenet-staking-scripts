@@ -1338,6 +1338,24 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
   A nonzero `questionArbitrator` is recorded, not refused.
 - Read-only mainnet check, not committed: the configuration at block 26247049 and at the latest block both equal the recorded `CONFIG` vector.
 
+### Phase 15b
+
+- `src/distribution/generator.ts` exports:
+  - `generator({ gitCommit?, dir? })`, which returns the manifest's `generator` block;
+  - `headCommit(dir?)`, which returns `null` outside a work tree. Phase 16 uses it for its warning;
+  - `uncommittedChanges(dir?)`;
+  - `GENERATOR_REPOSITORY` and `COMMIT_PATTERN`.
+- `GIT_COMMIT` is a parameter. 15e adds it to `src/utils/args.ts`, so `GITHUB_TOKEN` stays the only environment variable read directly. A `GIT_COMMIT` that isn't 40 lowercase hex characters is refused, never normalized.
+- Git runs through `execFile` in the directory of `generator.ts`, not in the working directory. That way it checks the checkout of the code that builds the package.
+- **With a work tree:**
+  - `HEAD` must equal `GIT_COMMIT` if it is set.
+  - Tracked files must have no uncommitted changes, staged or not, deletions included. Otherwise the export is refused, with the porcelain lines in the error.
+  - Setting `GIT_COMMIT` never skips these checks.
+- **Without a work tree or without git** (Docker: `node:24-slim` has no git, and the image has no `.git`), `GIT_COMMIT` is required and trusted as is. Any failure of `git rev-parse --is-inside-work-tree` counts as "no work tree".
+- Untracked and ignored files don't count as dirty (`--untracked-files=no`). This covers export outputs, `*.db` files and scratch directories.
+- `repository` is the constant `GENERATOR_REPOSITORY` (`https://github.com/safe-fndn/safenet-staking-scripts`), not derived from a git remote.
+- The tests use real temporary git repos, isolated from the user's and the system's git config.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
