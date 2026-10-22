@@ -1443,6 +1443,25 @@ These entries describe the export pipeline as a whole, as first implemented. The
 - In the tests, the 15d fake chain gains an optional `inner` `MockChain` client, which replaces the original `withGovernance` wrapper. The harness fixtures are renamed `HARNESS_*`, and the end-to-end test also checks that the export leaves nothing in the temporary directory. Expected values are identical to the unsplit 15c.
 - For Phase 16, a re-export that passes the manifest's `parameters` as overrides can't tell an override from a default. To flag overrides, Phase 16 recomputes the defaults with `exportInputs`, without overrides, and compares them with the manifest.
 
+### Phase 15f
+
+- `src/distribution/release.ts` exports:
+  - `releaseAssets(export)`, a pure function that returns `Record<name, Uint8Array>` sorted by name;
+  - `writeReleaseAssets(dir, assets)`;
+  - `sha256Sums(assets)`;
+  - `carAssetName(toTimestamp)`;
+  - `SHA256SUMS`.
+
+  Phase 16 re-derives the assets with `releaseAssets` and compares bytes per name. Phases 18 and 19 upload the directory.
+- The JSON assets are `canonicalJson(…)` bytes, which is exactly what `writeJsonFile` writes; a test checks this. They are produced in the pure function, not written through `writeJsonFile`.
+- The asset formats:
+  - The CAR is `rewards-<period.toTimestamp>.car`.
+  - `cid.txt` (CIDv1 base32) and `merkle-root.txt` (lowercase `0x` hex) are single lines ending in `\n`.
+  - `manifest.json` is a byte copy of the package's manifest.
+  - `proposal.json` has the 11e shape, and `execute.json` holds the single execution.
+- `SHA256SUMS` has one `<lowercase hex>  <name>\n` line per asset, with two spaces, sorted by name in byte order. It doesn't list itself, and the tests check it with `sha256sum --check --strict`.
+- The release directory is created if it is missing, and a non-empty one is refused. Files are written with flag `wx`.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
