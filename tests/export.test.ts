@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type Address,
+	type Client,
 	createClient,
 	custom,
 	decodeFunctionData,
@@ -17,12 +18,22 @@ import {
 	ENS_RESOLVER_ABI,
 	REALITY_ETH_ERC20_ABI,
 	REALITY_MODULE_ABI,
+	STAKING_ABI,
 } from "../src/abi.js";
-import { type ExportPeriod, exportInputs } from "../src/distribution/export.js";
-import { packDirectory } from "../src/distribution/ipfs.js";
+import {
+	type ExportConfiguration,
+	type ExportPeriod,
+	exportInputs,
+	exportPackage,
+} from "../src/distribution/export.js";
+import { IPFS_PARAMETERS, packDirectory } from "../src/distribution/ipfs.js";
+import { kyc } from "../src/distribution/kyc.js";
+import { zManifest } from "../src/distribution/manifest.js";
 import { ENS_REGISTRY } from "../src/distribution/previous.js";
-import { encodeContenthash } from "../src/distribution/transactions.js";
+import { encodeContenthash, zProposal } from "../src/distribution/transactions.js";
 import { MerkleDb } from "../src/merkledb/index.js";
+import { Safenet, SETTLEMENT_BLOCKS } from "../src/safenet.js";
+import { canonicalJson } from "../src/utils/json.js";
 import {
 	AEGIS_REWARDS_START,
 	AEGIS_VALIDATOR_REWARDS,
@@ -32,8 +43,10 @@ import {
 	SENTINEL_REWARDS_PER_YEAR,
 	SENTINEL_REWARDS_YEAR,
 } from "../src/utils/sep.js";
-import { CONFIG, CUMULATIVE_MERKLE_DROP } from "./harness/governance.js";
-import { namedAddress, parseSafe } from "./harness/utils.js";
+import { CONFIG, CUMULATIVE_MERKLE_DROP, SAFE_TOKEN } from "./harness/governance.js";
+import { attestedTransaction, sentinelRequest } from "./harness/presets.js";
+import { createTestParameters, type Scenario } from "./harness/scenario.js";
+import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
 
 const TWO_WEEKS = 14n * 24n * 60n * 60n;
 const BLOCK_NUMBER = 26300000n;
@@ -94,6 +107,11 @@ type Chain = {
 	merkleRoot: Hex;
 	/** The resolvers the ENS registry returns, one per call, repeating the last one. */
 	resolvers?: Address[];
+	/**
+	 * A mock staking chain that every other request goes to, with the staking contract's
+	 * `SAFE_TOKEN()`, which `MockChain` does not model.
+	 */
+	inner?: Client;
 };
 
 /**
@@ -106,12 +124,16 @@ const fakeChain = ({
 	contenthash,
 	merkleRoot,
 	resolvers = [CONFIG.ensResolver],
+	inner,
 }: Chain) => {
 	const blockTags: string[] = [];
 	let resolverCalls = 0;
 	const client = createClient({
 		transport: custom({
 			async request({ method, params }) {
+				if (inner !== undefined && method !== "eth_call") {
+					return inner.request({ method, params } as never);
+				}
 				if (method === "eth_chainId") {
 					return toHex(chainId);
 				}
@@ -171,6 +193,19 @@ const fakeChain = ({
 						functionName: "merkleRoot",
 						result: merkleRoot,
 					});
+				}
+				if (inner !== undefined) {
+					if (call(namedAddress("Staking"))) {
+						const { functionName } = decodeFunctionData({ abi: STAKING_ABI, data });
+						if (functionName === "SAFE_TOKEN") {
+							return encodeFunctionResult({
+								abi: STAKING_ABI,
+								functionName: "SAFE_TOKEN",
+								result: SAFE_TOKEN,
+							});
+						}
+					}
+					return inner.request({ method, params } as never);
 				}
 				throw new Error(`unexpected call to ${to}`);
 			},
@@ -312,5 +347,270 @@ describe("exportInputs", () => {
 		);
 		await expect(readdir(dir)).rejects.toThrow("ENOENT");
 		expect(await readdir(exportTmpdir)).toEqual([]);
+	});
+});
+
+// The harness chains start at t=0, so the end-to-end tests distribute the period [60, 120] on top
+// of a previous rewards DB ending at 60. The period ends with consensus block 25 (t=120) and
+// settles at block 25 + 48 = 73 (t=360).
+const HARNESS_PERIOD = { fromTimestamp: 60n, toTimestamp: 120n };
+const HARNESS_PREVIOUS_PERIOD = { fromTimestamp: 0n, toTimestamp: 60n };
+
+// alice and bob each self-stake 1M SAFE and sign the period's only transaction, so each staker earns
+// half of the 20,000 SAFE budget, which is above the KYC threshold. sentinel1 and sentinel2 answer
+// the period's only oracle request.
+const SCENARIO: Scenario = {
+	staking: {
+		slots: [
+			{
+				events: [
+					{ name: "ValidatorUpdated", validator: namedAddress("alice"), isRegistered: true },
+					{ name: "ValidatorUpdated", validator: namedAddress("bob"), isRegistered: true },
+					{
+						name: "StakeIncreased",
+						staker: namedAddress("aliceStaker"),
+						validator: namedAddress("alice"),
+						amount: parseSafe("1000000"),
+					},
+					{
+						name: "StakeIncreased",
+						staker: namedAddress("bobStaker"),
+						validator: namedAddress("bob"),
+						amount: parseSafe("1000000"),
+					},
+				],
+			},
+			// Up to the settlement timestamp, as every indexer is updated to it.
+			...emptyBlocks(30, { assertTimestamp: 360n }),
+		],
+	},
+	consensus: {
+		slots: [
+			{
+				events: [
+					{ name: "KeyGenConfirmed", participant: namedAddress("alice") },
+					{ name: "KeyGenConfirmed", participant: namedAddress("bob") },
+				],
+			},
+			...emptyBlocks(12, { assertTimestamp: 60n }),
+			{
+				assertTimestamp: 65n,
+				events: [
+					...attestedTransaction({ epoch: 1n, seed: "1", participants: ["alice", "bob"] }),
+					...sentinelRequest({ seed: "1", reveals: ["sentinel1", "sentinel2"] }),
+				],
+			},
+			...emptyBlocks(11, { assertTimestamp: 120n }),
+			// Up to the period's settlement block.
+			...emptyBlocks(Number(SETTLEMENT_BLOCKS), { assertTimestamp: 360n }),
+		],
+	},
+};
+
+const SANCTIONS = {
+	accounts: [namedAddress("bobStaker")],
+	offchain: {
+		release: "data-2026-10-26",
+		sha256: {
+			"ch-seco": "01".repeat(32),
+			eu: "02".repeat(32),
+			uk: "03".repeat(32),
+			un: "04".repeat(32),
+			"us-ofac": "05".repeat(32),
+		},
+	},
+};
+
+const GENERATOR = {
+	commit: "0123456789abcdef0123456789abcdef01234567",
+	repository: "https://github.com/safe-fndn/safenet-staking-scripts",
+};
+
+/**
+ * A previous rewards DB, distributed once on top of an empty `latest.json` for the period
+ * before `HARNESS_PERIOD`, packed into a CAR file.
+ */
+const harnessRewardsDb = async ({ kycApprovals = [] as Address[] } = {}) => {
+	const root = await temporary();
+	await writeFile(
+		join(root, "latest.json"),
+		`{"epoch":0,"merkleRoot":"${toHex(0, { size: 32 })}","tokenTotal":"0"}\n`,
+	);
+	const update = await new MerkleDb({ root }).distribute(
+		HARNESS_PREVIOUS_PERIOD,
+		{ [namedAddress("carol")]: { amount: parseSafe("100"), sentinelAmount: 0n } },
+		0n,
+		{ sanctions: [], kycApprovals },
+	);
+	if (update === null) {
+		throw new Error("fixture distribution was rejected");
+	}
+	const { cid, car } = await packDirectory(root);
+	const previousCar = join(await temporary(), "previous.car");
+	await writeFile(previousCar, car);
+	return { cid, merkleRoot: update.merkleRoot, previousCar, root };
+};
+
+/**
+ * Runs an export of `HARNESS_PERIOD` on top of a previous rewards DB into a new directory, with a
+ * fresh `Safenet` over the scenario. The mock staking client is wrapped with the governance
+ * contracts. The pinned sanctions are stubbed, because the harness chains start in 1970, long
+ * before any sanctions snapshot.
+ */
+const runExport = async (previous: Previous) => {
+	const parameters = createTestParameters(SCENARIO);
+	const { client: stakingClient } = fakeChain({
+		contenthash: encodeContenthash(previous.cid),
+		merkleRoot: previous.merkleRoot,
+		inner: parameters.stakingClient,
+	});
+	const safenet = await Safenet.create({ ...parameters, stakingClient });
+	vi.spyOn(safenet, "pinnedSanctionedAccounts").mockResolvedValue(SANCTIONS);
+	const config: ExportConfiguration = {
+		...parameters,
+		stakingClient,
+		previousCar: previous.previousCar,
+		cumulativeMerkleDropAddress: CUMULATIVE_MERKLE_DROP,
+		realityModuleAddress: CONFIG.module,
+		rewardsEnsName: CONFIG.ensName,
+	};
+	const dir = join(await temporary(), "package");
+	return exportPackage(
+		safenet,
+		config,
+		{
+			period: HARNESS_PERIOD,
+			totalRewards: parseSafe("20000"),
+			minPayout: parseSafe("1"),
+			generator: GENERATOR,
+		},
+		dir,
+	);
+};
+
+describe("exportPackage", () => {
+	it("builds a package on top of the previous rewards DB", async () => {
+		const previous = await harnessRewardsDb();
+		const result = await runExport(previous);
+
+		// The package on disk is the one that was packed, and every file is canonical JSON.
+		const packed = await packDirectory(result.dir);
+		expect(packed.cid.equals(result.cid)).toBe(true);
+		expect(packed.car).toEqual(result.car);
+		const tree = await readTree(result.dir);
+		for (const contents of Object.values(tree)) {
+			expect(canonicalJson(JSON.parse(contents))).toBe(contents);
+		}
+
+		// The manifest on disk parses and describes the export.
+		const manifest = zManifest.parse(JSON.parse(tree["manifest.json"]));
+		expect(canonicalJson(manifest)).toBe(canonicalJson(result.manifest));
+		// Each staker earns half of the budget, and each sentinel the prorated grant of 400,000
+		// SAFE a year for 60 seconds. The withheld and the sanctioned stake rewards both count
+		// towards `tokenTotal`, so the transfer covers all 20,000 SAFE.
+		const sentinelRewards = (SENTINEL_REWARDS_PER_YEAR * 60n) / SENTINEL_REWARDS_YEAR;
+		expect(result.manifest).toEqual({
+			allocations: { forfeited: 0n, unpaid: 0n },
+			chains: {
+				consensus: {
+					boundaryBlock: 25n,
+					chainId: 100,
+					contracts: {
+						consensus: namedAddress("Consensus"),
+						sentinelOracle: namedAddress("SentinelOracle"),
+					},
+					settlementBlock: 73n,
+				},
+				staking: {
+					boundaryBlock: 11n,
+					chainId: 1,
+					contracts: {
+						delegateRegistry: namedAddress("DelegateRegistry"),
+						sanctionsList: namedAddress("SanctionsList"),
+						staking: namedAddress("Staking"),
+					},
+				},
+			},
+			distribution: {
+				additionalAmount: parseSafe("20000") + 2n * sentinelRewards,
+				cumulativeMerkleDrop: CUMULATIVE_MERKLE_DROP,
+				merkleRoot: expect.stringMatching(/^0x[0-9a-f]{64}$/),
+				safeToken: SAFE_TOKEN,
+				tokenTotal: parseSafe("20100") + 2n * sentinelRewards,
+			},
+			generator: GENERATOR,
+			governance: CONFIG,
+			ipfs: IPFS_PARAMETERS,
+			kyc: { newlyApproved: kyc().accounts, threshold: kyc().threshold },
+			parameters: {
+				minPayout: parseSafe("1"),
+				sentinelRewards,
+				totalRewards: parseSafe("20000"),
+			},
+			period: { ...HARNESS_PERIOD, settlementTimestamp: 360n },
+			previous: {
+				cid: previous.cid.toString(),
+				merkleRoot: previous.merkleRoot,
+				rewardsUntil: 60n,
+			},
+			sanctions: {
+				offchain: { ...SANCTIONS.offchain, repository: "safe-fndn/sanctions-address-lists" },
+			},
+			version: 1,
+		});
+
+		// aliceStaker is above the KYC threshold and not approved, and bobStaker is sanctioned.
+		expect(result.allocations).toEqual(
+			[
+				{
+					account: namedAddress("aliceStaker"),
+					status: "kyc-withheld",
+					stakeRewards: parseSafe("10000"),
+				},
+				{
+					account: namedAddress("bobStaker"),
+					status: "sanctioned",
+					stakeRewards: parseSafe("10000"),
+				},
+				{ account: namedAddress("sentinel1"), status: "paid", sentinelRewards },
+				{ account: namedAddress("sentinel2"), status: "paid", sentinelRewards },
+			]
+				.map((allocation) => ({
+					commission: 0n,
+					sentinelRewards: 0n,
+					stakeRewards: 0n,
+					...allocation,
+				}))
+				.sort((a, b) => (a.account.toLowerCase() < b.account.toLowerCase() ? -1 : 1)),
+		);
+
+		// The proposal is about the package, and its bundles are created at the settlement.
+		expect(zProposal.parse(JSON.parse(canonicalJson(result.proposal))).proposalId).toBe(
+			result.cid.toString(),
+		);
+		expect(result.bundles.propose.createdAt).toBe(360_000);
+		expect(Object.keys(result.bundles).sort()).toEqual(["answer", "execute", "propose"]);
+		expect(await readdir(exportTmpdir)).toEqual([]);
+	});
+
+	it("is deterministic", async () => {
+		const previous = await harnessRewardsDb();
+		const first = await runExport(previous);
+		const second = await runExport(previous);
+
+		expect(second.dir).not.toBe(first.dir);
+		expect(second.cid.equals(first.cid)).toBe(true);
+		expect(second.car).toEqual(first.car);
+		expect(await readTree(second.dir)).toEqual(await readTree(first.dir));
+		expect(canonicalJson(second.proposal)).toBe(canonicalJson(first.proposal));
+		expect(canonicalJson(second.bundles)).toBe(canonicalJson(first.bundles));
+	});
+
+	it("refuses a previously approved account that is missing from the KYC file", async () => {
+		const previous = await harnessRewardsDb({ kycApprovals: [namedAddress("dave")] });
+
+		await expect(runExport(previous)).rejects.toThrow(
+			`KYC-approved account ${namedAddress("dave")} is missing from the approvals`,
+		);
 	});
 });
