@@ -333,13 +333,13 @@ export const proposal = (update: DistributionUpdate, config: GovernanceConfigura
 	};
 };
 
-const zChecksummedAddress = z
+export const zChecksummedAddress = z
 	.string()
 	.refine((s) => isAddress(s, { strict: false }) && getAddress(s) === s, {
 		message: "expected a checksummed address",
 	})
 	.transform((s) => s as Address);
-const zBytes32 = z
+export const zBytes32 = z
 	.string()
 	.regex(/^0x[0-9a-f]{64}$/, { message: "expected lowercase 32-byte hex" })
 	.transform((s) => s as Hex);
@@ -347,10 +347,23 @@ const zData = z
 	.string()
 	.regex(/^0x([0-9a-f]{2})*$/, { message: "expected lowercase hex bytes" })
 	.transform((s) => s as Hex);
-const zValue = z
+export const zValue = z
 	.string()
 	.regex(/^(0|[1-9]\d*)$/, { message: "expected a decimal integer" })
 	.transform((s) => BigInt(s));
+/** A package CID as its CIDv1 base32 string. */
+export const zPackageCid = z.string().refine(
+	(s) => {
+		try {
+			const cid = CID.parse(s);
+			assertPackageCid(cid);
+			return cid.toString() === s;
+		} catch {
+			return false;
+		}
+	},
+	{ message: "expected a CIDv1 base32 package CID" },
+);
 const zProposalCall = z.strictObject({
 	data: zData,
 	operation: z.literal(0),
@@ -373,18 +386,7 @@ const zProposalTransaction = z.strictObject({
  */
 export const zProposal = z.strictObject({
 	calls: z.tuple([zProposalCall, zProposalCall, zProposalCall]),
-	proposalId: z.string().refine(
-		(s) => {
-			try {
-				const cid = CID.parse(s);
-				assertPackageCid(cid);
-				return cid.toString() === s;
-			} catch {
-				return false;
-			}
-		},
-		{ message: "expected a CIDv1 base32 package CID" },
-	),
+	proposalId: zPackageCid,
 	questionId: zBytes32,
 	transaction: zProposalTransaction,
 }) satisfies z.ZodType<Proposal, unknown>;

@@ -28,17 +28,21 @@ const zAccount = z
 		message: "expected a checksummed address",
 	})
 	.transform((s) => s as Address);
-const zKyc = z.strictObject({
-	accounts: zAccount.array().superRefine((accounts, ctx) => {
-		for (let i = 1; i < accounts.length; i++) {
-			const [previous, current] = [accounts[i - 1].toLowerCase(), accounts[i].toLowerCase()];
-			if (previous === current) {
-				ctx.addIssue({ code: "custom", message: `duplicate account ${accounts[i]}` });
-			} else if (previous > current) {
-				ctx.addIssue({ code: "custom", message: `account ${accounts[i]} is not sorted` });
-			}
+/**
+ * Checksummed accounts, sorted by address bytes with no duplicates.
+ */
+export const zSortedAccounts = zAccount.array().superRefine((accounts, ctx) => {
+	for (let i = 1; i < accounts.length; i++) {
+		const [previous, current] = [accounts[i - 1].toLowerCase(), accounts[i].toLowerCase()];
+		if (previous === current) {
+			ctx.addIssue({ code: "custom", message: `duplicate account ${accounts[i]}` });
+		} else if (previous > current) {
+			ctx.addIssue({ code: "custom", message: `account ${accounts[i]} is not sorted` });
 		}
-	}),
+	}
+});
+const zKyc = z.strictObject({
+	accounts: zSortedAccounts,
 	// A decimal amount of SAFE tokens, parsed exactly like the `--kycThreshold` flag.
 	threshold: z
 		.string()

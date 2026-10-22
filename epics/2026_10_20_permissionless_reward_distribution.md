@@ -1235,6 +1235,38 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 - `proposal()` no longer builds its keys in sorted order, which overrides the Phase 11e note saying it does. The `transactions` and `actions` tests serialize with `canonicalJson`.
 - 14a also changes `src/distribution/transactions.ts`, its test, `src/distribution/actions.test.ts` and `tests/merkledb-index.test.ts`.
 
+### Phase 14b
+
+- `src/distribution/manifest.ts` exports only the `Manifest` type and `zManifest` (`satisfies z.ZodType<Manifest, unknown>`, as `zProposal` does). There is no builder: Phase 15 builds the object, 14d writes it with `writeJsonFile`, and Phase 16 reads it with `readJsonFile(path, zManifest)`.
+- The type reuses existing types:
+  - `governance` is `GovernanceConfiguration`;
+  - `ipfs` is `IpfsParameters`;
+  - `sanctions.offchain` is `OffchainSanctions & { repository: GitHubRepository }`;
+  - `distribution` is `Omit<DistributionUpdate, "cid"> & { tokenTotal }`;
+  - `previous` is `Pick<RewardsDb, "merkleRoot" | "rewardsUntil"> & { cid: string }`;
+  - `period` is `TimestampRange & Pick<Settlement, "settlementTimestamp">`;
+  - `chains.consensus` uses `Pick<Settlement, "boundaryBlock" | "settlementBlock">`.
+- CIDs are CIDv1 base32 strings, as in `zProposal`, not `CID` objects, whose `toJSON` would write `{"/": …}`.
+- The schema reuses existing primitives, which this phase exports without changing them:
+  - from `transactions.ts`: `zChecksummedAddress`, `zBytes32`, `zValue` and `zPackageCid` (moved out of `zProposal`);
+  - from `kyc.ts`: `zSortedAccounts` (moved out of `zKyc`);
+  - from `sanctions.ts`: `OFFCHAIN_SOURCES` and `SNAPSHOT_RELEASE_PATTERN`.
+
+  14b therefore also touches `src/distribution/transactions.ts`, `src/distribution/kyc.ts` and `src/data/sanctions.ts`, with no behaviour change.
+- Every object is a `z.strictObject`, and `version` is `z.literal(1)`. Values are encoded as follows:
+  - every amount, block, timestamp and governance number is a canonical decimal string (`zValue`);
+  - `chainId` is a JSON number (any positive integer);
+  - addresses are checksummed;
+  - `merkleRoot`s are lowercase bytes32 hex;
+  - `sha256` holds exactly the five source keys, as lowercase hex with no `0x`.
+- Validation rules:
+  - `kyc.newlyApproved` must be checksummed, sorted by address bytes and free of duplicates (`zSortedAccounts`).
+  - `kyc.threshold` is in wei, like every other amount.
+  - `ipfs` must equal `IPFS_PARAMETERS` exactly.
+  - `sanctions.offchain.release` must match `SNAPSHOT_RELEASE_PATTERN`.
+  - `generator.commit` must be a 40-character lowercase hash, and `generator.repository` any URL.
+  - `governance.ensName` must be a non-empty string.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
