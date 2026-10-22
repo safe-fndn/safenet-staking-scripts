@@ -43,11 +43,14 @@ export type Payout = {
 };
 
 export type IndexData = {
+	/**
+	 * Unused, carried over unchanged from the rewards DB pinned at the start of Aegis.
+	 */
+	epoch: number;
 	merkleRoot: Hex;
 	tokenTotal: bigint;
 	sentinelTokenTotal: bigint;
 	unpaidAmount?: bigint;
-	updatedAt: Date;
 	rewardsUntil?: Date;
 };
 type Index = {
@@ -62,7 +65,6 @@ type DistributionData = {
 	kyc?: boolean;
 	merkleRoot: Hex;
 	proof: Hex[] | null;
-	[k: string]: unknown;
 };
 type Distribution = {
 	account: Address;
@@ -74,15 +76,15 @@ const zHex = z
 	.string()
 	.refine((s) => isHex(s))
 	.transform((s) => s as Hex);
-const zIndexData = z.looseObject({
+const zIndexData = z.strictObject({
+	epoch: z.number(),
 	merkleRoot: zHex,
 	tokenTotal: z.coerce.bigint(),
 	sentinelTokenTotal: z.coerce.bigint().default(0n),
 	unpaidAmount: z.coerce.bigint().optional(),
-	updatedAt: z.coerce.date(),
 	rewardsUntil: z.coerce.date().optional(),
 });
-const zDistributionData = z.looseObject({
+const zDistributionData = z.strictObject({
 	cumulativeAmount: z.coerce.bigint(),
 	kycAmount: z.coerce.bigint().default(0n),
 	// Entries written before sentinel rewards existed record no sentinel spend, so they load
@@ -209,7 +211,7 @@ export class MerkleDb {
 
 	async #rebuildTree(
 		period: Partial<ToTimestamp>,
-		unpaid: bigint,
+		unpaid: bigint | undefined,
 		sanctions: Address[],
 	): Promise<Update> {
 		// Re-compute the new distribution merkle tree. The tree always
@@ -256,8 +258,9 @@ export class MerkleDb {
 		index.merkleRoot = merkleRoot;
 		index.tokenTotal = 0n;
 		index.sentinelTokenTotal = 0n;
-		index.unpaidAmount = unpaid;
-		index.updatedAt = new Date();
+		if (unpaid !== undefined) {
+			index.unpaidAmount = unpaid;
+		}
 		if (period.toTimestamp !== undefined) {
 			index.rewardsUntil = timestampToDate(period.toTimestamp);
 		}
@@ -323,7 +326,9 @@ export class MerkleDb {
 				await update(data);
 			}
 
-			return await this.#rebuildTree({}, 0n, sanctions);
+			// A KYC update distributes nothing, so the unpaid amount carried forward from the
+			// period's distribution is left as is.
+			return await this.#rebuildTree({}, undefined, sanctions);
 		});
 	}
 }

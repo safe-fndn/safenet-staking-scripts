@@ -28,9 +28,9 @@ const createRecord = async (index?: Record<string, unknown>): Promise<string> =>
 	records.push(record);
 	await fs.mkdir(path.join(record, "assets", "rewards"), { recursive: true });
 	await writeJsonFile(path.join(record, "assets", "rewards", "latest.json"), {
+		epoch: 0,
 		merkleRoot: zeroHash,
 		tokenTotal: 0n,
-		updatedAt: new Date(0),
 		rewardsUntil: new Date(Number(REWARDS_START) * 1000),
 		...index,
 	});
