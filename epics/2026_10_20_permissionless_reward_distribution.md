@@ -505,12 +505,12 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
 5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
-10a (pack) ┬─► 11a ─► … ─► 11e ─► 13 (action bundles) ─────┤                                ▲
+10a (pack) ┬─► 11a ─► … ─► 11e ─► 13a ─► … ─► 13d ─────────┤                                ▲
            └─► 10b (unpack) ─► 12a ─► 12b (previous) ──────┘                                │
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
 ```
 
-Phase 13 also depends on Phase 3 for the pure `transactionBundle()`. Phases 9d (docs) and 9e (GitHub token) follow 9c. The **Depends on** lines below are authoritative.
+Phase 13b also depends on Phase 3 for the pure `transactionBundle()`. Phases 9d (docs) and 9e (GitHub token) follow 9c. The **Depends on** lines below are authoritative.
 
 Phases 1, 2, 3, 5, 8, 9a, 10a and 18 can all be developed in parallel.
 
@@ -642,7 +642,7 @@ Adds `ipfs-unixfs-exporter`. Implements `unpackCar(car, expectedCid, dir)`, whic
 Split into 11a–11e during review, so that each PR adds one group of `src/distribution/transactions.ts` functions. These are pure functions with no RPC. Each sub-phase adds only the ABI entries its own code uses. The read-side and proposal ABIs move to the phases that first use them:
 
 - Phase 12b: the ENS registry's `resolver`, the resolver's `contenthash`, and the Cumulative Merkle Drop's `merkleRoot`.
-- Phase 13: the Reality Module's `addProposal` and `executeProposalWithIndex`, `RealityETH_ERC20.submitAnswerERC20`, and ERC-20 `approve`.
+- Phase 13b–13d: the Reality Module's `addProposal` and `executeProposalWithIndex`, `RealityETH_ERC20.submitAnswerERC20`, and ERC-20 `approve`.
 - Phase 15: the Reality Module's config getters, and `RealityETH_ERC20.token`.
 - Phase 17: the Reality Module's `getTransactionHash`, `buildQuestion` and `getQuestionId` views, and ERC-20 `balanceOf`.
 
@@ -696,9 +696,31 @@ Reads the `contenthash` for `REWARDS_ENS_NAME` and decodes the CID, fetches it w
 
 ### Phase 13 — Action bundles
 
-**Depends on:** Phases 3, 11e **Files:** `src/abi.ts`, `src/distribution/actions.ts`, `src/distribution/actions.test.ts` **Estimate:** ~150 LOC, 3 files
+Split into 13a–13d during review to keep each PR small. Each sub-phase is its own commit, branch and PR, and Phase 13 has no commit of its own. Each sub-phase adds only the ABI entries its own code uses.
 
-Builds `propose.json`, `answer.json` and `execute.json` from `proposal.json` and the governance configuration, using the pure `transactionBundle()` from Phase 3.
+### Phase 13a — Shared governance test vectors
+
+**Depends on:** Phase 11e **Files:** `tests/harness/governance.ts`, `src/distribution/transactions.test.ts` **Estimate:** ~100 LOC moved, 2 files
+
+Moves the mainnet governance test vectors out of `transactions.test.ts` into a test-only module that the action bundle tests share. This is a refactor only, with no behaviour change.
+
+### Phase 13b — `propose.json`
+
+**Depends on:** 13a, Phase 3 **Files:** `src/abi.ts`, `src/distribution/actions.ts`, `src/distribution/actions.test.ts` **Estimate:** ~80 LOC, 3 files
+
+`proposeBundle`, which calls `RealityModule.addProposal(CID, [txHash])` through the pure `transactionBundle()` from Phase 3. Adds the `addProposal` ABI entry.
+
+### Phase 13c — `answer.json`
+
+**Depends on:** 13b **Files:** `src/abi.ts`, `src/distribution/actions.ts`, `src/distribution/actions.test.ts` **Estimate:** ~70 LOC, 3 files
+
+`answerBundle`: `SAFE.approve(oracle, minimumBond)`, then a Yes `oracle.submitAnswerERC20`. Adds the ERC-20 `approve` and `submitAnswerERC20` ABI entries.
+
+### Phase 13d — `execute.json`
+
+**Depends on:** 13c **Files:** `src/abi.ts`, `src/distribution/actions.ts`, `src/distribution/actions.test.ts` **Estimate:** ~70 LOC, 3 files
+
+`executeBundle`, a single `executeProposalWithIndex` for the batched transaction, plus `actionBundles`, which returns all three bundles keyed by asset stem. Adds the `executeProposalWithIndex` ABI entry.
 
 ### Phase 14 — Package manifest and assembly
 
@@ -713,7 +735,7 @@ Covers:
 
 ### Phase 15 — `cmd:export`
 
-**Depends on:** Phases 2, 7, 12b, 13, 14 **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
+**Depends on:** Phases 2, 7, 12b, 13d, 14 **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
 
 Wires the pieces together:
 
@@ -1135,6 +1157,39 @@ These entries describe the behaviour of Phase 12 as a whole. The 12a and 12b ent
 - `src/abi.ts` and `previous.ts` are identical to the unsplit Phase 12. The tests differ only by 12a's two refusal tests.
 - 12a's gateway, local-CAR, package-files, retry, recovery, different-CID and re-pack tests go through `resolvePreviousRewardsDb` again, as in the unsplit phase, so they also check the ENS read, the resolver and the same-block reads. `fetchRewardsDb` keeps its own `describe`, with the happy path and the two refusal tests.
 - Read-only mainnet re-check: the pinned CID, root `0x6689…fdef` (equal to the drop's), `rewardsUntil` 1791244800 and resolver `0xF291…AC15`, with no re-pack warning.
+
+### Phase 13
+
+These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entries below say how it was split, and they win where they differ.
+
+- **`max_previous = 0` is not what makes `answer.json` revert after an earlier answer.** RealityETH_ERC20-3.0 only checks `max_previous` when it is greater than 0. The bundle still reverts after any earlier answer, because `bondMustDoubleAndMatchMinimum` requires at least twice the current bond, which is already at least the minimum bond. This corrects the Action bundles bullet. The runbook (Phase 20) explains that a challenger's `max_previous` is an optional front-running guard.
+- `execute.json` is a single `executeProposalWithIndex(proposalId, [hash], transaction.to, transaction.value, transaction.data, 1, 0)`, as in 11b. It overrides the Release assets row "3 × `executeProposalWithIndex`".
+- `src/distribution/actions.ts` exports pure functions that return `TransactionBundle` objects. JSON is Phase 14's job. The functions are:
+  - `proposeBundle(proposal, { module }, settlementTimestamp)`;
+  - `answerBundle({ questionId }, { bondToken, minimumBond, oracle }, settlementTimestamp)`;
+  - `executeBundle(proposal, { module }, settlementTimestamp)`;
+  - `actionBundles(proposal, config, settlementTimestamp)`, which returns `{ answer, execute, propose }` keyed by asset stem.
+
+  `ANSWER_YES` is `bytes32(1)`. The functions take a parsed `Proposal`, so Phase 16 can pass `zProposal.parse(…)` or a re-derived proposal.
+- `settlementTimestamp` is a `bigint`, and `createdAt` is `Number(settlementTimestamp) * 1000`. Every bundle transaction has `value` `"0"`. In `execute.json`, `transaction.value` is a calldata argument, not ETH sent with the call.
+- `answer.json` approves exactly `minimumBond` on `config.bondToken`. If the answerer has an internal Reality.eth balance, the oracle uses that first and the approval goes unused, which is harmless.
+- `src/abi.ts` gains:
+  - ERC-20 `approve`;
+  - `REALITY_MODULE_ABI` (`addProposal`, `executeProposalWithIndex`, with `Enum.Operation` as `uint8`);
+  - `REALITY_ETH_ERC20_ABI` (`submitAnswerERC20(bytes32 questionId, bytes32 answer, uint256 maxPrevious, uint256 tokens)`).
+
+  The signatures were checked against `RealityModule.sol` and `RealityETH_ERC20-3.0.sol`.
+- The mainnet test vectors moved from `transactions.test.ts` into the test-only `tests/harness/governance.ts`, which both test files import.
+- Mainnet checks, read-only at block 26247971. An `eth_call` of the `propose.json` call succeeds, because the pinned CID has never been proposed with this hash. On a local anvil fork, with nothing broadcast:
+  - propose, approve and answer all succeed;
+  - a second equal answer reverts with "bond must be double";
+  - executing early reverts with "question must be finalized";
+  - executing after the timeout and the cooldown succeeds;
+  - re-executing reverts.
+
+### Phase 13a
+
+- None. `tests/harness/governance.ts` and `transactions.test.ts` match the unsplit Phase 13, except that the header of `governance.ts` names only `transactions.test.ts` until 13b adds `actions.test.ts`.
 
 ## Open Questions and Assumptions
 
