@@ -43,10 +43,16 @@ export const ERC20_ABI = parseAbi([
 ]);
 
 export const CUMULATIVE_MERKLE_DROP_ABI = parseAbi([
+	"function merkleRoot() external view returns (bytes32 merkleRoot)",
 	"function setMerkleRoot(bytes32 merkleRoot_) external",
 ]);
 
+export const ENS_REGISTRY_ABI = parseAbi([
+	"function resolver(bytes32 node) external view returns (address resolver)",
+]);
+
 export const ENS_RESOLVER_ABI = parseAbi([
+	"function contenthash(bytes32 node) external view returns (bytes hash)",
 	"function setContenthash(bytes32 node, bytes hash) external",
 ]);
 

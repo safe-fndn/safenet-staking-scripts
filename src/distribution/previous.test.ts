@@ -5,20 +5,37 @@ import * as CarBufferWriter from "@ipld/car/buffer-writer";
 import * as dagPb from "@ipld/dag-pb";
 import { importer } from "ipfs-unixfs-importer";
 import type { CID } from "multiformats/cid";
-import { toHex } from "viem";
+import {
+	type Address,
+	createClient,
+	custom,
+	decodeFunctionData,
+	encodeFunctionResult,
+	type Hex,
+	namehash,
+	toHex,
+	zeroAddress,
+} from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { namedAddress, parseSafe } from "../../tests/harness/utils.js";
+import { CUMULATIVE_MERKLE_DROP_ABI, ENS_REGISTRY_ABI, ENS_RESOLVER_ABI } from "../abi.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { backoff } from "../utils/backoff.js";
 import { AEGIS_REWARDS_START } from "../utils/sep.js";
 import { packDirectory } from "./ipfs.js";
 import {
 	CAR_MEDIA_TYPE,
-	type CarSource,
 	DEFAULT_IPFS_GATEWAY_URL,
+	ENS_REGISTRY,
 	fetchRewardsDb,
+	resolvePreviousRewardsDb,
 } from "./previous.js";
+import { encodeContenthash } from "./transactions.js";
 
+const ENS_NAME = "rewards.safenet-gov.eth";
+const RESOLVER = namedAddress("resolver");
+const DROP = namedAddress("drop");
+const BLOCK_NUMBER = 1234n;
 const TWO_WEEKS = BigInt(60 * 60 * 24 * 7 * 2);
 const REWARDS_UNTIL = AEGIS_REWARDS_START + TWO_WEEKS;
 
@@ -74,6 +91,63 @@ const rewardsDb = async ({ withPackageFiles = false } = {}) => {
 	return { cid, car, merkleRoot: update.merkleRoot, source: root, dir };
 };
 
+type Chain = {
+	resolver?: Address;
+	contenthash?: Hex;
+	merkleRoot?: Hex;
+};
+
+/**
+ * A fake mainnet that serves the ENS registry, the resolver of `ENS_NAME` and the Cumulative
+ * Merkle Drop, recording the block tag of every call.
+ */
+const fakeChain = ({ resolver = RESOLVER, contenthash, merkleRoot }: Chain) => {
+	const blockTags: string[] = [];
+	const client = createClient({
+		transport: custom({
+			async request({ method, params }) {
+				if (method === "eth_blockNumber") {
+					return toHex(BLOCK_NUMBER);
+				}
+				if (method !== "eth_call") {
+					throw new Error(`unsupported JSON-RPC method "${method}"`);
+				}
+				const [{ to, data }, blockTag] = params as [{ to: Address; data: Hex }, string];
+				blockTags.push(blockTag);
+				if (to.toLowerCase() === ENS_REGISTRY.toLowerCase()) {
+					const { args } = decodeFunctionData({ abi: ENS_REGISTRY_ABI, data });
+					expect(args).toEqual([namehash(ENS_NAME)]);
+					return encodeFunctionResult({
+						abi: ENS_REGISTRY_ABI,
+						functionName: "resolver",
+						result: resolver,
+					});
+				}
+				if (to.toLowerCase() === RESOLVER.toLowerCase()) {
+					const { functionName, args } = decodeFunctionData({ abi: ENS_RESOLVER_ABI, data });
+					expect([functionName, args]).toEqual(["contenthash", [namehash(ENS_NAME)]]);
+					return encodeFunctionResult({
+						abi: ENS_RESOLVER_ABI,
+						functionName: "contenthash",
+						result: contenthash ?? "0x",
+					});
+				}
+				if (to.toLowerCase() === DROP.toLowerCase()) {
+					const { functionName } = decodeFunctionData({ abi: CUMULATIVE_MERKLE_DROP_ABI, data });
+					expect(functionName).toBe("merkleRoot");
+					return encodeFunctionResult({
+						abi: CUMULATIVE_MERKLE_DROP_ABI,
+						functionName: "merkleRoot",
+						result: merkleRoot ?? toHex(0, { size: 32 }),
+					});
+				}
+				throw new Error(`unexpected call to ${to}`);
+			},
+		}),
+	});
+	return { client, blockTags };
+};
+
 /** Stubs `fetch` with a handler, recording every request. */
 const stubFetch = (handler: (url: string) => Response) => {
 	const fetch = vi.fn(async (input: string | URL | Request, _init?: RequestInit) =>
@@ -98,31 +172,32 @@ const readTree = async (dir: string): Promise<Record<string, string | null>> => 
 	return tree;
 };
 
-/** Packs a directory holding only the given files, for rewards DBs that fail to load. */
-const packFiles = async (files: Record<string, string>) => {
-	const root = await temporary();
-	for (const [name, contents] of Object.entries(files)) {
-		await writeFile(join(root, name), contents);
-	}
-	return { ...(await packDirectory(root)), dir: join(await temporary(), "rewards") };
-};
+const resolve = (
+	{ client }: ReturnType<typeof fakeChain>,
+	dir: string,
+	source: { previousCar?: string; ipfsGatewayUrl?: string } = {},
+	warn = vi.fn(),
+) =>
+	resolvePreviousRewardsDb(client, { ensName: ENS_NAME, cumulativeMerkleDrop: DROP }, source, dir, {
+		withBackoff: fastBackoff,
+		warn,
+	});
 
-const fetchDb = ({ cid }: { cid: CID }, dir: string, source: CarSource = {}, warn = vi.fn()) =>
-	fetchRewardsDb(cid, source, dir, { withBackoff: fastBackoff, warn });
-
-describe("fetchRewardsDb", () => {
-	it("fetches a rewards DB from the default gateway", async () => {
+describe("resolvePreviousRewardsDb", () => {
+	it("resolves the ENS-pinned rewards DB from the default gateway", async () => {
 		const db = await rewardsDb();
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
 		const fetch = stubFetch(() => new Response(db.car));
 		const warn = vi.fn();
 
-		const fetched = await fetchDb(db, db.dir, {}, warn);
+		const previous = await resolve(chain, db.dir, {}, warn);
 
-		expect(fetched).toEqual({
+		expect(previous).toEqual({
 			cid: db.cid,
 			merkleRoot: db.merkleRoot,
 			rewardsUntil: REWARDS_UNTIL,
 			dir: db.dir,
+			ensResolver: RESOLVER,
 		});
 		expect(fetch).toHaveBeenCalledTimes(1);
 		expect(fetch.mock.calls[0]).toEqual([
@@ -131,13 +206,16 @@ describe("fetchRewardsDb", () => {
 		]);
 		expect(await readTree(db.dir)).toEqual(await readTree(db.source));
 		expect(warn).not.toHaveBeenCalled();
+		// The ENS record and the drop's root are read at the same block.
+		expect(chain.blockTags).toEqual(Array(3).fill(toHex(BLOCK_NUMBER)));
 	});
 
 	it("fetches from the configured gateway", async () => {
 		const db = await rewardsDb();
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
 		const fetch = stubFetch(() => new Response(db.car));
 
-		await fetchDb(db, db.dir, { ipfsGatewayUrl: "https://gateway.example/" });
+		await resolve(chain, db.dir, { ipfsGatewayUrl: "https://gateway.example/" });
 
 		expect(fetch.mock.calls[0]).toEqual([
 			`https://gateway.example/ipfs/${db.cid}?format=car`,
@@ -146,22 +224,24 @@ describe("fetchRewardsDb", () => {
 		expect(DEFAULT_IPFS_GATEWAY_URL).toBe("http://127.0.0.1:8080");
 	});
 
-	it("fetches a rewards DB from a local CAR", async () => {
+	it("resolves the ENS-pinned rewards DB from a local CAR", async () => {
 		const db = await rewardsDb();
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
 		const previousCar = join(await temporary(), "previous.car");
 		await writeFile(previousCar, db.car);
 		const fetch = noFetch();
 
-		const fetched = await fetchDb(db, db.dir, {
+		const previous = await resolve(chain, db.dir, {
 			previousCar,
 			ipfsGatewayUrl: "https://gateway.example",
 		});
 
-		expect(fetched).toEqual({
+		expect(previous).toEqual({
 			cid: db.cid,
 			merkleRoot: db.merkleRoot,
 			rewardsUntil: REWARDS_UNTIL,
 			dir: db.dir,
+			ensResolver: RESOLVER,
 		});
 		expect(fetch).not.toHaveBeenCalled();
 		expect(await readTree(db.dir)).toEqual(await readTree(db.source));
@@ -169,13 +249,14 @@ describe("fetchRewardsDb", () => {
 
 	it("accepts a package with a manifest and allocations", async () => {
 		const db = await rewardsDb({ withPackageFiles: true });
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
 		stubFetch(() => new Response(db.car));
 		const warn = vi.fn();
 
-		const fetched = await fetchDb(db, db.dir, {}, warn);
+		const previous = await resolve(chain, db.dir, {}, warn);
 
-		expect(fetched.cid).toEqual(db.cid);
-		expect(fetched.rewardsUntil).toBe(REWARDS_UNTIL);
+		expect(previous.cid).toEqual(db.cid);
+		expect(previous.rewardsUntil).toBe(REWARDS_UNTIL);
 		expect((await readdir(db.dir)).sort()).toEqual([
 			"allocations.json",
 			"latest.json",
@@ -187,9 +268,10 @@ describe("fetchRewardsDb", () => {
 
 	it("retries gateway errors and then throws", async () => {
 		const db = await rewardsDb();
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
 		const fetch = stubFetch(() => new Response("nope", { status: 504, statusText: "Timeout" }));
 
-		await expect(fetchDb(db, db.dir)).rejects.toThrow(
+		await expect(resolve(chain, db.dir)).rejects.toThrow(
 			`failed to fetch 'http://127.0.0.1:8080/ipfs/${db.cid}?format=car': 504 Timeout`,
 		);
 		expect(fetch).toHaveBeenCalledTimes(3);
@@ -198,43 +280,67 @@ describe("fetchRewardsDb", () => {
 
 	it("succeeds when the gateway recovers", async () => {
 		const db = await rewardsDb();
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
 		let attempts = 0;
 		const fetch = stubFetch(() =>
 			++attempts < 3 ? new Response(null, { status: 502 }) : new Response(db.car),
 		);
 
-		expect((await fetchDb(db, db.dir)).cid).toEqual(db.cid);
+		expect((await resolve(chain, db.dir)).cid).toEqual(db.cid);
 		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 
+	it("refuses a name without a resolver", async () => {
+		const chain = fakeChain({ resolver: zeroAddress });
+		const fetch = noFetch();
+		await expect(resolve(chain, await temporary())).rejects.toThrow(
+			`ENS name ${ENS_NAME} has no resolver`,
+		);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it("refuses a name without a contenthash", async () => {
+		const chain = fakeChain({ contenthash: "0x" });
+		noFetch();
+		await expect(resolve(chain, await temporary())).rejects.toThrow(
+			`ENS name ${ENS_NAME} has no contenthash`,
+		);
+	});
+
+	it("refuses a contenthash that is not IPFS", async () => {
+		// A Swarm (`swarm-ns`) contenthash.
+		const contenthash = `0xe40101fa011b20${"ab".repeat(32)}` as Hex;
+		const chain = fakeChain({ contenthash });
+		noFetch();
+		await expect(resolve(chain, await temporary())).rejects.toThrow(
+			`contenthash ${contenthash} is not an IPFS contenthash`,
+		);
+	});
+
 	it("rejects a CAR of a different CID", async () => {
-		const expected = await rewardsDb();
+		const pinned = await rewardsDb();
 		const other = await rewardsDb({ withPackageFiles: true });
+		const chain = fakeChain({
+			contenthash: encodeContenthash(pinned.cid),
+			merkleRoot: pinned.merkleRoot,
+		});
 		stubFetch(() => new Response(other.car));
 
-		await expect(fetchDb(expected, expected.dir)).rejects.toThrow(
-			`CAR roots ${other.cid} do not match expected ${expected.cid}`,
+		await expect(resolve(chain, pinned.dir)).rejects.toThrow(
+			`CAR roots ${other.cid} do not match expected ${pinned.cid}`,
 		);
-		await expect(readdir(expected.dir)).rejects.toThrow("ENOENT");
+		await expect(readdir(pinned.dir)).rejects.toThrow("ENOENT");
 	});
 
-	it("refuses a rewards DB without latest.json", async () => {
-		const packed = await packFiles({ "allocations.json": "[]\n" });
-		stubFetch(() => new Response(packed.car));
+	it("refuses a Merkle root that differs from the drop's", async () => {
+		const db = await rewardsDb();
+		const onchain = toHex(0x42, { size: 32 });
+		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: onchain });
+		stubFetch(() => new Response(db.car));
 
-		await expect(fetchDb(packed, packed.dir)).rejects.toThrow(
-			`rewards DB ${packed.cid} has no latest.json`,
-		);
-	});
-
-	it("refuses a rewards DB without rewardsUntil", async () => {
-		const packed = await packFiles({
-			"latest.json": `{"epoch":0,"merkleRoot":"${toHex(1, { size: 32 })}","tokenTotal":"0"}\n`,
-		});
-		stubFetch(() => new Response(packed.car));
-
-		await expect(fetchDb(packed, packed.dir)).rejects.toThrow(
-			`rewards DB ${packed.cid} has no rewardsUntil`,
+		await expect(resolve(chain, db.dir)).rejects.toThrow(
+			`rewards DB ${db.cid} pinned by ${ENS_NAME} has Merkle root ${db.merkleRoot}, ` +
+				`but CumulativeMerkleDrop ${DROP} has Merkle root ${onchain}`,
 		);
 	});
 
@@ -243,19 +349,68 @@ describe("fetchRewardsDb", () => {
 		// The same files, imported without raw leaves: a valid UnixFS DAG with another CID.
 		const other = await importWithoutRawLeaves(db.source);
 		expect(other.cid.equals(db.cid)).toBe(false);
+		const chain = fakeChain({
+			contenthash: encodeContenthash(other.cid),
+			merkleRoot: db.merkleRoot,
+		});
 		stubFetch(() => new Response(other.car));
 		const warn = vi.fn();
 
-		const fetched = await fetchDb(other, db.dir, {}, warn);
+		const previous = await resolve(chain, db.dir, {}, warn);
 
-		expect(fetched.cid).toEqual(other.cid);
-		expect(fetched.merkleRoot).toBe(db.merkleRoot);
+		expect(previous.cid).toEqual(other.cid);
+		expect(previous.merkleRoot).toBe(db.merkleRoot);
 		expect(await readTree(db.dir)).toEqual(await readTree(db.source));
 		expect(warn).toHaveBeenCalledExactlyOnceWith(
 			`rewards DB ${other.cid} packs to a different CID ${db.cid}`,
 		);
 	});
 });
+
+describe("fetchRewardsDb", () => {
+	it("fetches a rewards DB by CID without reading the chain", async () => {
+		const db = await rewardsDb({ withPackageFiles: true });
+		stubFetch(() => new Response(db.car));
+
+		expect(
+			await fetchRewardsDb(db.cid, {}, db.dir, { withBackoff: fastBackoff, warn: vi.fn() }),
+		).toEqual({
+			cid: db.cid,
+			merkleRoot: db.merkleRoot,
+			rewardsUntil: REWARDS_UNTIL,
+			dir: db.dir,
+		});
+	});
+
+	it("refuses a rewards DB without latest.json", async () => {
+		const packed = await packFiles({ "allocations.json": "[]\n" });
+		stubFetch(() => new Response(packed.car));
+
+		await expect(
+			fetchRewardsDb(packed.cid, {}, packed.dir, { withBackoff: fastBackoff, warn: vi.fn() }),
+		).rejects.toThrow(`rewards DB ${packed.cid} has no latest.json`);
+	});
+
+	it("refuses a rewards DB without rewardsUntil", async () => {
+		const packed = await packFiles({
+			"latest.json": `{"epoch":0,"merkleRoot":"${toHex(1, { size: 32 })}","tokenTotal":"0"}\n`,
+		});
+		stubFetch(() => new Response(packed.car));
+
+		await expect(
+			fetchRewardsDb(packed.cid, {}, packed.dir, { withBackoff: fastBackoff, warn: vi.fn() }),
+		).rejects.toThrow(`rewards DB ${packed.cid} has no rewardsUntil`);
+	});
+});
+
+/** Packs a directory holding only the given files, for rewards DBs that fail to load. */
+const packFiles = async (files: Record<string, string>) => {
+	const root = await temporary();
+	for (const [name, contents] of Object.entries(files)) {
+		await writeFile(join(root, name), contents);
+	}
+	return { ...(await packDirectory(root)), dir: join(await temporary(), "rewards") };
+};
 
 /**
  * Imports a directory with dag-pb file nodes instead of raw leaves, which `unpackCar` accepts but
