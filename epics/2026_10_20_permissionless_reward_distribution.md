@@ -1435,6 +1435,14 @@ These entries describe the export pipeline as a whole, as first implemented. The
   - an ENS resolver mismatch, possible only with an inconsistent RPC;
   - three continuity refusals.
 
+### Phase 15e
+
+- `ExportParameters` is `ExportPeriod & { minPayout; generator }`. `exportPackage(safenet, config, params, dir)` starts with `exportInputs`, then runs the unsplit 15c steps unchanged.
+- It returns `Export = { cid, car, dir, manifest, allocations, proposal, bundles }`. No separate `buildPackage` is exported, and Phase 16 re-exports through `exportPackage` too.
+- The only code differences from the unsplit 15c come from the 15d split. The pipeline after `exportInputs` is one indentation level shallower, because the temporary directory lives in `exportInputs`.
+- In the tests, the 15d fake chain gains an optional `inner` `MockChain` client, which replaces the original `withGovernance` wrapper. The harness fixtures are renamed `HARNESS_*`, and the end-to-end test also checks that the export leaves nothing in the temporary directory. Expected values are identical to the unsplit 15c.
+- For Phase 16, a re-export that passes the manifest's `parameters` as overrides can't tell an override from a default. To flag overrides, Phase 16 recomputes the defaults with `exportInputs`, without overrides, and compares them with the manifest.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
