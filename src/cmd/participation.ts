@@ -110,7 +110,7 @@ main(
 				z
 					.looseObject({
 						address: z.string().transform((s) => getAddress(s)),
-						participation_rate_14d: z.number(),
+						participation_rate_14d: z.number().nullable().optional(),
 					})
 					.array(),
 			);
