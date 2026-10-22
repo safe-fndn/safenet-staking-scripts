@@ -504,7 +504,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 8 (KYC file) ─────────────────┤                            │
 9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
-5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15a ─► …15g ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
+5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15a ─► …15h ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
 10a (pack) ┬─► 11a ─► … ─► 11e ─► 13a ─► … ─► 13d ─────────┤                                ▲
            └─► 10b (unpack) ─► 12a ─► 12b (previous) ──────┘                                │
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
@@ -806,11 +806,17 @@ Writes the release assets (`rewards-<t>.car`, `cid.txt`, `merkle-root.txt`, `pro
 
 **Depends on:** 15f **Files:** `src/cmd/export.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~100 LOC, 5 files
 
-The command, with its flags and configuration: `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `GIT_COMMIT`, `--previousCar`, `--out`, and the required period.
+The command, with its flags and configuration: `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `--previousCar`, `--out`, and the required period.
+
+### Phase 15h — Build-time version
+
+**Depends on:** 15g **Files:** `package.json`, a version-writing build script, `src/distribution/generator.ts`, `src/distribution/generator.test.ts`, `Dockerfile` (if needed), `README.md` **Estimate:** ~80 LOC
+
+The build writes the git commit it was built from into the build output, and `generator()` loads it with a dynamic `import`. Running from `src/` uses a development default such as `0000…-dev`. A dirty tree only warns instead of refusing, which helps testing. After 15h, `cmd:export` works in the Docker image, which has no `.git`. Until then it fails there.
 
 ### Phase 16 — `cmd:verify` (offline)
 
-**Depends on:** Phase 15g **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
+**Depends on:** Phase 15h **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
 
 Re-exports from the manifest (including `previous.cid`) into a temporary directory and compares every file, the CID and every derived asset, printing a per-file diff. It refuses a manifest whose `sanctions.offchain.repository` differs from the configured `SANCTIONS_ADDRESS_REPO`, with an error naming both.
 
@@ -1461,6 +1467,32 @@ These entries describe the export pipeline as a whole, as first implemented. The
   - `proposal.json` has the 11e shape, and `execute.json` holds the single execution.
 - `SHA256SUMS` has one `<lowercase hex>  <name>\n` line per asset, with two spaces, sorted by name in byte order. It doesn't list itself, and the tests check it with `sha256sum --check --strict`.
 - The release directory is created if it is missing, and a non-empty one is refused. Files are written with flag `wx`.
+
+### Phase 15g
+
+- `cmd:export` defines its arguments inline in `src/cmd/export.ts`, like the other commands:
+  - `rewardPeriodStart` and `rewardPeriodEnd`, required, with no `rewardsPeriod()` default;
+  - `totalRewards?`, `sentinelRewards?` and `minPayout` (default `0n`), in whole SAFE, parsed with `parseUnits(…, 18)`;
+  - `previousCar?` and `ipfsGatewayUrl?`;
+  - `cumulativeMerkleDropAddress`, `realityModuleAddress` and `rewardsEnsName`, required, with their defaults in `.env.sample`;
+  - `out`, required.
+
+  There is no `kycThreshold`, and no `gitCommit` or `GIT_COMMIT`: the commit is recorded by the build-time version in 15h.
+- `IPFS_GATEWAY_URL` moves out of the base args schema in `src/utils/args.ts` into `cmd:export`'s arguments, because no other command reads it. Nothing else is added to `args.ts`, and like the other commands, `cmd:export` has no argument tests.
+- The command runs these steps in order:
+  1. `generator()`, which uses a live `git rev-parse HEAD` and refuses a dirty tree until 15h;
+  2. a check that `--out` is missing or empty;
+  3. `Safenet.create`;
+  4. `exportPackage` into `<mkdtemp>/package`;
+  5. `writeReleaseAssets(out, releaseAssets(…))`;
+  6. a summary in the `cmd:rewards` style;
+  7. removing the temporary directory in `finally`.
+
+  The package never lands in `--out`.
+- There is no explicit indexing step. `Safenet`'s period queries already index both chains up to the settlement, as `cmd:rewards` does.
+- Docker: the `Dockerfile` is unchanged. The image has no `.git` or git, so `export` refuses to run there until 15h, and the README says so. The 15b `gitCommit` parameter is unused until 15h replaces it.
+- `.env.sample` gains `REALITY_MODULE_ADDRESS` and `REWARDS_ENS_NAME`. The README gains the configuration rows, a `cmd:export` section and the Docker note.
+- The command has not run end to end against real chains, because the first Aegis period hasn't settled yet.
 
 ## Open Questions and Assumptions
 

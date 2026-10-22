@@ -43,6 +43,9 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `SANCTIONS_ADDRESS_REPO`         | GitHub `owner/name` repo of the UN/EU/UK/Swiss SECO/US OFAC address lists (optional).      | `safe-fndn/sanctions-address-lists`          |
 | `GITHUB_TOKEN`                   | GitHub token for the release listing API (optional; avoids the 60/hour IP rate limit).     | _(unset)_                                    |
 | `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                               | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
+| `REALITY_MODULE_ADDRESS`         | Zodiac Reality Module on the Governance Safe (`cmd:export`).                               | `0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC` |
+| `REWARDS_ENS_NAME`               | ENS name whose `contenthash` pins the latest rewards DB (`cmd:export`).                    | `rewards.safenet-gov.eth`                    |
+| `IPFS_GATEWAY_URL`               | Trustless gateway the previous rewards DB's CAR is fetched from (`cmd:export`, optional).  | `http://127.0.0.1:8080` (local Kubo)         |
 | `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
 | `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
 | `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
@@ -54,7 +57,7 @@ Every variable can also be passed as a CLI flag using camelCase (e.g. `--databas
 
 ## Commands
 
-All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Tuesday to Tuesday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted.
+All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Tuesday to Tuesday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted, except for `cmd:export`, which requires both.
 
 ### `cmd:index`
 
@@ -90,6 +93,40 @@ Work that completes a period can land after its end, so it is counted up to the 
 A validator signature counts towards the period its signing ceremony completed in, and only if the ceremony's transaction attestation lands no later than the settlement block. Sentinel reveals are attributed to the period of the request they answer rather than the period they happened in, so a reveal landing after the period boundary still counts towards its request, as long as it lands no later than the settlement block. Unlike validators, there is no on-chain registry of sentinels, so only sentinels that revealed at least once appear in the output.
 
 The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically. Only validator rates are recorded — sentinel rates are print-only, and are unaffected by `--category`.
+
+### `cmd:export`
+
+Builds the reward distribution package for an explicit period on top of the rewards DB that the ENS `contenthash` of `REWARDS_ENS_NAME` pins, and writes its release assets. Anyone can run it, and the same commit, lockfile and inputs always produce byte-identical assets.
+
+```sh
+npm run cmd:export -- --rewardPeriodStart=1791849600 --rewardPeriodEnd=1793059200 --out=./release
+
+# Use a local CAR of the ENS-pinned rewards DB instead of fetching it from IPFS_GATEWAY_URL
+npm run cmd:export -- --rewardPeriodStart=1791849600 --rewardPeriodEnd=1793059200 --out=./release \
+  --previousCar=./rewards-1791244800.car
+```
+
+`--rewardPeriodStart` and `--rewardPeriodEnd` are required; there is no default period, and the period must start where the previous rewards DB ends. It covers both validator and sentinel rewards. The previous rewards DB is never chosen by the operator: the command reads the `contenthash` of `REWARDS_ENS_NAME` and fetches that CID, as a CAR from `--previousCar` or from `IPFS_GATEWAY_URL`, verifying every block against it, and refuses to run unless its Merkle root equals `CumulativeMerkleDrop.merkleRoot()`. The governance configuration (the Governance Safe, the Reality.eth oracle and bond token, the question template, arbitrator, minimum bond and timings, and the ENS resolver) is read from `REALITY_MODULE_ADDRESS` and ENS at the same block.
+
+`--previousCar` is only a local source for that CID: the command still verifies the file against the ENS-pinned CID and refuses any other CAR. To get one, export it from an IPFS node that has it pinned with `ipfs dag export <cid> > previous.car`, where `<cid>` is the CID the `contenthash` of `rewards.safenet-gov.eth` points to, or download the `rewards-<t>.car` asset of the previous distribution's release.
+
+The `--totalRewards`, `--sentinelRewards` and `--minPayout` flags work as for `cmd:rewards`, with the budget catch-up measured against the previous rewards DB. The KYC threshold and approvals always come from `src/distribution/kyc.json`, so there is no `--kycThreshold` flag. Like the other period queries, the command indexes both chains up to the period's settlement and fails until the settlement block exists; with a persistent `DATABASE_FILE` that `cmd:index` keeps up to date, only the remainder is fetched.
+
+The package (`manifest.json`, `allocations.json`, `latest.json` and `proofs/`) is assembled in a temporary directory, packed into a CAR, and only the release assets are written to `--out`, which must be missing or empty:
+
+| Asset                     | Contents                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `rewards-<periodEnd>.car` | CARv1 of the package, whose root is the package CID                             |
+| `cid.txt`                 | Package CID                                                                     |
+| `merkle-root.txt`         | Merkle root                                                                     |
+| `proposal.json`           | The Governance Safe transaction, its calls, its Zodiac hash and the question ID |
+| `propose.json`            | Safe Transaction Builder bundle: `addProposal`                                  |
+| `answer.json`             | Safe Transaction Builder bundle: `approve` and a **Yes** `submitAnswerERC20`    |
+| `execute.json`            | Safe Transaction Builder bundle: `executeProposalWithIndex`                     |
+| `manifest.json`           | Copy of the package manifest                                                    |
+| `SHA256SUMS`              | Checksums of all of the above, for `sha256sum -c`                               |
+
+The manifest records the commit that generated the package, `git rev-parse HEAD` of the checkout the command runs from. The command refuses to run from a checkout with uncommitted changes to tracked files.
 
 ### `cmd:rewards`
 
@@ -214,6 +251,8 @@ docker run \
 docker run --rm --env-file .env ghcr.io/safe-fndn/safenet-staking-scripts:main \
   rewards --totalRewards=1000000 --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 ```
+
+The image contains no git checkout, so `export` cannot record the commit that generated a package and refuses to run in it for now.
 
 ## Tests
 
