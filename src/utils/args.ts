@@ -6,6 +6,7 @@ import { type Client, createClient, getAddress, http, type Prettify } from "viem
 import { z } from "zod";
 import { type MerkleDb, nextRewardsStart } from "../merkledb/index.js";
 import { dateToTimestamp, type TimestampRange } from "../utils/ranges.js";
+import { zGitHubRepository } from "./gh.js";
 import {
 	AEGIS_REWARDS_START,
 	AEGIS_VALIDATOR_REWARDS,
@@ -26,7 +27,7 @@ const SCHEMA = z.object({
 	delegateRegistryStartBlock: z.coerce.bigint().optional(),
 	sanctionsListAddress: z.string().transform((a) => getAddress(a)),
 	sanctionsListStartBlock: z.coerce.bigint(),
-	sanctionsAddressListsUrl: z.url().optional(),
+	sanctionsAddressRepo: zGitHubRepository.optional(),
 	consensusRpcUrl: z.url(),
 	consensusAddress: z.string().transform((a) => getAddress(a)),
 	consensusStartBlock: z.coerce.bigint(),
