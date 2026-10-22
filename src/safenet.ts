@@ -8,7 +8,11 @@ import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "
 import { getBlock, getBlockNumber, getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { AttestationData } from "./data/attestations.js";
-import { SanctionsData } from "./data/sanctions.js";
+import {
+	type OffchainSanctions,
+	type PinnedSanctionedAccounts,
+	SanctionsData,
+} from "./data/sanctions.js";
 import { SentinelData } from "./data/sentinels.js";
 import { StakingData } from "./data/staking.js";
 import type { EventIndexer } from "./indexing/events.js";
@@ -694,6 +698,19 @@ export class Safenet {
 		return this.#staking.sanctionsData.sanctionedAccounts({
 			toTimestamp: to.toTimestamp ?? block.timestamp,
 		});
+	}
+
+	/**
+	 * Returns the accounts excluded from reward payouts for a period, with the
+	 * offchain address lists pinned to the period's snapshot release. See
+	 * `SanctionsData.pinnedSanctionedAccounts`.
+	 */
+	async pinnedSanctionedAccounts(
+		period: ToTimestamp,
+		expected?: OffchainSanctions,
+	): Promise<PinnedSanctionedAccounts> {
+		await this.#staking.sanctions.update(period);
+		return this.#staking.sanctionsData.pinnedSanctionedAccounts(period, expected);
 	}
 
 	/**
