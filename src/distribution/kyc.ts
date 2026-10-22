@@ -29,9 +29,9 @@ const zAccount = z
 	})
 	.transform((s) => s as Address);
 /**
- * Checksummed accounts, sorted by address bytes with no duplicates.
+ * Refines a list of accounts to be sorted by address bytes with no duplicates.
  */
-export const zSortedAccounts = zAccount.array().superRefine((accounts, ctx) => {
+export const refineSortedAccounts = (accounts: Address[], ctx: z.RefinementCtx): void => {
 	for (let i = 1; i < accounts.length; i++) {
 		const [previous, current] = [accounts[i - 1].toLowerCase(), accounts[i].toLowerCase()];
 		if (previous === current) {
@@ -40,7 +40,12 @@ export const zSortedAccounts = zAccount.array().superRefine((accounts, ctx) => {
 			ctx.addIssue({ code: "custom", message: `account ${accounts[i]} is not sorted` });
 		}
 	}
-});
+};
+
+/**
+ * Checksummed accounts, sorted by address bytes with no duplicates.
+ */
+export const zSortedAccounts = zAccount.array().superRefine(refineSortedAccounts);
 const zKyc = z.strictObject({
 	accounts: zSortedAccounts,
 	// A decimal amount of SAFE tokens, parsed exactly like the `--kycThreshold` flag.
