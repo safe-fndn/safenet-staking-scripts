@@ -24,7 +24,12 @@ import { type Backoff, backoff } from "./utils/backoff.js";
 import { blockAtTimestamp } from "./utils/blocks.js";
 import { formatRange } from "./utils/format.js";
 import { sqrtBigInt } from "./utils/math.js";
-import { rangeDuration, type TimestampRange, type ToTimestamp } from "./utils/ranges.js";
+import {
+	rangeDuration,
+	type SettledRange,
+	type TimestampRange,
+	type ToTimestamp,
+} from "./utils/ranges.js";
 
 export type ValidatorStats = Record<
 	Address,
@@ -93,7 +98,8 @@ export type Settlement = {
 
 /**
  * The number of consensus blocks after the end of a period during which events
- * completing the period's work, such as sentinel reveals, are still counted.
+ * completing the period's work, sentinel reveals and transaction attestations,
+ * are still counted.
  *
  * This is the `transaction_attestation_duration` default in `safenet-monitor`:
  * "Worst case for an oracle approved transaction with the default Aegis
@@ -212,9 +218,30 @@ export class Safenet {
 		]);
 	}
 
-	async #validatorRegistrations(period: TimestampRange): Promise<ValidatorRegistrations[]> {
+	/**
+	 * Computes the settlement of a period and indexes every indexer, on both
+	 * chains, up to the settlement block's timestamp.
+	 *
+	 * All data shares this single indexing horizon, which covers work crossing
+	 * the period boundary, such as sentinel reveals and the transaction
+	 * attestations of signing ceremonies completed in the period. Queries that
+	 * are bounded by the period's timestamps alone are unaffected by indexing
+	 * further, and late-arriving events are cut off at the settlement
+	 * timestamp, so the results do not depend on how far past the settlement
+	 * the database happens to be indexed.
+	 *
+	 * Note that this fails while the settlement block does not exist yet, as
+	 * well as while the staking chain has no block at or after the settlement
+	 * timestamp yet.
+	 */
+	async #settle(period: TimestampRange): Promise<SettledRange> {
 		this.#debug(`using period ${formatRange(period)}`);
-		await this.index(period);
+		const { settlementTimestamp } = await this.settlement(period);
+		await this.index({ toTimestamp: settlementTimestamp });
+		return { ...period, settlementTimestamp };
+	}
+
+	#validatorRegistrations(period: TimestampRange): ValidatorRegistrations[] {
 		const set = this.#staking.staking.validatorSet(period);
 		return Object.entries(set).map(([key, registrations]) => ({
 			validator: getAddress(key),
@@ -222,10 +249,10 @@ export class Safenet {
 		}));
 	}
 
-	async #validatorSelfStake(
+	#validatorSelfStake(
 		period: TimestampRange,
 		{ validator, registrations }: ValidatorRegistrations,
-	): Promise<ValidatorSelfStake> {
+	): ValidatorSelfStake {
 		const result = {
 			beneficiary: zeroAddress,
 			amount: 0n,
@@ -268,10 +295,10 @@ export class Safenet {
 		return result;
 	}
 
-	async #validatorTotalStake(
+	#validatorTotalStake(
 		period: TimestampRange,
 		{ validator, registrations }: ValidatorRegistrations,
-	): Promise<bigint> {
+	): bigint {
 		let total = 0n;
 		for (const registration of registrations) {
 			for (const staker of this.#staking.staking.stakers(registration)) {
@@ -285,17 +312,14 @@ export class Safenet {
 		return total / rangeDuration(period);
 	}
 
-	async #validatorStats(
-		period: TimestampRange,
-		validators: ValidatorRegistrations[],
-	): Promise<ValidatorStats> {
+	#validatorStats(period: TimestampRange, validators: ValidatorRegistrations[]): ValidatorStats {
 		const stats = {} as ValidatorStats;
 		for (const { validator, registrations } of validators) {
-			const { beneficiary, ...self } = await this.#validatorSelfStake(period, {
+			const { beneficiary, ...self } = this.#validatorSelfStake(period, {
 				validator,
 				registrations,
 			});
-			const total = await this.#validatorTotalStake(period, { validator, registrations });
+			const total = this.#validatorTotalStake(period, { validator, registrations });
 			stats[validator] = {
 				beneficiary,
 				stake: { self, total },
@@ -304,10 +328,7 @@ export class Safenet {
 		return stats;
 	}
 
-	async *#staked(
-		period: TimestampRange,
-		validators: ValidatorRegistrations[],
-	): AsyncGenerator<Staked> {
+	*#staked(period: TimestampRange, validators: ValidatorRegistrations[]): Generator<Staked> {
 		for (const staker of this.#staking.staking.stakers(period)) {
 			const amounts = [] as Staked["amounts"];
 
@@ -336,10 +357,7 @@ export class Safenet {
 		}
 	}
 
-	async #participation(
-		period: TimestampRange,
-		validators: ValidatorRegistrations[],
-	): Promise<Participation> {
+	#participation(period: SettledRange, validators: ValidatorRegistrations[]): Participation {
 		const registrations = Object.fromEntries(
 			validators.map(({ validator, registrations }) => [validator, registrations]),
 		);
@@ -358,10 +376,14 @@ export class Safenet {
 	 * participation rate. Along with the average stake, the beneficiary for
 	 * the commissions (defined to be the last set validator staker) is also
 	 * returned.
+	 *
+	 * Like all period queries, this indexes up to the period's settlement (see
+	 * `settlement`), and fails until it exists.
 	 */
 	async validatorStats(period: TimestampRange): Promise<ValidatorStats> {
-		const validators = await this.#validatorRegistrations(period);
-		return await this.#validatorStats(period, validators);
+		await this.#settle(period);
+		const validators = this.#validatorRegistrations(period);
+		return this.#validatorStats(period, validators);
 	}
 
 	/**
@@ -370,17 +392,34 @@ export class Safenet {
 	 *
 	 * The staked amounts are provided as a streaming interface to avoid loading
 	 * staking data for all stakers into memory at once.
+	 *
+	 * Like all period queries, this indexes up to the period's settlement (see
+	 * `settlement`), and fails until it exists.
 	 */
 	async *staked(period: TimestampRange): AsyncGenerator<Staked> {
-		const validators = await this.#validatorRegistrations(period);
-		for await (const stake of this.#staked(period, validators)) {
-			yield stake;
-		}
+		await this.#settle(period);
+		const validators = this.#validatorRegistrations(period);
+		yield* this.#staked(period, validators);
 	}
 
+	/**
+	 * Compute validator participation within a period.
+	 *
+	 * Participation is the number of transaction attestations a validator
+	 * contributed a signature share to, out of all transaction attestations in
+	 * the period. A signing ceremony belongs to the period it completed in, and
+	 * only counts if its `TransactionAttested` event, which may land after the
+	 * period boundary, is no later than the period's settlement block (see
+	 * `settlement`).
+	 *
+	 * Note that this indexes both chains up to the settlement block's
+	 * timestamp, so it also fails while the staking chain has no block at or
+	 * after it yet.
+	 */
 	async participation(period: TimestampRange): Promise<Participation> {
-		const validators = await this.#validatorRegistrations(period);
-		return await this.#participation(period, validators);
+		const settled = await this.#settle(period);
+		const validators = this.#validatorRegistrations(period);
+		return this.#participation(settled, validators);
 	}
 
 	/**
@@ -438,13 +477,8 @@ export class Safenet {
 	 * sentinels that revealed at least once appear in the result.
 	 */
 	async sentinelParticipation(period: TimestampRange): Promise<SentinelParticipation> {
-		this.#debug(`using period ${formatRange(period)}`);
-		const { settlementTimestamp } = await this.settlement(period);
-		// Every indexer, not just the sentinel oracle, is updated to the
-		// settlement, so that all data shares a single indexing horizon that
-		// covers work crossing the period boundary.
-		await this.index({ toTimestamp: settlementTimestamp });
-		return this.#consensus.sentinels.participation({ ...period, settlementTimestamp });
+		const settled = await this.#settle(period);
+		return this.#consensus.sentinels.participation(settled);
 	}
 
 	/**
@@ -455,11 +489,15 @@ export class Safenet {
 	 * 3.5M SAFE minimum self-stake forfeit their self-stake earnings. Individual
 	 * payouts below `minPayout` are carried forward as unpaid.
 	 *
+	 * Participation only counts transaction attestations up to the period's
+	 * settlement block (see `participation`), so this fails until it exists.
+	 *
 	 * Based on the rewards calculation specification from:
 	 * <https://docs.safefoundation.org/safenet/staking/rewards>
 	 */
 	async rewards(period: TimestampRange, totalRewards: bigint, minPayout: bigint): Promise<Rewards> {
-		const validators = await this.#validatorRegistrations(period);
+		const settled = await this.#settle(period);
+		const validators = this.#validatorRegistrations(period);
 
 		if (validators.length === 0) {
 			// If there are no validators, there are no rewards. We exit early
@@ -468,10 +506,8 @@ export class Safenet {
 			return { payouts: {}, unpaid: totalRewards };
 		}
 
-		const [stats, participation] = await Promise.all([
-			this.#validatorStats(period, validators),
-			this.#participation(period, validators),
-		]);
+		const stats = this.#validatorStats(period, validators);
+		const participation = this.#participation(settled, validators);
 
 		if (participation.total === 0) {
 			// There were no transactions in that period, so nothing to do!
@@ -561,7 +597,7 @@ export class Safenet {
 		// Compute the payout amounts to each delegated staker.
 		const MIN_SELF_STAKE = parseUnits("3500000.0", 18);
 		const COMMISSION_BPS = 500n;
-		for await (const { staker, amounts } of this.#staked(period, validators)) {
+		for (const { staker, amounts } of this.#staked(period, validators)) {
 			for (const { validator, amount } of amounts) {
 				const validatorStat = stats[validator];
 				const delegateAmount = amount - (validatorStakers[validator][staker] ?? 0n);

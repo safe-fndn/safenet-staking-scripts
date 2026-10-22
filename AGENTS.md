@@ -70,7 +70,7 @@ Use `assertTimestamp` to catch arithmetic mistakes: place it on the slot that sh
 
 Block 0 is an empty genesis block that shares timestamp 0 with block 1, so that block lookups can search from block 0 when no start block is configured.
 
-Sentinel participation and rewards only count reveals up to the period's settlement block, `SETTLEMENT_BLOCKS` (48) consensus blocks after the last consensus block at or before `toTimestamp`, and fail while that block does not exist. They index every indexer, on both chains, up to the settlement block's timestamp. Scenarios that query them must extend the consensus chain with `...emptyBlocks(Number(SETTLEMENT_BLOCKS))` past the end of the period, and the staking chain up to at least the settlement timestamp.
+Validator and sentinel participation only count transaction attestations and reveals up to the period's settlement block, `SETTLEMENT_BLOCKS` (48) consensus blocks after the last consensus block at or before `toTimestamp`. Every period query (`rewards`, `participation`, `validatorStats`, `staked`, `sentinelParticipation`, `sentinelRewards`) fails while that block does not exist, and indexes every indexer, on both chains, up to the settlement block's timestamp. Scenarios that query them must extend the consensus chain with `...emptyBlocks(Number(SETTLEMENT_BLOCKS))` past the end of the period, and the staking chain up to at least the settlement timestamp.
 
 ### Minimum event sequence for a reward test
 
@@ -84,7 +84,7 @@ Sentinel participation and rewards only count reveals up to the period's settlem
 
 Then, once the period window opens (i.e. after `fromTimestamp`), emit the full transaction lifecycle in one slot: 6. `TransactionProposed` – propose a transaction (`epoch`, `transaction`) 7. `Sign` – open a signing ceremony (`sid`, `message` = `transactionProposalMessage(...)`) 8. `SignShared` – one per participating validator (`sid`, `selectionRoot`, `participant`) 9. `SignCompleted` – close the ceremony (`sid`, `selectionRoot`) 10. `TransactionAttested` – finalise the transaction (`sid`)
 
-Only transactions that complete this full lifecycle count toward participation.
+Only transactions that complete this full lifecycle count toward participation, and only if `SignCompleted` is inside the period and `TransactionAttested` is no later than the period's settlement block.
 
 ### Commission routing order
 
