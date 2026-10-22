@@ -977,6 +977,10 @@ These entries describe the behaviour of Phase 10 as a whole. The 10a and 10b ent
 - `ipfs-unixfs-exporter` is not in 10a's lockfile at all, not even transitively.
 - `@ipld/dag-pb` is needed in 10a both to order the CAR blocks and to inspect the CAR in tests. It is used for hostile CARs only from 10b.
 
+### Phase 10b
+
+- None. `src/`, `tests/`, `package.json` and `package-lock.json` are identical to the unsplit Phase 10. Unpacking Kubo's CAR of the pinned rewards DB reproduces the source tree.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
