@@ -57,3 +57,7 @@ export const ENS_RESOLVER_ABI = parseAbi([
 ]);
 
 export const MULTI_SEND_ABI = parseAbi(["function multiSend(bytes transactions) external payable"]);
+
+export const REALITY_MODULE_ABI = parseAbi([
+	"function addProposal(string proposalId, bytes32[] txHashes) external",
+]);

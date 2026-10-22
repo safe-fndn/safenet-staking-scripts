@@ -1,6 +1,6 @@
 /**
- * Mainnet vectors for the Governance Safe transaction, used by
- * `src/distribution/transactions.test.ts`.
+ * Mainnet vectors for the Governance Safe transaction and its action bundles, shared by
+ * `src/distribution/transactions.test.ts` and `src/distribution/actions.test.ts`.
  */
 
 import { CID } from "multiformats/cid";
