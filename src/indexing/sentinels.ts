@@ -42,6 +42,7 @@ export class SentinelOracle extends EventIndexer<typeof EVENTS, SentinelData> {
 					requestId: log.args.requestId,
 					sentinel: log.args.sentinel,
 					approved: log.args.approved,
+					blockTimestamp: log.blockTimestamp,
 				});
 				break;
 			}

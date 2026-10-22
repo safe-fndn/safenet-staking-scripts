@@ -14,6 +14,15 @@ export type TimestampRange = {
 export type FromTimestamp = Pick<TimestampRange, "fromTimestamp">;
 export type ToTimestamp = Pick<TimestampRange, "toTimestamp">;
 
+/**
+ * A timestamp range, together with the timestamp of its settlement block: the
+ * last point in chain history that events completing the range's work are
+ * still counted at.
+ */
+export type SettledRange = TimestampRange & {
+	settlementTimestamp: bigint;
+};
+
 export type Range = BlockRange | TimestampRange;
 
 export const isBlockRange = (r: Range): r is BlockRange => {
