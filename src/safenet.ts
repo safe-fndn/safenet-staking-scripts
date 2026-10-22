@@ -24,6 +24,7 @@ import { Transactions } from "./indexing/transactions.js";
 import { ValidatorBeneficiaries } from "./indexing/validator-beneficiaries.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
+import type { Payout } from "./merkledb/index.js";
 import { type Backoff, backoff } from "./utils/backoff.js";
 import { blockAtTimestamp } from "./utils/blocks.js";
 import { formatRange } from "./utils/format.js";
@@ -120,6 +121,22 @@ export const SETTLEMENT_BLOCKS = 48n;
 /** The total amount paid out to a recipient over all reward programs. */
 export const payoutAmount = ({ stakeRewards, commission, sentinelRewards }: RewardSplit): bigint =>
 	stakeRewards + commission + sentinelRewards;
+
+/**
+ * Flattens merged payouts into the `MerkleDb.distribute` input. Each entry carries its sentinel
+ * share alongside the total it is part of, so that a recipient who is both a validator staker and
+ * a sentinel is distributed to once, without losing track of how much of the distribution the
+ * sentinel program funded.
+ */
+export const distributionPayouts = (
+	payouts: Record<Address, RewardSplit>,
+): Record<Address, Payout> =>
+	Object.fromEntries(
+		Array.from(addressEntries(payouts), ([account, split]) => [
+			account,
+			{ amount: payoutAmount(split), sentinelAmount: split.sentinelRewards },
+		]),
+	);
 
 /**
  * Merges sentinel grants into validator payouts, so that both programs can be

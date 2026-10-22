@@ -385,7 +385,11 @@ const encodeChain = <E>(
 		),
 	});
 
-export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
+/**
+ * The `Safenet.create` parameters for a scenario, with mock clients for both chains, so that a
+ * test can wrap a client or pass the same configuration to code other than `Safenet`.
+ */
+export const createTestParameters = (scenario: Scenario) => {
 	const stakingChain = encodeChain(
 		{ chainId: 1, blockTime: 12n },
 		scenario.staking,
@@ -397,7 +401,7 @@ export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
 		encodeConsensusEvent,
 	);
 
-	return Safenet.create({
+	return {
 		databaseFile: ":memory:",
 		stakingClient: createMockClient(stakingChain),
 		stakingBlockPageSize: 5n,
@@ -409,5 +413,8 @@ export const createTestSafenet = (scenario: Scenario): Promise<Safenet> => {
 		consensusAddress: namedAddress("Consensus"),
 		sentinelOracleAddress: namedAddress("SentinelOracle"),
 		sentinelOracleStartBlock: scenario.sentinelOracleStartBlock,
-	});
+	} satisfies Parameters<typeof Safenet.create>[0];
 };
+
+export const createTestSafenet = (scenario: Scenario): Promise<Safenet> =>
+	Safenet.create(createTestParameters(scenario));

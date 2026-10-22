@@ -1,5 +1,11 @@
+import type { Address } from "viem";
 import { describe, expect, it } from "vitest";
-import { mergeRewardPayouts, payoutAmount, SETTLEMENT_BLOCKS } from "../src/safenet.js";
+import {
+	distributionPayouts,
+	mergeRewardPayouts,
+	payoutAmount,
+	SETTLEMENT_BLOCKS,
+} from "../src/safenet.js";
 import { sentinelRequest } from "./harness/presets.js";
 import { createTestSafenet } from "./harness/scenario.js";
 import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
@@ -156,6 +162,30 @@ describe("sentinel-rewards", () => {
 		expect(payoutAmount(payouts[namedAddress("staker")])).toBe(
 			stakeRewards + commission + PER_SENTINEL,
 		);
+	});
+
+	it("flattens merged payouts into distribution payouts with checksummed keys", () => {
+		// Each entry is distributed once, with its sentinel share recorded as a split of the
+		// total rather than an addition to it.
+		const staker = namedAddress("staker");
+		const split = {
+			stakeRewards: parseSafe("100"),
+			commission: parseSafe("5"),
+			sentinelRewards: 0n,
+		};
+		expect(
+			distributionPayouts({
+				[staker.toLowerCase() as Address]: { ...split, sentinelRewards: PER_SENTINEL },
+				[namedAddress("sentinel1")]: {
+					stakeRewards: 0n,
+					commission: 0n,
+					sentinelRewards: PER_SENTINEL,
+				},
+			}),
+		).toEqual({
+			[staker]: { amount: parseSafe("105") + PER_SENTINEL, sentinelAmount: PER_SENTINEL },
+			[namedAddress("sentinel1")]: { amount: PER_SENTINEL, sentinelAmount: PER_SENTINEL },
+		});
 	});
 
 	it("pays and forfeits nothing for a period without requests", async () => {
