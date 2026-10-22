@@ -927,6 +927,14 @@ These entries describe the behaviour of Phase 9 as a whole. The 9a–9d entries 
   - `pinnedSanctionedAccounts` and `OffchainSanctions` are unchanged. The export (Phases 14–15) takes the repository from the configuration, through a `SanctionsData` accessor if needed, and writes it next to `release` and `sha256`.
   - `cmd:verify` (Phase 16) refuses a manifest whose repository differs from the configured one, with an error naming both, instead of reporting a confusing tag or hash mismatch.
 
+### Phase 9e
+
+- Only `releaseTags` (`api.github.com`) sends `Authorization: Bearer <token>`, and `releaseAsset` is never authenticated. Asset downloads don't count against the REST API rate limit, and they redirect to an asset host on another domain. Node's fetch drops `Authorization` on cross-origin redirects, but the token isn't sent there at all.
+- `process.env.GITHUB_TOKEN` is read on every listing request, not at module load. An unset or empty value sends no header.
+- The token is never put in a URL. Errors stay `failed to fetch '<url>': <status> <statusText>`, so neither errors nor backoff logs contain it.
+- A rejected token (401/403) is retried and then thrown like any other HTTP error, with no fallback to unauthenticated requests.
+- Actions doesn't export `GITHUB_TOKEN` as an environment variable by itself, so the workflow steps in Phases 18 and 19 that resolve a sanctions snapshot set `env: GITHUB_TOKEN: ${{ github.token }}`.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
