@@ -1,13 +1,20 @@
 import Sqlite3 from "better-sqlite3";
 import { getAddress } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GitHubRepository } from "../utils/gh.js";
 import { SanctionsData } from "./sanctions.js";
 
 const jsonResponse = (body: unknown): Response =>
 	new Response(JSON.stringify(body), { status: 200 });
 
-const createSanctionsData = (sanctionsRepoUrl = "https://example.com/lists"): SanctionsData =>
-	new SanctionsData({ db: new Sqlite3(":memory:"), sanctionsRepoUrl });
+const createSanctionsData = (sanctionsAddressRepo?: GitHubRepository): SanctionsData =>
+	new SanctionsData({ db: new Sqlite3(":memory:"), sanctionsAddressRepo });
+
+/** The URLs of every `<source>.json` asset in a repository's `latest` release, sorted. */
+const latestAssetUrls = (repo: string): string[] =>
+	["ch-seco", "eu", "uk", "un", "us-ofac"].map(
+		(source) => `https://github.com/${repo}/releases/download/latest/${source}.json`,
+	);
 
 describe("SanctionsData", () => {
 	afterEach(() => {
@@ -107,5 +114,32 @@ describe("SanctionsData", () => {
 		const data = createSanctionsData();
 		expect(await data.sanctionedAccounts({ toTimestamp: 0n })).toEqual([valid]);
 		expect(attempts).toBeGreaterThanOrEqual(2);
+	});
+
+	it("fetches the lists from the latest release of the default repository", async () => {
+		const fetch = vi.fn(async (_input: string | URL | Request) => jsonResponse([]));
+		vi.stubGlobal("fetch", fetch);
+
+		await createSanctionsData().sanctionedAccounts({ toTimestamp: 0n });
+		expect(fetch.mock.calls.map(([url]) => String(url)).sort()).toEqual(
+			latestAssetUrls("safe-fndn/sanctions-address-lists"),
+		);
+	});
+
+	it("fetches the lists from the latest release of a configured repository", async () => {
+		const valid = getAddress("0x0000000000000000000000000000000000000008");
+		const urls = latestAssetUrls("example/lists");
+		const fetch = vi.fn(async (input: string | URL | Request) => {
+			const url = String(input);
+			if (!urls.includes(url)) {
+				throw new Error(`unexpected url ${url}`);
+			}
+			return jsonResponse(url.endsWith("/eu.json") ? [valid] : []);
+		});
+		vi.stubGlobal("fetch", fetch);
+
+		const data = createSanctionsData("example/lists");
+		expect(await data.sanctionedAccounts({ toTimestamp: 0n })).toEqual([valid]);
+		expect(fetch.mock.calls.map(([url]) => String(url)).sort()).toEqual(urls);
 	});
 });
