@@ -504,7 +504,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 8 (KYC file) ─────────────────┤                            │
 9a ─► 9b ─► 9c (sanctions) ───┘                            │
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
-5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
+5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15a ─► …15e ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
 10a (pack) ┬─► 11a ─► … ─► 11e ─► 13a ─► … ─► 13d ─────────┤                                ▲
            └─► 10b (unpack) ─► 12a ─► 12b (previous) ──────┘                                │
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
@@ -643,7 +643,7 @@ Split into 11a–11e during review, so that each PR adds one group of `src/distr
 
 - Phase 12b: the ENS registry's `resolver`, the resolver's `contenthash`, and the Cumulative Merkle Drop's `merkleRoot`.
 - Phase 13b–13d: the Reality Module's `addProposal` and `executeProposalWithIndex`, `RealityETH_ERC20.submitAnswerERC20`, and ERC-20 `approve`.
-- Phase 15: the Reality Module's config getters, and `RealityETH_ERC20.token`.
+- Phase 15a: the Reality Module's config getters, and `RealityETH_ERC20.token`.
 - Phase 17: the Reality Module's `getTransactionHash`, `buildQuestion` and `getQuestionId` views, and ERC-20 `balanceOf`.
 
 Each sub-phase is its own commit, branch and PR, and Phase 11 has no commit of its own.
@@ -752,21 +752,48 @@ Writes `allocations.json` and the manifest next to a `MerkleDb` output, and copi
 
 ### Phase 15 — `cmd:export`
 
-**Depends on:** Phases 2, 7, 12b, 13d, 14d **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
+Split into 15a–15e before implementation, to keep each PR small. Each sub-phase is its own commit, branch and PR, and Phase 15 has no commit of its own.
 
-Wires the pieces together:
+### Phase 15a — Governance configuration
 
-1. read the governance configuration from the module.
-2. resolve the previous rewards DB.
-3. run `rewards` and `sentinelRewards`.
-4. run `distribute` with sanctions and the threshold and approvals from `data/kyc.json`.
-5. assemble the package and pack it.
-6. build the transactions and bundles.
-7. write the release assets and `SHA256SUMS`.
+**Depends on:** Phases 11d, 12b **Files:** `src/abi.ts`, `src/distribution/governance.ts`, `src/distribution/governance.test.ts` **Estimate:** ~90 LOC, 3 files
+
+Reads the `GovernanceConfiguration` from the Reality Module, its oracle and ENS at one block, as in "Configuration comes from the module, not from env". Adds the module's config getters and the `RealityETH_ERC20.token` ABI entries.
+
+### Phase 15b — Generator commit
+
+**Files:** `src/distribution/generator.ts`, `src/distribution/generator.test.ts` **Estimate:** ~60 LOC, 2 files
+
+The manifest's `generator` block. The commit comes from `GIT_COMMIT` when set, and otherwise from `git rev-parse HEAD`. The export refuses to run on a dirty tree.
+
+### Phase 15c — Export pipeline
+
+**Depends on:** 15a, 15b, Phases 2, 7, 9c, 13d, 14d **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~150 LOC, 2 files
+
+A library function that wires the pieces together:
+1. resolve the previous rewards DB;
+2. run `rewards` and `sentinelRewards` and pin the sanctions;
+3. run `distribute` with the sanctions, threshold and approvals from `kyc.json`;
+4. assemble the package and pack it;
+5. build the proposal and the action bundles.
+
+It returns the results in memory and has no CLI.
+
+### Phase 15d — Release assets
+
+**Depends on:** 15c **Files:** `src/distribution/release.ts`, `src/distribution/release.test.ts` **Estimate:** ~80 LOC, 2 files
+
+Writes the release assets (`rewards-<t>.car`, `cid.txt`, `merkle-root.txt`, `proposal.json`, the three action bundles and `manifest.json`) and their `SHA256SUMS`.
+
+### Phase 15e — `cmd:export`
+
+**Depends on:** 15d **Files:** `src/cmd/export.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~100 LOC, 5 files
+
+The command, with its flags and configuration: `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `--previousCar`, `--out`, and the required period.
 
 ### Phase 16 — `cmd:verify` (offline)
 
-**Depends on:** Phase 15 **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
+**Depends on:** Phase 15e **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
 
 Re-exports from the manifest (including `previous.cid`) into a temporary directory and compares every file, the CID and every derived asset, printing a per-file diff. It refuses a manifest whose `sanctions.offchain.repository` differs from the configured `SANCTIONS_ADDRESS_REPO`, with an error naming both.
 
@@ -1298,6 +1325,18 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 - `writePackageFiles` validates both files with `zAllocations`/`zManifest` before writing anything. It refuses a directory that already contains either file, or anything outside the layout. Afterwards the directory holds exactly `allocations.json`, `latest.json`, `manifest.json` and `proofs/`. It doesn't cross-check the manifest against `latest.json`; Phase 16's re-derivation does that.
 - The example manifest moved from `manifest.test.ts` to the test-only `tests/harness/manifest.ts`, so 14d also changes `src/distribution/manifest.test.ts`.
 - An end-to-end test runs `copyRewardsDb` → `distribute` → `writePackageFiles` → `packDirectory` → `unpackCar` and checks that the files come back identical. It then copies the unpacked package again, as the next export's previous DB.
+
+### Phase 15a
+
+- `src/distribution/governance.ts` exports `governanceConfiguration(client, { module, ensName, blockNumber? }, { withBackoff? })`, whose backoff defaults to the `safenet:governance` namespace. It returns exactly the manifest's `governance` block.
+- It reads the nine module getters, `oracle.token()` and the ENS registry's `resolver(namehash(ensName))`, all through the backoff and at one block: `blockNumber` if given, otherwise the latest block number, read once. The `uint32` timeout, cooldown and expiration are widened to `bigint`, and `module` is checksummed.
+- It reads the ENS resolver itself, so that Phase 17 can re-read the whole configuration without resolving the previous rewards DB. To guarantee one state, `resolvePreviousRewardsDb` gains an optional `blockNumber`. 15c reads one block number and passes it to both functions, so `previous.ensResolver` equals `config.ensResolver`. 15a therefore also changes `src/distribution/previous.ts` and `previous.test.ts`. Their behaviour is unchanged when no block is given.
+- It refuses to run in two cases:
+  - `Reality Module <module> has avatar <avatar> but target <target>`, because Zodiac executes proposals on `target` while the manifest records `avatar` as the Governance Safe;
+  - `ENS name <name> has no resolver`.
+
+  A nonzero `questionArbitrator` is recorded, not refused.
+- Read-only mainnet check, not committed: the configuration at block 26247049 and at the latest block both equal the recorded `CONFIG` vector.
 
 ## Open Questions and Assumptions
 

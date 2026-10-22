@@ -194,17 +194,23 @@ export const fetchRewardsDb = async (
  * Resolves the previous rewards DB, the one the `contenthash` of `ensName` pins, and unpacks it
  * into `dir`, which must be empty or missing. Its `latest.json` Merkle root must equal
  * `cumulativeMerkleDrop.merkleRoot()`, otherwise it throws: the two canonical references to the
- * latest rewards DB must agree. Both are read at the same block.
+ * latest rewards DB must agree. Both are read at the same block, `blockNumber` if set and the
+ * latest block otherwise, so that the export can read the governance configuration at that block
+ * too.
  */
 export const resolvePreviousRewardsDb = async (
 	client: Client,
-	{ ensName, cumulativeMerkleDrop }: { ensName: string; cumulativeMerkleDrop: Address },
+	{
+		ensName,
+		cumulativeMerkleDrop,
+		blockNumber: block,
+	}: { ensName: string; cumulativeMerkleDrop: Address; blockNumber?: bigint },
 	source: CarSource,
 	dir: string,
 	options: Options = {},
 ): Promise<PreviousRewardsDb> => {
 	const { withBackoff, warn } = defaults(options);
-	const blockNumber = await withBackoff(() => getBlockNumber(client, { cacheTime: 0 }));
+	const blockNumber = block ?? (await withBackoff(() => getBlockNumber(client, { cacheTime: 0 })));
 	const { cid, ensResolver } = await ensContenthash(
 		client,
 		{ ensName, blockNumber },
