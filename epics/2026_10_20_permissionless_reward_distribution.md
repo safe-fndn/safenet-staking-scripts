@@ -1267,6 +1267,24 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
   - `generator.commit` must be a 40-character lowercase hash, and `generator.repository` any URL.
   - `governance.ensName` must be a non-empty string.
 
+### Phase 14c
+
+- `buildAllocations({ payouts, unpaid, forfeited }, filters)` is pure and returns `{ allocations, totals }`, where `totals` is the manifest's `allocations` block. It takes the merged `Record<Address, RewardSplit>` from `mergeRewardPayouts` and the same `Filters` that `MerkleDb.distribute` gets. It doesn't read the `MerkleDb` update.
+- The fields come from:
+  - `commission`, `stakeRewards` and `sentinelRewards`: the `RewardSplit`;
+  - `account`: the payout key, checksummed;
+  - `totals.unpaid`: `Safenet.rewards(...).unpaid`;
+  - `totals.forfeited`: `Safenet.sentinelRewards(...).forfeited`.
+- Status precedence is `sanctioned` > `kyc-withheld` > `paid`. A sanctioned account is left out of the tree, whichever bucket holds its amount.
+  - `kyc-withheld` means the total payout is at or above `kycThreshold` and the account isn't in `kycApprovals`, as in `#distributeTo`.
+  - With no threshold, nothing is withheld.
+- There is one entry per account in this period's payouts, including any zero-amount sentinel entry. Previously withheld amounts released this period are not listed. `manifest.kyc.newlyApproved` names those accounts.
+- `Allocation` is `RewardSplit & { account, status }`. `zAllocations` reuses `zChecksummedAddress` and `zValue`, plus `refineSortedAccounts`, which moved unchanged out of `zSortedAccounts` in `kyc.ts`. 14c therefore also changes `src/distribution/kyc.ts`.
+- A test cross-checks against a real `MerkleDb.distribute`:
+  - `additionalAmount` equals the sum of the allocations;
+  - each account's `cumulativeAmount + kycAmount` equals its payout;
+  - each status matches where the amount landed and whether a proof exists.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
