@@ -712,6 +712,12 @@ Changes that came up during implementation. Where they conflict with the rest of
 - Fixed: `MerkleTreeMap` (`src/merkledb/treemap.ts`) used to loop forever with zero leaves, so any rebuild where no account has `cumulativeAmount > 0` hung. An empty tree now has root `zeroHash`, which no proof verifies against. That matches the `CumulativeMerkleDrop` before its first root is set and the `merkleRoot` default of a new distribution entry. Proofs for absent accounts are `null`, as before.
 - Fixed: `kyc()` used to reset `unpaidAmount` to 0. A KYC rebuild distributes nothing, so it now leaves `unpaidAmount` unchanged. Only `distribute` sets it.
 
+### Phase 2
+
+- The Beta → Aegis exception replaces the contiguity rule for that one boundary instead of adding to it. When `rewardsUntil = 2026-10-06`, the only period start `distribute` accepts is `fromTimestamp = 2026-10-13`. A contiguous period starting on 2026-10-06 is rejected (`null`), so the gap week can't be paid by mistake. For example, a fallback `cmd:rewards --record` run with the default `rewardsPeriod()` on Tuesday 2026-10-20 would otherwise compute [2026-10-06, 2026-10-20]. Every other `rewardsUntil` still needs an exactly contiguous period.
+- The Phase 1 tests in `tests/merkledb-index.test.ts` distribute on top of the pinned `rewardsUntil = 2026-10-06`, so they now use the first Aegis period [2026-10-13, 2026-10-27] instead of [2026-10-06, 2026-10-20].
+- The program constants set by the DAO live in a new `src/utils/sep.ts` (Safe Ecosystem Proposal). Phase 2 adds `BETA_REWARDS_UNTIL` and `AEGIS_REWARDS_START`, and `src/merkledb/index.ts` imports them. `nextRewardsStart(rewardsUntil)` is exported from `src/merkledb/index.ts` so that the budget can reuse the gap rule.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
