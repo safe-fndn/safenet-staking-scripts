@@ -1,15 +1,12 @@
 /**
  * The manifest's `generator` block: the commit of this repository a package was built from.
  *
- * Matching bytes are only guaranteed for the same commit, so the export refuses to run from a
- * checkout with uncommitted changes to tracked files. Untracked files are allowed, because the
- * export's own outputs and databases are untracked, and committed code cannot import them.
+ * The commit comes from the version module, `dist/version.js`, which the Docker image build writes
+ * next to the compiled code (see `src/version.d.ts`). Code running from source has none, and its
+ * packages record no commit.
  */
 
-import { execFile } from "node:child_process";
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import debug from "debug";
 import type { Manifest } from "./manifest.js";
 
 /** The repository recorded in every manifest. */
@@ -18,79 +15,54 @@ export const GENERATOR_REPOSITORY = "https://github.com/safe-fndn/safenet-stakin
 /** A full, lowercase git commit hash, as the manifest records it. */
 export const COMMIT_PATTERN = /^[0-9a-f]{40}$/;
 
-/**
- * The directory of this module, which is inside the checkout the code runs from, both as `src/`
- * and as `dist/`. Git is run there rather than in the working directory, so that it inspects the
- * code that builds the package, wherever the command is run from.
- */
-const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
-
 /** The manifest's `generator` block. */
 export type Generator = Manifest["generator"];
 
-const exec = promisify(execFile);
+/** Imports the version module. */
+export type ImportVersion = () => Promise<{ GIT_COMMIT?: unknown }>;
 
-const git = async (dir: string, args: string[]): Promise<string> =>
-	(await exec("git", args, { cwd: dir, encoding: "utf8" })).stdout.trimEnd();
+export type Options = {
+	/** Imports the version module, `dist/version.js` by default. */
+	importVersion?: ImportVersion;
+	/** Reports that there is no version module. */
+	warn?: (message: string) => void;
+};
+
+const log = debug("safenet:generator");
+
+// Relative to the compiled `dist/distribution/generator.js`.
+const importVersionModule: ImportVersion = () => import("../version.js");
 
 /**
- * The commit checked out in the git work tree containing `dir`, or `null` if `dir` is not in a
- * git work tree or git is not installed (as in the Docker image).
+ * The commit the running code was built from, from the version module, or `null` with a warning
+ * when there is none, as when running from source. A malformed commit means a broken build, so it
+ * throws.
  */
-export const headCommit = async (dir: string = MODULE_DIR): Promise<string | null> => {
+export const buildCommit = async ({
+	importVersion = importVersionModule,
+	warn = log,
+}: Options = {}): Promise<string | null> => {
+	let version: { GIT_COMMIT?: unknown };
 	try {
-		if ((await git(dir, ["rev-parse", "--is-inside-work-tree"])) !== "true") {
+		version = await importVersion();
+	} catch (err) {
+		if ((err as { code?: unknown }).code === "ERR_MODULE_NOT_FOUND") {
+			warn("no version module, the code was not built with a commit");
 			return null;
 		}
-	} catch {
-		return null;
+		throw err;
 	}
-	return git(dir, ["rev-parse", "--verify", "HEAD"]);
+	const commit = version.GIT_COMMIT;
+	if (typeof commit !== "string" || !COMMIT_PATTERN.test(commit)) {
+		throw new Error(`version module has malformed GIT_COMMIT ${JSON.stringify(commit)}`);
+	}
+	return commit;
 };
 
 /**
- * The tracked files with uncommitted changes, staged or not, in the git work tree containing
- * `dir`, as `git status --porcelain` lines. Untracked and ignored files are not included.
+ * The `generator` block of the manifest, with the commit from `buildCommit`.
  */
-export const uncommittedChanges = async (dir: string = MODULE_DIR): Promise<string[]> => {
-	const status = await git(dir, ["status", "--porcelain", "--untracked-files=no"]);
-	return status === "" ? [] : status.split("\n");
-};
-
-/**
- * The `generator` block of the manifest.
- *
- * The commit is `gitCommit` (the `GIT_COMMIT` variable) when it is set, and the checked-out commit
- * of the work tree containing `dir` otherwise. When there is a work tree, its `HEAD` must equal
- * `gitCommit` if that is set, and it must have no uncommitted changes to tracked files. Without a
- * work tree, as in the Docker image, which has neither `.git` nor git, `gitCommit` is required and
- * is trusted as is: the image was built from that commit.
- */
-export const generator = async ({
-	gitCommit,
-	dir = MODULE_DIR,
-}: {
-	gitCommit?: string;
-	dir?: string;
-} = {}): Promise<Generator> => {
-	if (gitCommit !== undefined && !COMMIT_PATTERN.test(gitCommit)) {
-		throw new Error(`GIT_COMMIT ${gitCommit} is not a full lowercase git commit hash`);
-	}
-	const head = await headCommit(dir);
-	if (head === null) {
-		if (gitCommit === undefined) {
-			throw new Error(`${dir} is not in a git work tree, and GIT_COMMIT is not set`);
-		}
-		return { commit: gitCommit, repository: GENERATOR_REPOSITORY };
-	}
-	if (gitCommit !== undefined && gitCommit !== head) {
-		throw new Error(`GIT_COMMIT ${gitCommit} does not match the checked-out commit ${head}`);
-	}
-	const changes = await uncommittedChanges(dir);
-	if (changes.length > 0) {
-		throw new Error(
-			`refusing to export from a work tree with uncommitted changes:\n${changes.join("\n")}`,
-		);
-	}
-	return { commit: head, repository: GENERATOR_REPOSITORY };
-};
+export const generator = async (options: Options = {}): Promise<Generator> => ({
+	commit: await buildCommit(options),
+	repository: GENERATOR_REPOSITORY,
+});

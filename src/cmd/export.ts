@@ -40,9 +40,9 @@ main(
 		out: z.string().min(1),
 	},
 	async (args) => {
-		// Before any RPC, so that code with uncommitted changes fails right away, and so does an
-		// output directory that the release assets could not be written to.
-		const generated = await generator();
+		// Before any RPC, so that an output directory that the release assets could not be written
+		// to fails right away.
+		const generated = await generator({ warn: (message) => console.warn(`WARNING: ${message}`) });
 		if ((await readdir(args.out).catch(() => [])).length > 0) {
 			throw new Error(`release directory ${JSON.stringify(args.out)} is not empty`);
 		}

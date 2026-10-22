@@ -126,7 +126,7 @@ The package (`manifest.json`, `allocations.json`, `latest.json` and `proofs/`) i
 | `manifest.json`           | Copy of the package manifest                                                    |
 | `SHA256SUMS`              | Checksums of all of the above, for `sha256sum -c`                               |
 
-The manifest records the commit that generated the package, `git rev-parse HEAD` of the checkout the command runs from. The command refuses to run from a checkout with uncommitted changes to tracked files.
+The manifest records the commit that generated the package. Packages exported from the Docker image record the commit the image was built from. Running from source records `null` instead, with a warning, so such a package is self-evidently not a release build.
 
 ### `cmd:rewards`
 
@@ -252,7 +252,11 @@ docker run --rm --env-file .env ghcr.io/safe-fndn/safenet-staking-scripts:main \
   rewards --totalRewards=1000000 --rewardPeriodStart=1700000000 --rewardPeriodEnd=1701209600
 ```
 
-The image contains no git checkout, so `export` cannot record the commit that generated a package and refuses to run in it for now.
+The image build records the commit it was built from in `dist/version.js` from the `GIT_COMMIT` build argument, and `export` records that commit in every package's manifest. The published images pass it; for a local build, pass it yourself, or the image's packages record no commit:
+
+```sh
+docker build --build-arg GIT_COMMIT="$(git rev-parse HEAD)" -t safenet-staking-scripts .
+```
 
 ## Tests
 

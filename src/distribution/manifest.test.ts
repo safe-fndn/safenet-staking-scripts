@@ -115,6 +115,22 @@ describe("zManifest", () => {
 		}
 	});
 
+	it("accepts a full commit hash or no commit", () => {
+		const withCommit = (commit: unknown) => {
+			const m = JSON.parse(json);
+			m.generator.commit = commit;
+			return zManifest.safeParse(m).success;
+		};
+		expect(withCommit("0123456789abcdef0123456789abcdef01234567")).toBe(true);
+		expect(withCommit(null)).toBe(true);
+		expect(withCommit("0123456789abcdef0123456789abcdef01234567-dirty")).toBe(false);
+		expect(withCommit("-dirty")).toBe(false);
+		expect(withCommit("0123456789ABCDEF0123456789ABCDEF01234567")).toBe(false);
+		expect(withCommit(`${"0".repeat(40)}-dev`)).toBe(false);
+		expect(withCommit("")).toBe(false);
+		expect(withCommit(undefined)).toBe(false);
+	});
+
 	it("requires the fixed IPFS parameters", () => {
 		for (const [key, value] of [
 			["car", 2],

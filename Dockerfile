@@ -14,6 +14,15 @@ COPY src/ src/
 COPY tsconfig.json tsconfig.dist.json ./
 RUN npm run build
 
+# Record the commit the image is built from in the version module (see
+# `src/version.d.ts`), which packages exported from the image record. The build
+# context has no git work tree, so the commit is a build argument. Without it,
+# no version module is written, and packages record no commit.
+ARG GIT_COMMIT
+RUN if [ -n "$GIT_COMMIT" ]; then \
+		printf 'export const GIT_COMMIT = "%s";\n' "$GIT_COMMIT" > dist/version.js; \
+	fi
+
 # ---- Runner Stage ----
 FROM base AS runner
 

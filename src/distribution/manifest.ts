@@ -14,6 +14,7 @@ import {
 import type { Settlement } from "../safenet.js";
 import { type GitHubRepository, zGitHubRepository } from "../utils/gh.js";
 import type { TimestampRange } from "../utils/ranges.js";
+import { COMMIT_PATTERN } from "./generator.js";
 import { IPFS_PARAMETERS, type IpfsParameters } from "./ipfs.js";
 import { zSortedAccounts } from "./kyc.js";
 import type { RewardsDb } from "./previous.js";
@@ -46,8 +47,11 @@ export type Manifest = {
 		tokenTotal: bigint;
 	};
 	generator: {
-		/** The full git commit hash the package was built from. */
-		commit: string;
+		/**
+		 * The full git commit hash the package was built from, or `null` when it was built from
+		 * source, without a version module.
+		 */
+		commit: string | null;
 		repository: string;
 	};
 	governance: GovernanceConfiguration;
@@ -151,7 +155,10 @@ export const zManifest = z.strictObject({
 		tokenTotal: zValue,
 	}),
 	generator: z.strictObject({
-		commit: z.string().regex(/^[0-9a-f]{40}$/, { message: "expected a full git commit hash" }),
+		commit: z
+			.string()
+			.regex(COMMIT_PATTERN, { message: "expected a full git commit hash" })
+			.nullable(),
 		repository: z.url(),
 	}),
 	governance: zGovernanceConfiguration,

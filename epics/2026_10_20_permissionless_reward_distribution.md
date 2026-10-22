@@ -810,9 +810,9 @@ The command, with its flags and configuration: `REALITY_MODULE_ADDRESS`, `REWARD
 
 ### Phase 15h — Build-time version
 
-**Depends on:** 15g **Files:** `package.json`, a version-writing build script, `src/distribution/generator.ts`, `src/distribution/generator.test.ts`, `Dockerfile` (if needed), `README.md` **Estimate:** ~80 LOC
+**Depends on:** 15g **Files:** `src/version.d.ts`, `src/distribution/generator.ts`, `src/distribution/generator.test.ts`, `src/distribution/manifest.ts`, `src/distribution/manifest.test.ts`, `src/cmd/export.ts`, `Dockerfile`, `.github/workflows/docker.yml`, `README.md` **Estimate:** ~80 LOC
 
-The build writes the git commit it was built from into the build output, and `generator()` loads it with a dynamic `import`. Running from `src/` uses a development default such as `0000…-dev`. A dirty tree only warns instead of refusing, which helps testing. After 15h, `cmd:export` works in the Docker image, which has no `.git`. Until then it fails there.
+The Docker build writes the git commit into `dist/version.js`, and `generator()` loads it with a dynamic `import`. Running from source records a `null` commit with a warning. All git subprocess code is removed, so `cmd:export` works in the Docker image.
 
 ### Phase 16 — `cmd:verify` (offline)
 
@@ -1493,6 +1493,20 @@ These entries describe the export pipeline as a whole, as first implemented. The
 - Docker: the `Dockerfile` is unchanged. The image has no `.git` or git, so `export` refuses to run there until 15h, and the README says so. The 15b `gitCommit` parameter is unused until 15h replaces it.
 - `.env.sample` gains `REALITY_MODULE_ADDRESS` and `REWARDS_ENS_NAME`. The README gains the configuration rows, a `cmd:export` section and the Docker note.
 - The command has not run end to end against real chains, because the first Aegis period hasn't settled yet.
+
+### Phase 15h
+
+- The version module has no source. `src/version.d.ts` declares `GIT_COMMIT: string`, and only the `Dockerfile` builder writes `dist/version.js` after `npm run build`, with `printf 'export const GIT_COMMIT = "%s";\n' "$GIT_COMMIT" > dist/version.js`, and only when the `GIT_COMMIT` build argument is non-empty. `npm run build` itself writes no version module. The docker workflow passes `github.sha`.
+- `buildCommit({ importVersion?, warn? })` dynamically imports `../version.js` and validates `GIT_COMMIT` with `COMMIT_PATTERN`. It returns `string | null`:
+  - the commit, if the module exists and the value is valid;
+  - `null` with a warning, if the module isn't found. This is how code running from source and tests behave;
+  - an error, if the value is malformed, which means a broken build. Any other import error is rethrown too.
+
+  `generator(options)` returns `{ commit: buildCommit(…), repository: GENERATOR_REPOSITORY }`, and `cmd:export` passes `console.warn` as `warn`.
+- This supersedes 15b. All git subprocess code is removed (`git rev-parse`, `git status`, `headCommit`, `uncommittedChanges`), along with the dirty-tree refusal, the `gitCommit` parameter and the default directory. The export no longer refuses a dirty tree, and the version module is the only source of the commit. These were removed because the Docker-built image has no git and no `.git` directory, so exporting from it was impossible.
+- This supersedes 14b. `generator.commit` is `string | null`: either a 40-character lowercase hash (`COMMIT_PATTERN`, used by both `buildCommit` and the schema) or `null`. A package built from source records `"commit": null`. Dirty builds aren't tracked.
+- Phase 16: `cmd:verify` reads its own commit with `buildCommit()`. It warns when the result is `null` or differs from `manifest.generator.commit`, and gives a separate warning when the manifest's commit is `null`.
+- Releases must be exported from a build that has `dist/version.js`, such as the published Docker image, or they record `null`. Phase 19 must take this into account.
 
 ## Open Questions and Assumptions
 
