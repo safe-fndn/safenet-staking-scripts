@@ -1199,6 +1199,10 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 
 - None. `answerBundle` and `ANSWER_YES` match the unsplit Phase 13. The ERC-20 `approve` and `REALITY_ETH_ERC20_ABI` (`submitAnswerERC20`) entries are added here.
 
+### Phase 13d
+
+- None. After 13d, `src/` and `tests/` are identical to the unsplit Phase 13.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

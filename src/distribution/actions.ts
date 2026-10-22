@@ -1,6 +1,6 @@
 /**
  * The action bundles of a distribution: Safe Transaction Builder bundles that any Safe can load to
- * propose the distribution and answer its Reality.eth question **Yes**.
+ * propose the distribution, answer its Reality.eth question **Yes**, and execute it.
  *
  * Every bundle is a pure function of `proposal.json`, the governance configuration and the
  * settlement timestamp, so that the export and `cmd:verify` derive identical bundles. Bundles use
@@ -18,6 +18,15 @@ import type { GovernanceConfiguration, Proposal } from "./transactions.js";
  * The Reality.eth answer **Yes** to the module's boolean question template, `bytes32(1)`.
  */
 export const ANSWER_YES: Hex = numberToHex(1, { size: 32 });
+
+/**
+ * The action bundles of a distribution, keyed by the name of their release asset without `.json`.
+ */
+export type ActionBundles = {
+	answer: TransactionBundle;
+	execute: TransactionBundle;
+	propose: TransactionBundle;
+};
 
 // Bundles are created at the settlement, in milliseconds since the Unix epoch, so that they don't
 // depend on when they were built.
@@ -81,3 +90,42 @@ export const answerBundle = (
 		],
 		createdAt(settlementTimestamp),
 	);
+
+/**
+ * `execute.json`: `RealityModule.executeProposalWithIndex(proposalId, [transaction.hash], to,
+ * value, data, operation, 0)`, which executes the proposal's only transaction once its answer is
+ * final, the cooldown has elapsed and the answer has not expired.
+ */
+export const executeBundle = (
+	proposal: Proposal,
+	config: Pick<GovernanceConfiguration, "module">,
+	settlementTimestamp: bigint,
+): TransactionBundle => {
+	const { data, hash, operation, to, value } = proposal.transaction;
+	return transactionBundle(
+		[
+			{
+				to: config.module,
+				data: encodeFunctionData({
+					abi: REALITY_MODULE_ABI,
+					functionName: "executeProposalWithIndex",
+					args: [proposal.proposalId, [hash], to, value, data, operation, 0n],
+				}),
+			},
+		],
+		createdAt(settlementTimestamp),
+	);
+};
+
+/**
+ * All three action bundles of a distribution.
+ */
+export const actionBundles = (
+	proposal: Proposal,
+	config: Pick<GovernanceConfiguration, "bondToken" | "minimumBond" | "module" | "oracle">,
+	settlementTimestamp: bigint,
+): ActionBundles => ({
+	answer: answerBundle(proposal, config, settlementTimestamp),
+	execute: executeBundle(proposal, config, settlementTimestamp),
+	propose: proposeBundle(proposal, config, settlementTimestamp),
+});
