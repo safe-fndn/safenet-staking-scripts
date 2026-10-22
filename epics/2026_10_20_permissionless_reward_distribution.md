@@ -55,7 +55,7 @@ Phases 1, 2, 3, 5, 8, 9, 10 and 18 are independent of each other and can be deve
 - CLI commands that _send_ the propose, answer/challenge and execute transactions, or that inspect proposal and bond state (struck from the deliverables). Instead, every release ships Safe Transaction Builder bundles for the three actions. Any Safe can load them, an EOA can decode them, and the runbook covers challenges and timing checks.
 - **IPFS pinning.** The epic produces the CAR and CID and mirrors them as release assets. Pinning is a separate community action, and CC is expected to pin.
 - The Safe, oracle, modules, question template, ENS name, funding and ownership transfers come from the governance setup.
-- The reward methodology itself, meaning the Aegis budget constants, comes from the separate _Update validator rewards scripts_ task. Sentinel rewards are already implemented (`Safenet.sentinelRewards`). See [Program parameters](#program-parameters).
+- The reward methodology itself comes from the separate _Update validator rewards scripts_ task, except for the Aegis validator budget constants, which Phase 2a sets. Sentinel rewards are already implemented (`Safenet.sentinelRewards`). See [Program parameters](#program-parameters).
 - **Database migrations.** Aegis changed the database schema, and indexing restarts from a new database at the Aegis consensus deployment block.
 
 ---
@@ -502,7 +502,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 3 (tx bundles out) ─► 4 ──────┼─► 14 (manifest/assembly) ──┐
 8 (KYC file) ─────────────────┤                            │
 9 (sanctions snapshots) ──────┘                            │
-2 (Beta → Aegis gap) ──────────────────────────────────────┤
+2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
 5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
 10 (IPFS) ─┬─► 11 (transactions) ─► 13 (action bundles) ───┤                                ▲
            └─► 12 (previous resolution) ───────────────────┘                                │
@@ -524,6 +524,16 @@ Removes `updatedAt` from `IndexData` and stops writing it, matching the currentl
 **Files:** `src/merkledb/index.ts`, `tests/merkledb-gap.test.ts` **Estimate:** ~50 LOC, 2 files
 
 Adds the hard-coded exception to the contiguity check in `distribute`: `rewardsUntil = 2026-10-06` may be followed by `fromTimestamp = 2026-10-13`, and nothing else changes. The constants carry a comment pointing to the Aegis proposal.
+
+### Phase 2a — Aegis validator budget
+
+**Depends on:** 2 **Files:** `src/utils/args.ts`, `src/utils/args.test.ts` **Estimate:** ~60 LOC, 2 files
+
+Replaces the Beta budget in `totalRewardsAmount` (4,500,000 SAFE over 26 weeks from 2026-04-07) with the Aegis one: 5,000,000 SAFE over 52 weeks from `AEGIS_REWARDS_START` (2026-10-13), prorated by period duration as before. Without it, `totalRewardsAmount` with `--record` returns `0n` on top of the pinned rewards DB, because 26 weeks of Beta have already been paid.
+
+With `--record`, the catch-up only counts what Aegis has distributed: the validator spend is `tokenTotal − sentinelTokenTotal` minus the Beta `tokenTotal` pinned at `rewardsUntil = 2026-10-06` (`4499987774807670271201970`, with no sentinel spend), and the elapsed time is measured from 2026-10-13. Beta's leftover `unpaidAmount` (`12225192329728798030`, the dust that keeps Beta at exactly 4.5M SAFE) is **not** carried into Aegis. It is lost, and the first Aegis `distribute` overwrites it. An index whose `rewardsUntil` is still the Beta end gets the full first-period amount.
+
+Beta code that is no longer exercised is **removed**, not kept alongside the Aegis code. Computing Beta rewards is no longer supported, so this covers the Beta reward amounts and budget computation, their constants, and any branch that only Beta-era periods or indexes can reach. The only Beta values that stay are the ones Aegis reads: `BETA_REWARDS_UNTIL` for the gap and the pinned Beta `tokenTotal` for the catch-up.
 
 ### Phase 3 — Move transaction bundles out of the rewards directory
 
@@ -717,6 +727,21 @@ Changes that came up during implementation. Where they conflict with the rest of
 - The Beta → Aegis exception replaces the contiguity rule for that one boundary instead of adding to it. When `rewardsUntil = 2026-10-06`, the only period start `distribute` accepts is `fromTimestamp = 2026-10-13`. A contiguous period starting on 2026-10-06 is rejected (`null`), so the gap week can't be paid by mistake. For example, a fallback `cmd:rewards --record` run with the default `rewardsPeriod()` on Tuesday 2026-10-20 would otherwise compute [2026-10-06, 2026-10-20]. Every other `rewardsUntil` still needs an exactly contiguous period.
 - The Phase 1 tests in `tests/merkledb-index.test.ts` distribute on top of the pinned `rewardsUntil = 2026-10-06`, so they now use the first Aegis period [2026-10-13, 2026-10-27] instead of [2026-10-06, 2026-10-20].
 - The program constants set by the DAO live in a new `src/utils/sep.ts` (Safe Ecosystem Proposal). Phase 2 adds `BETA_REWARDS_UNTIL` and `AEGIS_REWARDS_START`, and `src/merkledb/index.ts` imports them. `nextRewardsStart(rewardsUntil)` is exported from `src/merkledb/index.ts` so that the budget can reuse the gap rule.
+
+### Phase 2a
+
+- The Phase 2a constants go in `src/utils/sep.ts` rather than staying local to `args.ts`: `AEGIS_VALIDATOR_REWARDS` and `AEGIS_VALIDATOR_REWARDS_DURATION` (5M SAFE over 52 weeks), `BETA_TOKEN_TOTAL`, and `SENTINEL_REWARDS_PER_YEAR` and `SENTINEL_REWARDS_YEAR` (moved out of `sentinelRewardsAmount`). Tests import them instead of redefining them.
+- With `--record`, `totalRewardsAmount` throws `record is not caught up to the end of Beta` when the index is missing, has no `rewardsUntil`, or has a `rewardsUntil` before `BETA_REWARDS_UNTIL`. It used to fall back to the plain prorated amount, but only Beta-era records could reach those fallbacks.
+- Phase 2a also changes `tests/merkledb-sentinel-total.test.ts` and `README.md`.
+  - The sentinel total test was pinned to the Beta budget and now uses Aegis periods. Its budget test seeds `BETA_TOKEN_TOTAL` through a final Beta period before crossing the gap, because a rebuild recomputes `tokenTotal` from `proofs/`. Its validator payout per period drops from 300,000 to 150,000 SAFE so that it stays within the Aegis budget.
+  - The README's `--totalRewards` default describes the Aegis budget and says where `sep.ts` is.
+- Remaining Beta references that stay because they are still in use or belong to other work:
+  - the "Safenet Beta" product status wording in `README.md`;
+  - the `safenet-beta-data` `--record` root, which later phases replace;
+  - the `.env.sample` comment about the Beta consensus start block;
+  - the `"Safenet Beta validator commission beneficiary"` ID, which is fixed onchain;
+  - the 4.5M SAFE stake sizes in the reward scenario tests.
+- `rewardsPeriod()` without an explicit period still returns the two weeks up to the last Tuesday. Aegis periods (2026-10-13, 10-27, …) are one week off the Beta grid, so on the wrong week the default gives a period that `distribute` rejects (`null`). This fails safe and is left as is. Only the comment changed.
 
 ## Open Questions and Assumptions
 
