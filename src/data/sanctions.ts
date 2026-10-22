@@ -33,14 +33,14 @@ type SanctionInstant = {
 };
 
 /** Per-jurisdiction source identifiers, matching the release asset file names. */
-const OFFCHAIN_SOURCES = ["un", "eu", "uk", "ch-seco", "us-ofac"] as const;
+export const OFFCHAIN_SOURCES = ["un", "eu", "uk", "ch-seco", "us-ofac"] as const;
 
 export type OffchainSource = (typeof OFFCHAIN_SOURCES)[number];
 
 /** The GitHub repository that publishes the offchain address lists, unless configured otherwise. */
 export const DEFAULT_SANCTIONS_ADDRESS_REPO: GitHubRepository = "safe-fndn/sanctions-address-lists";
 
-const SNAPSHOT_RELEASE_PATTERN = /^data-(\d{4})-(\d{2})-(\d{2})$/;
+export const SNAPSHOT_RELEASE_PATTERN = /^data-(\d{4})-(\d{2})-(\d{2})$/;
 const DAY = 60n * 60n * 24n;
 
 const zAddressList = z.array(z.string());
