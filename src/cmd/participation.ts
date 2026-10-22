@@ -1,11 +1,11 @@
 /**
- * Command to print validator statistics for a given payout period.
+ * Command to print validator and sentinel participation for a given payout period.
  */
 
 import path from "node:path";
 import { type Address, getAddress } from "viem";
 import { z } from "zod";
-import { type Participation, Safenet } from "../safenet.js";
+import { type Participation, Safenet, type SentinelParticipation } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
 import { readJsonFile, writeJsonFile } from "../utils/json.js";
 import {
@@ -38,6 +38,44 @@ const categoryColumn: ColumnDef<ParticipationItem> = {
 const participationRate = (count: number, total: number): number =>
 	total === 0 ? 1 : count / total;
 
+/**
+ * Updates the `participation_rate_14d` of each participant in an
+ * `assets/*-info.json` file of the record directory, adding entries for
+ * participants that are not yet listed. Rates may be `null` in the file (for
+ * example for participants that have not been measured yet), so the read schema
+ * accepts it. All other fields are preserved as is. New entries get an empty
+ * `label`, so that consumers of the generated files can rely on it being set.
+ */
+async function recordParticipation(
+	file: string,
+	counts: Record<string, number>,
+	total: number,
+): Promise<void> {
+	const data = await readJsonFile(
+		file,
+		z
+			.looseObject({
+				address: z.string().transform((s) => getAddress(s)),
+				participation_rate_14d: z.number().nullable().optional(),
+			})
+			.array(),
+	);
+
+	for (const [participant, count] of Object.entries(counts)) {
+		const address = getAddress(participant);
+		const rate = participationRate(count, total);
+		const info = data.find((info) => info.address === address);
+		if (info !== undefined) {
+			info.participation_rate_14d = rate;
+		} else {
+			data.push({ address, label: "", participation_rate_14d: rate });
+		}
+	}
+
+	sortByAddress(data, (info) => info.address);
+	await writeJsonFile(file, data);
+}
+
 main(
 	{
 		rewardPeriodStart: z.coerce.bigint().optional(),
@@ -52,6 +90,7 @@ main(
 		// Kept around so that `--record` below can reuse it instead of querying
 		// a second time.
 		let validatorParticipation: Participation | null = null;
+		let sentinelParticipation: SentinelParticipation | null = null;
 
 		// Rows are grouped by category and sorted by address within each group,
 		// so that the output is stable across runs. Participation is only
@@ -76,7 +115,8 @@ main(
 		if (args.category !== "validator") {
 			// Sentinels only appear once they have revealed at least once, so
 			// `total` is never zero for a non-empty `sentinels` map.
-			const { total, sentinels } = await safenet.sentinelParticipation(period);
+			sentinelParticipation = await safenet.sentinelParticipation(period);
+			const { total, sentinels } = sentinelParticipation;
 			rows.push(
 				...sortByAddress(
 					Object.entries(sentinels).map(([sentinel, count]) => ({
@@ -103,33 +143,15 @@ main(
 		presenter.finish();
 
 		if (args.record !== undefined) {
+			const assets = path.join(args.record, "assets");
 			const { total, validators } = validatorParticipation ?? (await safenet.participation(period));
-			const validatorsFile = path.join(args.record, "assets", "validator-info.json");
-			const data = await readJsonFile(
-				validatorsFile,
-				z
-					.looseObject({
-						address: z.string().transform((s) => getAddress(s)),
-						participation_rate_14d: z.number().nullable().optional(),
-					})
-					.array(),
+			await recordParticipation(path.join(assets, "validator-info.json"), validators, total);
+			const sentinels = sentinelParticipation ?? (await safenet.sentinelParticipation(period));
+			await recordParticipation(
+				path.join(assets, "sentinel-info.json"),
+				sentinels.sentinels,
+				sentinels.total,
 			);
-
-			for (const [validator, count] of Object.entries(validators)) {
-				const rate = participationRate(count, total);
-				const info = data.find(({ address }) => address === validator);
-				if (info !== undefined) {
-					info.participation_rate_14d = rate;
-				} else {
-					data.push({
-						address: getAddress(validator),
-						participation_rate_14d: rate,
-					});
-				}
-			}
-
-			sortByAddress(data, (info) => info.address);
-			await writeJsonFile(validatorsFile, data);
 		}
 	},
 );
