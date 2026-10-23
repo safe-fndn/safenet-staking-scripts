@@ -1093,6 +1093,11 @@ These entries describe the behaviour of Phase 11 as a whole. The 11a–11e entri
 - `governanceCalls` and `governanceTransaction` now take `Pick<GovernanceConfiguration, "ensName" | "ensResolver">`.
 - It is tested against the deployed module's `buildQuestion` and `getQuestionId` for the batched transaction at block 26247609, and against `getQuestionId("hello", 1)` at block 26247049. The configuration getters read at 26247049 agree with the question vectors at 26247609.
 
+### Phase 11e
+
+- `proposal.json` is `{ calls: [3 × { data, operation: 0, to, value }], proposalId, questionId, transaction: { data, hash, operation: 1, to, value } }`, with every key sorted. `transaction` is `multiSend(calls)` plus its Zodiac hash with nonce 0, and `questionId` is derived from `buildQuestion(proposalId, [hash])`.
+- `zProposal` pins `transaction.to` to `MULTI_SEND_CALL_ONLY` and `transaction.operation` to 1, and each call's `operation` to 0. `transaction.value` is shape-only like every other value, and Phase 16 re-derives it. The `ProposalTransaction` type keeps `operation: 0 | 1`, and only the schema narrows it.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
