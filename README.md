@@ -43,9 +43,9 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `SANCTIONS_ADDRESS_REPO`         | GitHub `owner/name` repo of the UN/EU/UK/Swiss SECO/US OFAC address lists (optional).      | `safe-fndn/sanctions-address-lists`          |
 | `GITHUB_TOKEN`                   | GitHub token for the release listing API (optional; avoids the 60/hour IP rate limit).     | _(unset)_                                    |
 | `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                               | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
-| `REALITY_MODULE_ADDRESS`         | Zodiac Reality Module on the Governance Safe (`cmd:export`).                               | `0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC` |
-| `REWARDS_ENS_NAME`               | ENS name whose `contenthash` pins the latest rewards DB (`cmd:export`).                    | `rewards.safenet-gov.eth`                    |
-| `IPFS_GATEWAY_URL`               | Trustless gateway the previous rewards DB's CAR is fetched from (`cmd:export`, optional).  | `http://127.0.0.1:8080` (local Kubo)         |
+| `REALITY_MODULE_ADDRESS`         | Zodiac Reality Module on the Governance Safe (`cmd:export`, `cmd:verify`).                               | `0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC` |
+| `REWARDS_ENS_NAME`               | ENS name whose `contenthash` pins the latest rewards DB (`cmd:export`, `cmd:verify`).                    | `rewards.safenet-gov.eth`                    |
+| `IPFS_GATEWAY_URL`               | Trustless gateway the previous rewards DB's CAR is fetched from (`cmd:export`, `cmd:verify`, optional).  | `http://127.0.0.1:8080` (local Kubo)         |
 | `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
 | `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
 | `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
@@ -57,7 +57,7 @@ Every variable can also be passed as a CLI flag using camelCase (e.g. `--databas
 
 ## Commands
 
-All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Tuesday to Tuesday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted, except for `cmd:export`, which takes no period flags and derives the period from the previous rewards DB.
+All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Tuesday to Tuesday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted, except for `cmd:export` and `cmd:verify`, which take no period flags and derive the period from the previous rewards DB.
 
 ### `cmd:index`
 
@@ -123,6 +123,33 @@ The package (`latest.json` and `proofs/`, the layout of the ENS-pinned rewards D
 | `answer.json`             | Safe Transaction Builder bundle: `approve` and a **Yes** `submitAnswerERC20`    |
 | `execute.json`            | Safe Transaction Builder bundle: `executeProposalWithIndex`                     |
 | `SHA256SUMS`              | Checksums of all of the above, for `sha256sum -c`                               |
+
+### `cmd:verify`
+
+Re-derives the next distribution through the export pipeline and checks every onchain Reality Module question for its package CID. It uses the same configuration as `cmd:export`, with optional `--previousCar` and `--cid`, and takes no `--out`.
+
+```sh
+npm run cmd:verify
+
+# Require the independently derived CID to equal the export artifact's CID
+npm run cmd:verify -- --cid="$(cat ./release/cid.txt)"
+
+# Use a local CAR as the source of the ENS-pinned previous rewards DB
+npm run cmd:verify -- --previousCar=./previous.car
+```
+
+The previous rewards DB is resolved from ENS at the latest block and checked against the drop's root. The period is the two weeks after that DB, including the Beta → Aegis gap described above, and must have ended and settled. Use the same reward code, lockfile and `src/distribution/kyc.json` as the export. Verification rebuilds the package temporarily and reads no release assets; `--cid` lets automation tie an independent run to an export artifact.
+
+The summary prints the previous and package CIDs, period and consensus settlement block, Merkle root, additional funding amount, total rewards, validator stake rewards and commission, unpaid validator budget, sentinel total and per-sentinel grant, forfeited grants, sanctions snapshot, and the count and addresses of newly approved KYC accounts. Reward totals are earned amounts before sanctions and KYC filters; additional funding comes from the Merkle DB update. Every token amount is printed exactly in SAFE, with up to 18 decimal places.
+
+It also prints the derived transaction hash and the Ethereum block used for proposal lookup. Matching questions are listed by their observed IDs, alongside the module's current question mapping and execution flag. A re-asked question can match even when its ID differs from the original; cleared or invalidated mappings are printed unchanged. Execution status reports the module's flag, without checking oracle answers, bonds or execution readiness.
+
+- With no proposal yet, it prints `Proposal: none yet` and `OK`, and exits 0 if `--cid` is omitted or matches.
+- With only matching questions, it prints the current mapping and execution status, then `OK`, and exits 0 if `--cid` is omitted or matches.
+- With any different question, including alongside matching questions, it names every conflicting question with `answer No`, prints `FAILED`, and exits nonzero.
+- A CID mismatch prints a clear expected/derived CID error and `FAILED`, and exits nonzero. RPC or rebuild errors also exit nonzero.
+
+There are no period, release, proposal, question, post-execution or reward override flags. After a proposal executes and advances ENS, this command verifies the distribution following the newly pinned DB; historic and post-execution verification are outside its scope.
 
 ### `cmd:rewards`
 
