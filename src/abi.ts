@@ -60,10 +60,20 @@ export const ENS_RESOLVER_ABI = parseAbi([
 export const MULTI_SEND_ABI = parseAbi(["function multiSend(bytes transactions) external payable"]);
 
 export const REALITY_MODULE_ABI = parseAbi([
+	"function avatar() external view returns (address avatar)",
+	"function target() external view returns (address target)",
+	"function oracle() external view returns (address oracle)",
+	"function template() external view returns (uint256 template)",
+	"function questionArbitrator() external view returns (address arbitrator)",
+	"function minimumBond() external view returns (uint256 minimumBond)",
+	"function questionTimeout() external view returns (uint32 timeout)",
+	"function questionCooldown() external view returns (uint32 cooldown)",
+	"function answerExpiration() external view returns (uint32 expiration)",
 	"function addProposal(string proposalId, bytes32[] txHashes) external",
 	"function executeProposalWithIndex(string proposalId, bytes32[] txHashes, address to, uint256 value, bytes data, uint8 operation, uint256 txIndex) external",
 ]);
 
 export const REALITY_ETH_ERC20_ABI = parseAbi([
+	"function token() external view returns (address token)",
 	"function submitAnswerERC20(bytes32 questionId, bytes32 answer, uint256 maxPrevious, uint256 tokens) external",
 ]);

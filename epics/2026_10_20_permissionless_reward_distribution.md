@@ -1275,6 +1275,10 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - "rejects a CAR of a different CID" uses a separately packed directory;
   - the missing-`latest.json` test packs `other.json` instead of `allocations.json`.
 
+### Phase 15b
+
+- Ported unchanged from `permissionless/15a`: `governance.ts`, `governance.test.ts`, the `src/abi.ts` entries (the nine module getters and `RealityETH_ERC20.token()`), and `resolvePreviousRewardsDb`'s optional `blockNumber` with its test. `previous.ts` and `previous.test.ts` differ from the reference only by the 15a cleanup.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
