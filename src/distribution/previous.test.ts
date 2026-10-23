@@ -55,10 +55,9 @@ afterEach(async () => {
 
 /**
  * A small rewards DB on top of a `latest.json` in the format of the pinned Beta rewards DB,
- * distributed once with `MerkleDb` for its `proofs/`, optionally with the files that the export
- * adds to a package.
+ * distributed once with `MerkleDb` for its `proofs/`.
  */
-const rewardsDb = async ({ withPackageFiles = false } = {}) => {
+const rewardsDb = async () => {
 	const dir = join(await temporary(), "rewards");
 	const root = await temporary();
 	await writeFile(
@@ -82,10 +81,6 @@ const rewardsDb = async ({ withPackageFiles = false } = {}) => {
 	);
 	if (update === null) {
 		throw new Error("fixture distribution was rejected");
-	}
-	if (withPackageFiles) {
-		await writeFile(join(root, "manifest.json"), '{\n\t"version": 1\n}\n');
-		await writeFile(join(root, "allocations.json"), "[]\n");
 	}
 	const { cid, car } = await packDirectory(root);
 	return { cid, car, merkleRoot: update.merkleRoot, source: root, dir };
@@ -247,25 +242,6 @@ describe("resolvePreviousRewardsDb", () => {
 		expect(await readTree(db.dir)).toEqual(await readTree(db.source));
 	});
 
-	it("accepts a package with a manifest and allocations", async () => {
-		const db = await rewardsDb({ withPackageFiles: true });
-		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
-		stubFetch(() => new Response(db.car));
-		const warn = vi.fn();
-
-		const previous = await resolve(chain, db.dir, {}, warn);
-
-		expect(previous.cid).toEqual(db.cid);
-		expect(previous.rewardsUntil).toBe(REWARDS_UNTIL);
-		expect((await readdir(db.dir)).sort()).toEqual([
-			"allocations.json",
-			"latest.json",
-			"manifest.json",
-			"proofs",
-		]);
-		expect(warn).not.toHaveBeenCalled();
-	});
-
 	it("retries gateway errors and then throws", async () => {
 		const db = await rewardsDb();
 		const chain = fakeChain({ contenthash: encodeContenthash(db.cid), merkleRoot: db.merkleRoot });
@@ -319,7 +295,7 @@ describe("resolvePreviousRewardsDb", () => {
 
 	it("rejects a CAR of a different CID", async () => {
 		const pinned = await rewardsDb();
-		const other = await rewardsDb({ withPackageFiles: true });
+		const other = await packFiles({ "latest.json": "{}\n" });
 		const chain = fakeChain({
 			contenthash: encodeContenthash(pinned.cid),
 			merkleRoot: pinned.merkleRoot,
@@ -369,7 +345,7 @@ describe("resolvePreviousRewardsDb", () => {
 
 describe("fetchRewardsDb", () => {
 	it("fetches a rewards DB by CID without reading the chain", async () => {
-		const db = await rewardsDb({ withPackageFiles: true });
+		const db = await rewardsDb();
 		stubFetch(() => new Response(db.car));
 
 		expect(
@@ -383,7 +359,7 @@ describe("fetchRewardsDb", () => {
 	});
 
 	it("refuses a rewards DB without latest.json", async () => {
-		const packed = await packFiles({ "allocations.json": "[]\n" });
+		const packed = await packFiles({ "other.json": "{}\n" });
 		stubFetch(() => new Response(packed.car));
 
 		await expect(

@@ -175,7 +175,7 @@ The `--record` flag expects the root of the `safenet-beta-data` repository and w
 
 ### `cmd:sanctions`
 
-Prints the list of sanctioned accounts that are excluded from reward payouts: addresses flagged by the on-chain Chainalysis oracle, unioned with the UN, EU, UK, Swiss SECO and US OFAC addresses currently published by [`sanctions-address-lists`](https://github.com/safe-fndn/sanctions-address-lists) (or the repository set in `SANCTIONS_ADDRESS_REPO`), fetched from its `latest` release. Unlike the on-chain oracle, the published lists have no block height to pin them to, so this command always reflects the latest fetch rather than their state at a particular payout period. A period can instead be pinned to the newest dated `data-YYYY-MM-DD` snapshot release of the same repository whose UTC day ended at or before the period end (`Safenet.pinnedSanctionedAccounts`), which also reports the SHA-256 of each list it fetched.
+Prints the list of sanctioned accounts that are excluded from reward payouts: addresses flagged by the on-chain Chainalysis oracle, unioned with the UN, EU, UK, Swiss SECO and US OFAC addresses currently published by [`sanctions-address-lists`](https://github.com/safe-fndn/sanctions-address-lists) (or the repository set in `SANCTIONS_ADDRESS_REPO`), fetched from its `latest` release. Unlike the on-chain oracle, the published lists have no block height to pin them to, so this command always reflects the latest fetch rather than their state at a particular payout period. A period can instead be pinned to the newest dated `data-YYYY-MM-DD` snapshot release of the same repository whose UTC day ended at or before the period end (`Safenet.pinnedSanctionedAccounts`), which also reports the release it used.
 
 ```sh
 npm run cmd:sanctions
