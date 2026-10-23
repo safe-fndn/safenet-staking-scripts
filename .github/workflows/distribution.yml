@@ -25,10 +25,6 @@ env:
   DATABASE_FILE: safenet.db
   STAKING_RPC_URL: ${{ secrets.STAKING_RPC_URL }}
   CONSENSUS_RPC_URL: ${{ secrets.CONSENSUS_RPC_URL }}
-  CONSENSUS_ADDRESS: ${{ vars.CONSENSUS_ADDRESS }}
-  CONSENSUS_START_BLOCK: ${{ vars.CONSENSUS_START_BLOCK }}
-  SENTINEL_ORACLE_ADDRESS: ${{ vars.SENTINEL_ORACLE_ADDRESS }}
-  SENTINEL_ORACLE_START_BLOCK: ${{ vars.SENTINEL_ORACLE_START_BLOCK }}
   IPFS_GATEWAY_URL: ${{ vars.IPFS_GATEWAY_URL }}
 
 jobs:
@@ -53,10 +49,6 @@ jobs:
         run: |
           : "${STAKING_RPC_URL:?Set the STAKING_RPC_URL repository secret}"
           : "${CONSENSUS_RPC_URL:?Set the CONSENSUS_RPC_URL repository secret}"
-          : "${CONSENSUS_ADDRESS:?Set the CONSENSUS_ADDRESS repository variable}"
-          : "${CONSENSUS_START_BLOCK:?Set the CONSENSUS_START_BLOCK repository variable}"
-          : "${SENTINEL_ORACLE_ADDRESS:?Set the SENTINEL_ORACLE_ADDRESS repository variable}"
-          : "${SENTINEL_ORACLE_START_BLOCK:?Set the SENTINEL_ORACLE_START_BLOCK repository variable}"
           : "${IPFS_GATEWAY_URL:?Set IPFS_GATEWAY_URL to a reachable trustless gateway}"
           cp .env.sample .env
           npm run --silent cmd:plan > "$RUNNER_TEMP/plan.json"

@@ -178,6 +178,7 @@ const fakeChain = (
 		stakingStartBlock: HEAD,
 		delegateRegistryAddress: namedAddress("delegates"),
 		sanctionsListAddress: namedAddress("sanctions"),
+		sanctionsAddressRepo: "example/sanctions-address-lists",
 		consensusClient: createClient({
 			transport: custom({
 				async request() {

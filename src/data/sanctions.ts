@@ -6,11 +6,11 @@
  *   event (see `src/indexing/sanctions.ts`) and stored with a block
  *   timestamp, so historic payouts can be recomputed reproducibly.
  * - The UN, EU, UK, Swiss SECO and US OFAC address lists published as
- *   release assets of a `sanctions-address-lists` GitHub repository
- *   (<https://github.com/safe-fndn/sanctions-address-lists> unless
- *   configured otherwise). These have no on-chain timestamp, so they are
- *   either fetched live from the moving `latest` release, or pinned to the
- *   dated `data-YYYY-MM-DD` snapshot release for a period.
+ *   release assets of a `sanctions-address-lists` GitHub repository (for
+ *   Aegis, the one in `src/config/aegis.ts`). These have no on-chain
+ *   timestamp, so they are either fetched live from the moving `latest`
+ *   release, or pinned to the dated `data-YYYY-MM-DD` snapshot release for a
+ *   period.
  */
 
 import type { Database, Statement } from "better-sqlite3";
@@ -35,9 +35,6 @@ type SanctionInstant = {
 const OFFCHAIN_SOURCES = ["un", "eu", "uk", "ch-seco", "us-ofac"] as const;
 
 type OffchainSource = (typeof OFFCHAIN_SOURCES)[number];
-
-/** The GitHub repository that publishes the offchain address lists, unless configured otherwise. */
-export const DEFAULT_SANCTIONS_ADDRESS_REPO: GitHubRepository = "safe-fndn/sanctions-address-lists";
 
 const SNAPSHOT_RELEASE_PATTERN = /^data-(\d{4})-(\d{2})-(\d{2})$/;
 const DAY = 60n * 60n * 24n;
@@ -88,10 +85,9 @@ export type SanctionsDataConfiguration = {
 	db: Database;
 	/**
 	 * The GitHub repository whose release assets the per-source `<source>.json`
-	 * offchain address lists are fetched from. Defaults to
-	 * `DEFAULT_SANCTIONS_ADDRESS_REPO`.
+	 * offchain address lists are fetched from.
 	 */
-	sanctionsAddressRepo?: GitHubRepository;
+	sanctionsAddressRepo: GitHubRepository;
 };
 
 export class SanctionsData {
@@ -138,7 +134,7 @@ export class SanctionsData {
 				ORDER BY account COLLATE NOCASE ASC
 			`),
 		};
-		this.#sanctionsAddressRepo = sanctionsAddressRepo ?? DEFAULT_SANCTIONS_ADDRESS_REPO;
+		this.#sanctionsAddressRepo = sanctionsAddressRepo;
 		this.#backoff = backoff({ debug: debug("safenet:sanctions-lists") });
 	}
 

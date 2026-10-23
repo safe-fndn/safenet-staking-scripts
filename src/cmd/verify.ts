@@ -1,8 +1,7 @@
 /** Re-derives the next reward distribution and checks every onchain question for its CID. */
 
-import { getAddress } from "viem";
 import { z } from "zod";
-import { AEGIS } from "../config/aegis.js";
+import { AEGIS_PARAMETERS } from "../config/aegis.js";
 import { verifyProposal } from "../distribution/verify.js";
 import { Safenet } from "../safenet.js";
 import { main } from "../utils/args.js";
@@ -15,19 +14,11 @@ main(
 		previousCar: z.string().min(1).optional(),
 		cid: z.string().min(1).optional(),
 		ipfsGatewayUrl: z.url().optional(),
-		cumulativeMerkleDropAddress: z
-			.string()
-			.transform((v) => getAddress(v))
-			.default(AEGIS.ethereum.cumulativeMerkleDrop),
-		realityModuleAddress: z
-			.string()
-			.transform((v) => getAddress(v))
-			.default(AEGIS.ethereum.realityModule),
-		rewardsEnsName: z.string().min(1).default(AEGIS.ethereum.rewardsEnsName),
 	},
 	async (args) => {
-		const safenet = await Safenet.create(args);
-		const { distribution: result, onchain, outcome } = await verifyProposal(safenet, args);
+		const config = { ...args, ...AEGIS_PARAMETERS };
+		const safenet = await Safenet.create(config);
+		const { distribution: result, onchain, outcome } = await verifyProposal(safenet, config);
 		let stakeRewards = 0n;
 		let commission = 0n;
 		let sentinelRewards = 0n;

@@ -4,7 +4,7 @@
 
 import { type Address, formatUnits, getAddress, parseUnits } from "viem";
 import { z } from "zod";
-import { AEGIS } from "../config/aegis.js";
+import { AEGIS, AEGIS_PARAMETERS } from "../config/aegis.js";
 import { kyc as committedKyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { distributionPayouts, mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
@@ -53,10 +53,6 @@ main(
 			.optional(),
 		record: z.string().optional(),
 		transactions: z.string().optional(),
-		cumulativeMerkleDropAddress: z
-			.string()
-			.transform((v) => getAddress(v))
-			.default(AEGIS.ethereum.cumulativeMerkleDrop),
 		split: z.boolean().optional(),
 	},
 	async (args) => {
@@ -69,7 +65,7 @@ main(
 		const kyc = committedKyc();
 		const kycThreshold = args.kycThreshold ?? kyc.threshold;
 
-		const safenet = await Safenet.create(args);
+		const safenet = await Safenet.create({ ...args, ...AEGIS_PARAMETERS });
 		const period = rewardsPeriod(args);
 		const db =
 			args.record !== undefined
@@ -169,7 +165,7 @@ main(
 						`rewards-${period.toTimestamp}`,
 						[
 							{
-								to: args.cumulativeMerkleDropAddress,
+								to: AEGIS.ethereum.cumulativeMerkleDrop,
 								contractMethod: {
 									inputs: [
 										{
@@ -204,7 +200,7 @@ main(
 									payable: false,
 								},
 								contractInputsValues: {
-									to: args.cumulativeMerkleDropAddress,
+									to: AEGIS.ethereum.cumulativeMerkleDrop,
 									amount: update.additionalAmount,
 								},
 							},

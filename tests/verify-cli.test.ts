@@ -1,9 +1,10 @@
 import { type Hex, zeroHash } from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AEGIS_PARAMETERS } from "../src/config/aegis.js";
 import { actionBundles } from "../src/distribution/actions.js";
 import { buildQuestion, proposal, questionId } from "../src/distribution/transactions.js";
 import type { Verification } from "../src/distribution/verify.js";
-import { CONFIG, CUMULATIVE_MERKLE_DROP, UPDATE } from "./harness/governance.js";
+import { CONFIG, UPDATE } from "./harness/governance.js";
 import { namedAddress, parseSafe } from "./harness/utils.js";
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), verify: vi.fn() }));
@@ -28,20 +29,8 @@ beforeEach(() => {
 		DATABASE_FILE: ":memory:",
 		STAKING_RPC_URL: "https://staking.invalid",
 		STAKING_BLOCK_PAGE_SIZE: "100",
-		STAKING_ADDRESS: namedAddress("staking"),
-		STAKING_START_BLOCK: "1",
-		DELEGATE_REGISTRY_ADDRESS: namedAddress("delegates"),
-		SANCTIONS_LIST_ADDRESS: namedAddress("sanctions"),
-		SANCTIONS_LIST_START_BLOCK: "1",
 		CONSENSUS_RPC_URL: "https://consensus.invalid",
-		CONSENSUS_ADDRESS: namedAddress("consensus"),
-		CONSENSUS_START_BLOCK: "1",
 		CONSENSUS_BLOCK_PAGE_SIZE: "25",
-		SENTINEL_ORACLE_ADDRESS: namedAddress("oracle"),
-		SENTINEL_ORACLE_START_BLOCK: "1",
-		CUMULATIVE_MERKLE_DROP_ADDRESS: CUMULATIVE_MERKLE_DROP,
-		REALITY_MODULE_ADDRESS: CONFIG.module,
-		REWARDS_ENS_NAME: CONFIG.ensName,
 	};
 	for (const [key, value] of Object.entries(environment)) vi.stubEnv(key, value);
 	for (const key of ["CID", "PREVIOUS_CAR", "IPFS_GATEWAY_URL", "DEBUG"])
@@ -149,7 +138,11 @@ describe("cmd:verify", () => {
 		expect(process.exitCode).toBe(0);
 		expect(console.error).not.toHaveBeenCalled();
 		const args = mocks.create.mock.calls[0][0];
-		expect(args).toMatchObject({ previousCar: "previous.car", cid: UPDATE.cid.toString() });
+		expect(args).toMatchObject({
+			...AEGIS_PARAMETERS,
+			previousCar: "previous.car",
+			cid: UPDATE.cid.toString(),
+		});
 		expect(mocks.verify).toHaveBeenCalledExactlyOnceWith(
 			await mocks.create.mock.results[0].value,
 			args,

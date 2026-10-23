@@ -4,6 +4,7 @@
 
 import type { Address } from "viem";
 import { z } from "zod";
+import { AEGIS_PARAMETERS } from "../config/aegis.js";
 import { Safenet } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
 import { addressColumn, createPresenter, safeTokenColumn } from "../utils/presentation.js";
@@ -16,7 +17,7 @@ main(
 		rewardPeriodEnd: z.coerce.bigint().optional(),
 	},
 	async (args) => {
-		const safenet = await Safenet.create(args);
+		const safenet = await Safenet.create({ ...args, ...AEGIS_PARAMETERS });
 		const period = rewardsPeriod(args);
 
 		const presenter = createPresenter<StakeItem>(

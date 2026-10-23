@@ -40,15 +40,7 @@ jobs:
           DATABASE_FILE: safenet.db
           STAKING_RPC_URL: ${{ secrets.STAKING_RPC_URL }}
           CONSENSUS_RPC_URL: ${{ secrets.CONSENSUS_RPC_URL }}
-          CONSENSUS_ADDRESS: ${{ vars.CONSENSUS_ADDRESS }}
-          CONSENSUS_START_BLOCK: ${{ vars.CONSENSUS_START_BLOCK }}
-          SENTINEL_ORACLE_ADDRESS: ${{ vars.SENTINEL_ORACLE_ADDRESS }}
-          SENTINEL_ORACLE_START_BLOCK: ${{ vars.SENTINEL_ORACLE_START_BLOCK }}
         run: |
-          : "${CONSENSUS_ADDRESS:?Set the CONSENSUS_ADDRESS repository variable}"
-          : "${CONSENSUS_START_BLOCK:?Set the CONSENSUS_START_BLOCK repository variable}"
-          : "${SENTINEL_ORACLE_ADDRESS:?Set the SENTINEL_ORACLE_ADDRESS repository variable}"
-          : "${SENTINEL_ORACLE_START_BLOCK:?Set the SENTINEL_ORACLE_START_BLOCK repository variable}"
           cp .env.sample .env
           npm run cmd:index
 
