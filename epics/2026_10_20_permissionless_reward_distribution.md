@@ -1349,6 +1349,15 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - drops the period flags, overrides, manifest, generator commit and Docker git note.
 - `args.ts` (with `ipfsGatewayUrl` moved out of the base schema), `package.json` and `.env.sample` are identical to e0c82e6.
 
+### Phase 16a
+
+- `findProposal` returns `{ blockNumber, matching, different }`. Every matching entry includes its observed `questionId`, exact `question` text, `currentQuestionId` from the module mapping and `executed` flag. Different entries include their observed ID and text.
+- The configuration accepts an optional `blockNumber`, and a fourth options argument accepts `withBackoff`. By default, lookup reads the uncached latest block once and pins every log query and state read to that snapshot.
+- Oracle logs are queried at each module event's block: the module asks the oracle before emitting `ProposalQuestionCreated` in the same call. Missing or ambiguous `LogNewQuestion` logs throw rather than report no proposal.
+- Repeated question IDs are deduplicated; distinct re-asked IDs remain and match by exact text, regardless of the nonce-0 ID. Matching entries share the current mapping and execution flag, read once. Zero and invalidated current mappings are returned unchanged.
+- A `fromBlock` beyond the snapshot returns empty results without issuing an inverted log query.
+- The module log search is unpaginated, so a provider's block-range limit can reject a long search. RPC failures are retried and then thrown; they never produce an empty successful result.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
