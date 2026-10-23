@@ -78,7 +78,7 @@ npm run cmd:participation -- --rewardPeriodStart=1700000000 --rewardPeriodEnd=17
 # Only print one of the two categories
 npm run cmd:participation -- --category=sentinel
 
-# Write participation rates into a validator-info.json file inside a record directory
+# Write participation rates into the validator-info.json and sentinel-info.json files inside a record directory
 npm run cmd:participation -- --record=./path/to/record
 ```
 
@@ -86,7 +86,7 @@ The optional `--category` flag takes `validator`, `sentinel` or `all` (the defau
 
 Sentinel reveals are attributed to the period of the request they answer rather than the period they happened in, so a reveal landing after the period boundary still counts towards its request. Unlike validators, there is no on-chain registry of sentinels, so only sentinels that revealed at least once appear in the output.
 
-The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically. Only validator rates are recorded — sentinel rates are print-only, and are unaffected by `--category`.
+The `--record` flag expects the root of the `safenet-beta-data` repository and writes validator rates to `<record>/assets/validator-info.json` and sentinel rates to `<record>/assets/sentinel-info.json`, updating the `participation_rate_14d` field for any participant already in the file. Participants not yet present are inserted automatically with an empty `label`. Both files are always updated, regardless of `--category`.
 
 ### `cmd:rewards`
 
