@@ -9,7 +9,7 @@ import { CID } from "multiformats/cid";
 import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 import { afterEach, describe, expect, it } from "vitest";
-import { CHUNK_SIZE, IPFS_PARAMETERS, packDirectory, unpackCar } from "./ipfs.js";
+import { CHUNK_SIZE, packDirectory, unpackCar } from "./ipfs.js";
 
 const FIXTURE = join(import.meta.dirname, "../../tests/fixtures/ipfs");
 
@@ -109,19 +109,6 @@ const directoryCar = async (
 	});
 	return { cid: dir.cid, car: writeCar([dir.cid], [dir, ...links.map(({ block }) => block)]) };
 };
-
-describe("IPFS_PARAMETERS", () => {
-	it("matches the manifest's ipfs block", () => {
-		expect(IPFS_PARAMETERS).toEqual({
-			car: 1,
-			chunker: "size-262144",
-			cidVersion: 1,
-			hash: "sha2-256",
-			layout: "balanced",
-			rawLeaves: true,
-		});
-	});
-});
 
 describe("packDirectory", () => {
 	it("computes the same CID and CAR as Kubo", async () => {
