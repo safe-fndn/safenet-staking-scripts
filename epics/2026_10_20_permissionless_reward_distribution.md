@@ -1319,6 +1319,14 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - The expected amounts are the two-week Aegis values. Every payout is above the threshold and KYC-withheld, which keeps end-to-end KYC coverage.
   - Tests cover a period that hasn't ended and one that hasn't settled.
 
+### Phase 15g
+
+- Ported from `permissionless/15f` without `manifest.json`:
+  - `releaseAssets` takes `Pick<Export, "car" | "cid" | "merkleRoot" | "period" | "proposal" | "bundles">`, and the CAR name and `merkle-root.txt` come from `period.toTimestamp` and `merkleRoot`;
+  - the module doc describes the assets as mirrors for proposers, answerers and pinning, and no longer claims that `cmd:verify` compares them;
+  - the test fixture is built from the governance vectors (`proposal(UPDATE, CONFIG)`, `actionBundles` at `toTimestamp + 240`), so `merkle-root.txt` is the proposal's own root;
+  - the `writeJsonFile` byte-identity check uses `proposal.json`.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
