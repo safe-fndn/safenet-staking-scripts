@@ -1394,6 +1394,14 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - Export requires the CAR filename for the planned period before handing off assets, so an ENS advance to another period fails rather than silently changing the planned release. Release assets and the export summary are retained as separate per-run workflow artifacts for Phase 18c. Verify independently re-derives the exported CID and exposes it as a job output.
 - This phase adds only `.github/workflows/distribution.yml`, with read-only contents permission. It reuses the indexing workflow's deployment variables and RPC secrets, adds required `IPFS_GATEWAY_URL`, and supplies `GITHUB_TOKEN` for sanctions release listing. Publication remains Phase 18c. Offline workflow checks use scratch files rather than new repository test infrastructure.
 
+### Phase 18c
+
+- The release job depends on plan, export and verify, using GitHub's implicit success condition plus the plan's `shouldRun` output. Only the release job grants `contents: write`; it downloads this run's asset and summary artifacts without a checkout or dependency install.
+- Notes copy the export summary verbatim, with an explicit explanation that no `New KYC Approval` entries means 0 new approvals. They include the workflow commit as informational metadata, the manual Safe Transaction Builder flow, and the non-canonical mirror disclaimer.
+- Before publication, the job requires a nonempty verified CID equal to `cid.txt` and the CAR for the planned period. It uploads exactly the eight export assets with `gh release create`, targeting the workflow commit. Standard latest-release selection is retained, without overwrite or retry behavior.
+- Answer instructions apply only to the original nonce-0 question without an earlier answer; re-asked questions and existing answers require manual handling. Finality, cooldown and answer expiration are checked live rather than hard-coded. The workflow publishes files but submits no onchain transactions.
+- This phase changes only the workflow and README. Dependency, publication and notes checks use scratch scripts and a mocked GitHub CLI; no live workflow or release was run.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

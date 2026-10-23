@@ -146,6 +146,12 @@ The package (`latest.json` and `proofs/`, the layout of the ENS-pinned rewards D
 | `execute.json`            | Safe Transaction Builder bundle: `executeProposalWithIndex`                     |
 | `SHA256SUMS`              | Checksums of all of the above, for `sha256sum -c`                               |
 
+The [distribution workflow](.github/workflows/distribution.yml) runs Tuesdays at 04:23 UTC or by manual dispatch. It skips unsettled or already released periods, exports the next period, and independently verifies its CID on a fresh runner. Configure the same RPC secrets and Aegis deployment variables as the indexing workflow, plus `IPFS_GATEWAY_URL` as a reachable trustless gateway for the ENS-pinned previous CAR. Manual dispatch can select `verifyFromGenesis` to skip the verifier's event cache.
+
+Only after plan, export and verify succeed does the release job publish `rewards-<periodEnd>`, targeting the workflow commit, with the eight assets above and the export summary as notes. It downloads the same run's assets and summary without a checkout or dependency install; only this job receives `contents: write`. The commit label is informational. The summary includes funding, validator and sentinel rewards, unpaid and forfeited amounts, sanctions and new KYC approvals; no approval list means 0 new approvals.
+
+Release notes describe the manual Safe Transaction Builder flow: propose, wait for confirmation, post the initial Yes with `answer.json` only for the original nonce-0 question with no earlier answer, then wait for Yes finality and cooldown before executing within answer expiration. Check live Reality.eth and module timing; re-asked questions and earlier answers require manual handling. The workflow sends no onchain transactions. Release assets are non-canonical mirrors; the onchain Cumulative Merkle Drop root and `rewards.safenet-gov.eth` ENS `contenthash` remain canonical.
+
 ### `cmd:verify`
 
 Re-derives the next distribution through the export pipeline and checks every onchain Reality Module question for its package CID. It uses the same configuration as `cmd:export`, with optional `--previousCar` and `--cid`, and takes no `--out`.
