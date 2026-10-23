@@ -1,9 +1,20 @@
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { custom, encodeFunctionResult, type Hex, toHex, zeroAddress, zeroHash } from "viem";
+import {
+	custom,
+	decodeFunctionData,
+	encodeFunctionResult,
+	getAddress,
+	type Hex,
+	namehash,
+	toHex,
+	zeroAddress,
+	zeroHash,
+} from "viem";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CUMULATIVE_MERKLE_DROP_ABI, ENS_REGISTRY_ABI, ENS_RESOLVER_ABI } from "../src/abi.js";
+import { AEGIS } from "../src/config/aegis.js";
 import { packDirectory } from "../src/distribution/ipfs.js";
 import { ENS_REGISTRY } from "../src/distribution/previous.js";
 import { encodeContenthash } from "../src/distribution/transactions.js";
@@ -54,6 +65,7 @@ let resolver: typeof RESOLVER;
 let root: Hex;
 let fail: string | undefined;
 let requests: string[];
+let calls: { to: string; data: Hex }[];
 let stdout: string;
 
 beforeEach(async () => {
@@ -97,6 +109,7 @@ beforeEach(async () => {
 	root = zeroHash;
 	fail = undefined;
 	requests = [];
+	calls = [];
 	mocks.directories.length = 0;
 	await previous(BETA_REWARDS_UNTIL);
 	const staking = createClient({
@@ -108,8 +121,9 @@ beforeEach(async () => {
 					if (method === "eth_chainId") return toHex(chainId);
 					if (method === "eth_blockNumber") return "0xabc";
 					if (method !== "eth_call") throw new Error(`unexpected ${method}`);
-					const [{ to }, block] = params as [{ to: string }, string];
+					const [{ to, data }, block] = params as [{ to: string; data: Hex }, string];
 					expect(block).toBe("0xabc");
+					calls.push({ to, data });
 					if (to.toLowerCase() === ENS_REGISTRY.toLowerCase())
 						return encodeFunctionResult({
 							abi: ENS_REGISTRY_ABI,
@@ -122,7 +136,7 @@ beforeEach(async () => {
 							functionName: "contenthash",
 							result: encodeContenthash((await packDirectory(fixture)).cid),
 						});
-					if (to.toLowerCase() === DROP.toLowerCase())
+					if ([DROP, AEGIS.ethereum.cumulativeMerkleDrop].includes(getAddress(to)))
 						return encodeFunctionResult({
 							abi: CUMULATIVE_MERKLE_DROP_ABI,
 							functionName: "merkleRoot",
@@ -286,10 +300,21 @@ describe("cmd:status", () => {
 		expect(process.exitCode).toBe(1);
 	});
 
-	it("requires ENS configuration before RPC", async () => {
+	it("defaults to the Aegis ENS name and Cumulative Merkle Drop", async () => {
 		vi.stubEnv("REWARDS_ENS_NAME", undefined);
-		await expect(run()).rejects.toThrow();
-		expect(requests).toEqual([]);
+		vi.stubEnv("CUMULATIVE_MERKLE_DROP_ADDRESS", undefined);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(Uint8Array.from((await packDirectory(fixture)).car))),
+		);
+		expect((await run()).previousCid).toBe(cid);
+		const registry = calls.find(({ to }) => getAddress(to) === ENS_REGISTRY);
+		expect(registry && decodeFunctionData({ abi: ENS_REGISTRY_ABI, data: registry.data })).toEqual({
+			functionName: "resolver",
+			args: [namehash(AEGIS.ethereum.rewardsEnsName)],
+		});
+		expect(calls.map(({ to }) => getAddress(to))).toContain(AEGIS.ethereum.cumulativeMerkleDrop);
+		expect(calls.map(({ to }) => getAddress(to))).not.toContain(DROP);
 	});
 
 	it.each([

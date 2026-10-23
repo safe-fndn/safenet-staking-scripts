@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAddress } from "viem";
 import { z } from "zod";
+import { AEGIS } from "../config/aegis.js";
 import { exportPackage } from "../distribution/export.js";
 import { releaseAssets, writeReleaseAssets } from "../distribution/release.js";
 import { Safenet } from "../safenet.js";
@@ -20,9 +21,15 @@ main(
 	{
 		previousCar: z.string().min(1).optional(),
 		ipfsGatewayUrl: z.url().optional(),
-		cumulativeMerkleDropAddress: z.string().transform((v) => getAddress(v)),
-		realityModuleAddress: z.string().transform((v) => getAddress(v)),
-		rewardsEnsName: z.string().min(1),
+		cumulativeMerkleDropAddress: z
+			.string()
+			.transform((v) => getAddress(v))
+			.default(AEGIS.ethereum.cumulativeMerkleDrop),
+		realityModuleAddress: z
+			.string()
+			.transform((v) => getAddress(v))
+			.default(AEGIS.ethereum.realityModule),
+		rewardsEnsName: z.string().min(1).default(AEGIS.ethereum.rewardsEnsName),
 		out: z.string().min(1),
 	},
 	async (args) => {

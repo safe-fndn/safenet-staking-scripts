@@ -465,7 +465,7 @@ The remaining phases build on them:
 15b (governance) ┬─► 15e (inputs) ┴─► 15f (package) ┬─► 15g (assets) ─► 15h (cmd:export) ┬─► 18a (cmd:status) ───┐
 15d (layout) ────┘                                  │                                   │                     │
 16a (proposal lookup) ──────────────────────────────┴─► 16b (re-derivation) ────────────┴─► 16c (cmd:verify) ─┤
-17a (index.yml) ───────────────────────────────────────────────────────────────────────────────────────────┴─► 18b ─► 18c ─► 19 ─► 20
+17a (index.yml) ───────────────────────────────────────────────────────────────────────────────────────────┴─► 18b ─► 18c ─► 19a ─► 19b ─► 19c ─► 20
 ```
 
 The **Depends on** lines below are authoritative.
@@ -794,9 +794,40 @@ The status, export and verify jobs. The verify job runs `cmd:verify --cid` with 
 
 `gh release create rewards-<toTimestamp>` with the release assets (the CAR, `cid.txt`, `merkle-root.txt`, `proposal.json`, the three bundles and `SHA256SUMS`) and notes built from the `cmd:export` summary.
 
-### Phase 19 — Operator runbook
+### Phase 19 — Fixed Aegis configuration and operator runbook
 
-**Depends on:** Phases 16c, 18c **Files:** `docs/permissionless-distribution.md`, `README.md` **Estimate:** docs only
+Split into 19a–19c, so that the configuration change is reviewed before the documentation that describes it. Each sub-phase is its own commit, branch and PR, and Phase 19 has no commit of its own.
+
+The values that are fixed for Aegis:
+- the staking, delegate registry and sanctions list addresses and start blocks;
+- the consensus and sentinel oracle addresses and start blocks;
+- the Cumulative Merkle Drop and the Reality Module;
+- the rewards ENS name and the sanctions lists repository.
+
+The Aegis consensus and sentinel oracle addresses come from the Safenet configuration documentation (`safe-research/safenet/docs/configuration.md`): consensus `0xc855761D619f6002923507cE68B84d7689C2aa96` and sentinel oracle `0x4F61B8832978e83b80D69551AEf07557DBE41d03`. The consensus address is not the Beta one in `.env.sample`. The start blocks are their deployment blocks.
+
+These stay configuration, because they are expected to change:
+- the RPC URLs and block page sizes;
+- `DATABASE_FILE` and `IPFS_GATEWAY_URL`;
+- `GITHUB_TOKEN` and `DEBUG`.
+
+`Safenet.create` and the export functions keep taking every value as a parameter, so tests can still pass their own.
+
+### Phase 19a — Aegis configuration defaults
+
+**Depends on:** Phases 16c, 18c **Files:** `src/config/aegis.ts`, `src/utils/args.ts`, `src/cmd/*.ts`, `.env.sample` **Estimate:** ~100 LOC
+
+`src/config/aegis.ts` holds the fixed Aegis values, and the commands default to them. Every command still accepts its environment variable or flag as an override in this sub-phase, so the behaviour only changes where a value was unset.
+
+### Phase 19b — Remove the fixed configuration
+
+**Depends on:** 19a **Files:** `src/utils/args.ts`, `src/cmd/*.ts`, `.env.sample`, `README.md`, `AGENTS.md`, `.github/workflows/*` **Estimate:** ~100 LOC, mostly removals
+
+The commands stop reading the fixed Aegis values from the environment or the command line, and always use `src/config/aegis.ts`. `.env.sample`, the README, `AGENTS.md` and the workflows drop them. `SanctionsData` loses its own default repository, so `sanctionsAddressRepo` becomes required in `Safenet.create` and `ExportConfiguration`, and `aegis.ts` is the only place it is named. Beta periods can no longer be recomputed from the CLI; that is accepted, because Beta is over and decommissioned.
+
+### Phase 19c — Operator runbook
+
+**Depends on:** 19b **Files:** `docs/permissionless-distribution.md`, `README.md` **Estimate:** docs only
 
 Covers how to:
 
@@ -810,11 +841,11 @@ Covers how to:
 - re-ask an invalidated question.
 - for SEF, change the threshold or add approvals.
 
-Pinning is mentioned only as something anyone may do with the CAR. The runbook points at the governance setup's deployment record for addresses and parameters.
+Pinning is mentioned only as something anyone may do with the CAR. The runbook doesn't describe configuration beyond what is expected to change (RPC URLs, the IPFS gateway, the database file, `GITHUB_TOKEN`).
 
 ### Phase 20 — Remove this specification
 
-**Depends on:** Phase 19 **Files:** `epics/2026_10_20_permissionless_reward_distribution.md` **Estimate:** deletion only
+**Depends on:** Phase 19c **Files:** `epics/2026_10_20_permissionless_reward_distribution.md` **Estimate:** deletion only
 
 ---
 
@@ -1384,6 +1415,28 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - The command reuses verified previous-DB resolution, `nextRewardsStart` and `rewardsPeriod`, without constructing `Safenet`, opening `DATABASE_FILE`, indexing events, computing rewards or fetching sanctions. It needs ENS/drop configuration and the existing base arguments, but no Reality Module configuration. Ethereum chain ID is checked consistently with export.
 - The temporary previous rewards DB is removed before successful output and on failure. Release-existence checks remain the workflow's responsibility in Phase 18b.
 - Added `tests/status-cli.test.ts` beyond the phase's three listed files to cover actual CLI parsing, JSON output, period derivation, settlement boundaries, failure propagation and cleanup.
+
+### Phase 19a
+
+- `src/config/aegis.ts` exports `AEGIS`, grouped as:
+  - `ethereum`: the staking contract, delegate registry and sanctions list as `{ address, startBlock }`, plus the Cumulative Merkle Drop, the Reality Module and the rewards ENS name;
+  - `gnosis`: the consensus contract and the sentinel oracle as `{ address, startBlock }`;
+  - `sanctionsAddressRepo`.
+  
+  Only the commands and arg parsing use it. The library (`Safenet.create`, the export and verify functions) still takes every value as a parameter.
+- Deployment blocks, found by a read-only binary search of `eth_getCode`:
+  - Aegis consensus `0xc855…aa96`: block 48635843, 2026-10-07 13:51:55 UTC;
+  - sentinel oracle `0x4F61…1d03`: block 48635850.
+  
+  The same search reproduces the Beta consensus block, 45210396. The first events are after both blocks. The coordinator `0xC6B3…5B78` (deployed at 48617821) has no Aegis genesis-group events before consensus. The Ethereum start blocks in `.env.sample` are exactly the deployment blocks.
+- `sanctionsAddressRepo` refers to `DEFAULT_SANCTIONS_ADDRESS_REPO`, which stays in `src/data/sanctions.ts`, so library modules don't import `aegis.ts`.
+- Every fixed value in the base args schema, and in the inline args of `cmd:export`, `cmd:verify` and `cmd:plan`, defaults to `AEGIS` and remains an optional override.
+  - `cmd:rewards` and `cmd:kyc` drop the "--transactions requires CUMULATIVE_MERKLE_DROP_ADDRESS" check, which can no longer fail.
+  - `tests/plan-cli.test.ts` replaces "requires ENS configuration before RPC" with a test that the Aegis ENS name and drop are used when unset.
+- `.env.sample` drops the fixed Aegis values entirely, along with the Beta consensus address and the zero-address sentinel placeholder. It keeps only `DEBUG`, `DATABASE_FILE`, the RPC URLs, the block page sizes, `GITHUB_TOKEN` and `IPFS_GATEWAY_URL`. The overrides still work in code until 19b, but aren't listed.
+- Consequences of defaulting to the Aegis consensus contract:
+  - Beta periods find no attestations unless `CONSENSUS_ADDRESS`/`CONSENSUS_START_BLOCK` are overridden.
+  - A database indexed against another consensus address is refused ("event indexer connected to the wrong database") and needs a fresh `DATABASE_FILE`.
 
 ## Open Questions and Assumptions
 
