@@ -400,10 +400,10 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 - Run `cmd:index`, then let the cache action save the updated database after a successful run.
 - Upload the resulting database as a workflow artifact using the repository's configured retention period. Periodic snapshots for longer-term storage are downloaded and saved manually. There are no indexing releases, asset rotation, or automatic historical recovery.
 
-`.github/workflows/distribution.yml` runs on a weekly schedule and on `workflow_dispatch` (with optional explicit period and opt-in "verify from genesis" inputs):
+`.github/workflows/distribution.yml` runs on a weekly schedule and on `workflow_dispatch` (with an opt-in "verify from genesis" input; the period is always derived):
 
 - **plan** job: `cmd:plan` reads the ENS-pinned CID and its `rewardsUntil`, and computes the next period as `[rewardsUntil, rewardsUntil + 2 weeks]`, with the one-off Beta → Aegis exception (`[2026-10-13, 2026-10-27]`). Exit cleanly if that period has not settled yet or already has a release. A release that already exists means a proposal is in flight. This makes the weekly schedule idempotent against the two-week cadence.
-- **export** job: restore the DB cache (or start empty on a miss), then run `cmd:index` and `cmd:export`, from source after `npm ci`. The output depends only on the checkout, so running the published Docker image instead gives the same bytes. The previous CAR comes from the release whose `cid.txt` matches, if there is one. Otherwise it comes from the `IPFS_GATEWAY_URL` repository variable, which must point at a reachable trustless gateway; the runner has no local node. This applies at least to the first run, whose previous rewards DB (`bafybeiczeo7…`) predates the releases. Upload the release assets as a workflow artifact.
+- **export** job: restore the DB cache (or start empty on a miss), then run `cmd:index` and `cmd:export`, from source after `npm ci`. The output depends only on the checkout, so running the published Docker image instead gives the same bytes. The previous CAR comes from the `IPFS_GATEWAY_URL` repository variable, which must point at a reachable trustless gateway; the runner has no local node. Release-asset CAR reuse is omitted to keep the workflow small. Upload the release assets and export summary as separate workflow artifacts.
 - **verify** job: on a separate runner, run a fresh `npm ci`, restore the DB cache (or start empty on a miss), and run `cmd:verify --cid "$(cat cid.txt)"` with the artifact's `cid.txt`. Nothing has been proposed yet, so it reports "no proposal yet" and passes when the independently derived CID matches.
 - **release** job: `gh release create rewards-<toTimestamp>` with the assets, and notes giving the CID, root, amount, sanctions release and new KYC approvals (from the `cmd:export` summary), the commit the workflow ran on (informational only), the Safe Transaction Builder instructions, and the non-canonical disclaimer. No environment protection, no required reviewers.
 
@@ -1384,6 +1384,15 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - The command reuses verified previous-DB resolution, `nextRewardsStart` and `rewardsPeriod`, without constructing `Safenet`, opening `DATABASE_FILE`, indexing events, computing rewards or fetching sanctions. It needs ENS/drop configuration and the existing base arguments, but no Reality Module configuration. Ethereum chain ID is checked consistently with export.
 - The temporary previous rewards DB is removed before successful output and on failure. Release-existence checks remain the workflow's responsibility in Phase 18b.
 - Added `tests/plan-cli.test.ts` beyond the phase's three listed files to cover actual CLI parsing, JSON output, period derivation, settlement boundaries, failure propagation and cleanup.
+
+### Phase 18b
+
+- The distribution workflow runs Tuesdays at 04:23 UTC or by manual dispatch. The only dispatch input is `verifyFromGenesis`; there is no explicit period input because the commands derive the next period. Distribution runs are serialized without cancelling an in-flight run.
+- Plan exposes `shouldRun`, `previousCid`, `periodStart`, `periodEnd` and `settled`. Unsettled periods and existing `rewards-<periodEnd>` releases skip successfully; only HTTP 404 means a missing release, while other lookup errors fail.
+- All three jobs use fresh checkouts and Node.js 24 dependency installs. Export and verify restore the Aegis database cache independently with restore-only actions; they never save modified databases or share the exporter's database. `verifyFromGenesis` skips the verifier's cache restore. No indexing releases or validation checks are added.
+- The gateway is required for every job's previous CAR resolution. Reusing a CAR from a matching rewards release is deferred to avoid release-search machinery; CAR verification against the ENS-pinned CID remains unchanged.
+- Export requires the CAR filename for the planned period before handing off assets, so an ENS advance to another period fails rather than silently changing the planned release. Release assets and the export summary are retained as separate per-run workflow artifacts for Phase 18c. Verify independently re-derives the exported CID and exposes it as a job output.
+- This phase adds only `.github/workflows/distribution.yml`, with read-only contents permission. It reuses the indexing workflow's deployment variables and RPC secrets, adds required `IPFS_GATEWAY_URL`, and supplies `GITHUB_TOKEN` for sanctions release listing. Publication remains Phase 18c. Offline workflow checks use scratch files rather than new repository test infrastructure.
 
 ## Open Questions and Assumptions
 
