@@ -743,6 +743,15 @@ Changes that came up during implementation. Where they conflict with the rest of
   - the 4.5M SAFE stake sizes in the reward scenario tests.
 - `rewardsPeriod()` without an explicit period still returns the two weeks up to the last Tuesday. Aegis periods (2026-10-13, 10-27, …) are one week off the Beta grid, so on the wrong week the default gives a period that `distribute` rejects (`null`). This fails safe and is left as is. Only the comment changed.
 
+### Phase 3
+
+- A bundle is written only when `--transactions <dir>` (env `TRANSACTIONS`) is given. It used to be written whenever `CUMULATIVE_MERKLE_DROP_ADDRESS` was set, but `.env.sample` sets that address and Phase 15 reuses it, so it no longer signals that a bundle is wanted. Without `--transactions`, no bundle is written.
+- Both commands check their flags before indexing or recording anything, so a misconfigured run fails before the rewards DB changes. With `--transactions`, both throw `--transactions requires CUMULATIVE_MERKLE_DROP_ADDRESS` if the address is unset, and `cmd:rewards` throws `--transactions requires --record` without `--record`.
+- `writeTransactionBundle(dir, key, transactions)` takes the output directory itself instead of the `--record` root. It creates the directory and writes `<dir>/<key>.json` with `createdAt = Date.now()`.
+- `transactionBundle(transactions, createdAt)` returns a typed `TransactionBundle`, with `createdAt` in milliseconds since the epoch (Phase 13 passes `settlementTimestamp × 1000`). The JSON shape is unchanged: `version: "1.0"`, `chainId: "1"`, `createdAt`, `meta: {}`, and per transaction `to`, `value` (default `"0"`), and `data`/`contractMethod`/`contractInputsValues` (or `null`). There is no `createdFromSafeAddress`.
+- Phase 3 adds `src/utils/bundle.test.ts`, which tests the pure `transactionBundle()` and the output path of `writeTransactionBundle`.
+- README and AGENTS.md no longer mention a `SAFE_TOKEN_ADDRESS` env var, which never existed. The token address is always read from the staking contract (`Safenet.safeToken()`).
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
