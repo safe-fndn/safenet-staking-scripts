@@ -6,9 +6,8 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getAddress } from "viem";
 import { z } from "zod";
-import { AEGIS } from "../config/aegis.js";
+import { AEGIS_PARAMETERS } from "../config/aegis.js";
 import { exportPackage } from "../distribution/export.js";
 import { releaseAssets, writeReleaseAssets } from "../distribution/release.js";
 import { Safenet } from "../safenet.js";
@@ -21,15 +20,6 @@ main(
 	{
 		previousCar: z.string().min(1).optional(),
 		ipfsGatewayUrl: z.url().optional(),
-		cumulativeMerkleDropAddress: z
-			.string()
-			.transform((v) => getAddress(v))
-			.default(AEGIS.ethereum.cumulativeMerkleDrop),
-		realityModuleAddress: z
-			.string()
-			.transform((v) => getAddress(v))
-			.default(AEGIS.ethereum.realityModule),
-		rewardsEnsName: z.string().min(1).default(AEGIS.ethereum.rewardsEnsName),
 		out: z.string().min(1),
 	},
 	async (args) => {
@@ -39,11 +29,12 @@ main(
 			throw new Error(`release directory ${JSON.stringify(args.out)} is not empty`);
 		}
 
-		const safenet = await Safenet.create(args);
+		const config = { ...args, ...AEGIS_PARAMETERS };
+		const safenet = await Safenet.create(config);
 		// The package is assembled outside of `--out`, which only holds the release assets.
 		const temporary = await mkdtemp(join(tmpdir(), "safenet-package-"));
 		try {
-			const result = await exportPackage(safenet, args, join(temporary, "package"));
+			const result = await exportPackage(safenet, config, join(temporary, "package"));
 			await writeReleaseAssets(args.out, releaseAssets(result));
 
 			let validatorRewards = 0n;

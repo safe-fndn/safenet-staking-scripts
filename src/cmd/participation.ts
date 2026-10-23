@@ -5,6 +5,7 @@
 import path from "node:path";
 import { type Address, getAddress } from "viem";
 import { z } from "zod";
+import { AEGIS_PARAMETERS } from "../config/aegis.js";
 import { type Participation, Safenet } from "../safenet.js";
 import { main, rewardsPeriod } from "../utils/args.js";
 import { readJsonFile, writeJsonFile } from "../utils/json.js";
@@ -37,7 +38,7 @@ main(
 		record: z.string().optional(),
 	},
 	async (args) => {
-		const safenet = await Safenet.create(args);
+		const safenet = await Safenet.create({ ...args, ...AEGIS_PARAMETERS });
 		const period = rewardsPeriod(args);
 
 		// Kept around so that `--record` below can reuse it instead of querying

@@ -2,9 +2,8 @@
  * Command to apply the committed KYC approvals and rebuild the Merkle tree between distributions.
  */
 
-import { getAddress } from "viem";
 import { z } from "zod";
-import { AEGIS } from "../config/aegis.js";
+import { AEGIS, AEGIS_PARAMETERS } from "../config/aegis.js";
 import { kyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
@@ -16,13 +15,9 @@ main(
 		rewardPeriodEnd: z.coerce.bigint().optional(),
 		record: z.string(),
 		transactions: z.string().optional(),
-		cumulativeMerkleDropAddress: z
-			.string()
-			.transform((v) => getAddress(v))
-			.default(AEGIS.ethereum.cumulativeMerkleDrop),
 	},
 	async (args) => {
-		const safenet = await Safenet.create(args);
+		const safenet = await Safenet.create({ ...args, ...AEGIS_PARAMETERS });
 		const period = rewardsPeriod(args);
 
 		const db = new MerkleDb({ root: recordRewardsDirectory(args.record) });
@@ -44,7 +39,7 @@ main(
 		} else if (args.transactions !== undefined) {
 			const bundle = await writeTransactionBundle(args.transactions, `kyc-${period.toTimestamp}`, [
 				{
-					to: args.cumulativeMerkleDropAddress,
+					to: AEGIS.ethereum.cumulativeMerkleDrop,
 					contractMethod: {
 						inputs: [
 							{

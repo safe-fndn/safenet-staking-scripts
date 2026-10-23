@@ -1,6 +1,6 @@
 # Safenet Accounting
 
-Scripts for indexing Safenet Beta consensus events and computing validator participation rates and SAFE reward payouts at the end of each accounting period.
+Scripts for indexing Safenet Aegis consensus events and computing validator participation rates and SAFE reward payouts at the end of each accounting period.
 
 > [!NOTE]
 >
@@ -37,24 +37,14 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `DATABASE_FILE`                  | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence.                          | `:memory:`                                   |
 | `STAKING_RPC_URL`                | RPC endpoint for the staking chain (Ethereum mainnet).                                                              | `https://mainnet.gateway.tenderly.co`        |
 | `STAKING_BLOCK_PAGE_SIZE`        | Number of blocks to fetch logs for in a single RPC call on the staking chain.                                       | `100`                                        |
-| `STAKING_ADDRESS`                | Address of the staking contract.                                                                                    | `0x115E78f160e1E3eF163B05C84562Fa16fA338509` |
-| `STAKING_START_BLOCK`            | Block at which the staking contract was deployed.                                                                   | `24585750`                                   |
-| `SANCTIONS_LIST_ADDRESS`         | Address of the Chainalysis sanctions list oracle.                                                                   | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
-| `SANCTIONS_LIST_START_BLOCK`     | Block at which the sanctions list oracle was deployed.                                                              | `14356508`                                   |
-| `SANCTIONS_ADDRESS_REPO`         | GitHub `owner/name` repo of the UN/EU/UK/Swiss SECO/US OFAC address lists (optional).                               | `safe-fndn/sanctions-address-lists`          |
 | `GITHUB_TOKEN`                   | GitHub token for the release listing API (optional; avoids the 60/hour IP rate limit).                              | _(unset)_                                    |
-| `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                                                        | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
-| `REALITY_MODULE_ADDRESS`         | Zodiac Reality Module on the Governance Safe (`cmd:export`, `cmd:verify`).                                          | `0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC` |
-| `REWARDS_ENS_NAME`               | ENS name whose `contenthash` pins the latest rewards DB (`cmd:export`, `cmd:verify`, `cmd:plan`).                   | `rewards.safenet-gov.eth`                    |
 | `IPFS_GATEWAY_URL`               | Trustless gateway the previous rewards DB's CAR is fetched from (`cmd:export`, `cmd:verify`, `cmd:plan`, optional). | `http://127.0.0.1:8080` (local Kubo)         |
 | `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                                                | `https://gnosis.gateway.tenderly.co`         |
 | `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.                                     | `25`                                         |
-| `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                                                  | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
-| `CONSENSUS_START_BLOCK`          | Block at which consensus began. Events before this block are ignored.                                               | `45210396`                                   |
-| `SENTINEL_ORACLE_ADDRESS`        | Address of the sentinel oracle contract on the consensus chain.                                                     | _(placeholder)_                              |
-| `SENTINEL_ORACLE_START_BLOCK`    | Block at which the sentinel oracle was deployed.                                                                    | _(placeholder)_                              |
 
 Every variable can also be passed as a CLI flag using camelCase (e.g. `--databaseFile ./data.db`).
+
+The Aegis contracts are not configuration: the addresses and start blocks of the staking, delegate registry, sanctions list, consensus and sentinel oracle contracts, the Cumulative Merkle Drop, the Reality Module, the rewards ENS name `rewards.safenet-gov.eth` and the [`sanctions-address-lists`](https://github.com/safe-fndn/sanctions-address-lists) repository are fixed in [`src/config/aegis.ts`](src/config/aegis.ts), and every command uses them.
 
 ## Commands
 
@@ -70,7 +60,7 @@ DATABASE_FILE=./data.db npm run cmd:index
 
 Indexing is incremental: subsequent runs only fetch events since the last indexed block. Once the database is populated, point `DATABASE_FILE` to the same file when running any of the accounting commands to avoid re-fetching from the RPC.
 
-The [daily indexing workflow](.github/workflows/index.yml) runs at 03:23 UTC and can also be started with `workflow_dispatch`. Before enabling it, configure the repository secrets `STAKING_RPC_URL` and `CONSENSUS_RPC_URL`, and the repository variables `CONSENSUS_ADDRESS`, `CONSENSUS_START_BLOCK`, `SENTINEL_ORACLE_ADDRESS` and `SENTINEL_ORACLE_START_BLOCK` for the actual Aegis deployments. All four variables are required: the sample consensus configuration may refer to Beta, and its sentinel address is a zero placeholder. The workflow uses Node.js 24, `npm ci`, `DATABASE_FILE=safenet.db` and the remaining defaults from `.env.sample` (including staking, delegation and sanctions contracts/start blocks, page sizes and debug logging).
+The [daily indexing workflow](.github/workflows/index.yml) runs at 03:23 UTC and can also be started with `workflow_dispatch`. Before enabling it, configure the repository secrets `STAKING_RPC_URL` and `CONSENSUS_RPC_URL`. The workflow uses Node.js 24, `npm ci`, `DATABASE_FILE=safenet.db` and the remaining defaults from `.env.sample` (page sizes and debug logging), and indexes the Aegis contracts in `src/config/aegis.ts`.
 
 The workflow uses `actions/cache@v4` to restore and save `safenet.db`, with the run-specific key `safenet-aegis-db-<run_id>` and restore prefix `safenet-aegis-db-`. Indexing starts with an empty database on a cache miss. Cache persistence is intentionally lightweight and subject to GitHub's cache scope and eviction rules. Runs share the `index-snapshot` concurrency group and do not cancel an in-flight run.
 
@@ -114,11 +104,11 @@ The JSON shape for automation is `{ "previousCid": "bafy…", "period": { "fromT
 
 `settled` means the consensus block exactly 48 blocks after the last block at or before the period end exists, matching `Safenet.settlement`. A period that has not ended or settled succeeds with `false`; RPC, configuration, missing previous DB and root verification errors fail. Export may still wait for Ethereum indexing to reach the settlement timestamp (up to one more Ethereum block). Release existence checks belong to the workflow.
 
-Configuration uses the existing base environment plus required `REWARDS_ENS_NAME` and `CUMULATIVE_MERKLE_DROP_ADDRESS`. Optional `--previousCar` and `--ipfsGatewayUrl` (env `PREVIOUS_CAR` and `IPFS_GATEWAY_URL`) work as in `cmd:export`; no Reality Module configuration, period flags or reward overrides are needed. The fetched rewards DB is temporary and removed on success or failure; `DATABASE_FILE` is not opened.
+Configuration uses the existing base environment. Optional `--previousCar` and `--ipfsGatewayUrl` (env `PREVIOUS_CAR` and `IPFS_GATEWAY_URL`) work as in `cmd:export`; no period flags or reward overrides are needed. The fetched rewards DB is temporary and removed on success or failure; `DATABASE_FILE` is not opened.
 
 ### `cmd:export`
 
-Builds the reward distribution package for the next period on top of the rewards DB that the ENS `contenthash` of `REWARDS_ENS_NAME` pins, and writes its release assets. Anyone can run it, and the same code, lockfile and `src/distribution/kyc.json` always produce byte-identical assets for a period.
+Builds the reward distribution package for the next period on top of the rewards DB that the ENS `contenthash` of `rewards.safenet-gov.eth` pins, and writes its release assets. Anyone can run it, and the same code, lockfile and `src/distribution/kyc.json` always produce byte-identical assets for a period.
 
 ```sh
 npm run cmd:export -- --out=./release
@@ -146,7 +136,7 @@ The package (`latest.json` and `proofs/`, the layout of the ENS-pinned rewards D
 | `execute.json`            | Safe Transaction Builder bundle: `executeProposalWithIndex`                     |
 | `SHA256SUMS`              | Checksums of all of the above, for `sha256sum -c`                               |
 
-The [distribution workflow](.github/workflows/distribution.yml) runs Tuesdays at 04:23 UTC or by manual dispatch. It skips unsettled or already released periods, exports the next period, and independently verifies its CID on a fresh runner. Configure the same RPC secrets and Aegis deployment variables as the indexing workflow, plus `IPFS_GATEWAY_URL` as a reachable trustless gateway for the ENS-pinned previous CAR. Manual dispatch can select `verifyFromGenesis` to skip the verifier's event cache.
+The [distribution workflow](.github/workflows/distribution.yml) runs Tuesdays at 04:23 UTC or by manual dispatch. It skips unsettled or already released periods, exports the next period, and independently verifies its CID on a fresh runner. Configure the same RPC secrets as the indexing workflow, plus the repository variable `IPFS_GATEWAY_URL` as a reachable trustless gateway for the ENS-pinned previous CAR. Manual dispatch can select `verifyFromGenesis` to skip the verifier's event cache.
 
 Only after plan, export and verify succeed does the release job publish `rewards-<periodEnd>`, targeting the workflow commit, with the eight assets above and the export summary as notes. It downloads the same run's assets and summary without a checkout or dependency install; only this job receives `contents: write`. The commit label is informational. The summary includes funding, validator and sentinel rewards, unpaid and forfeited amounts, sanctions and new KYC approvals; no approval list means 0 new approvals.
 
@@ -214,7 +204,7 @@ The optional `--totalRewards` flag overrides the payout amount for the period (i
 
 Validator payouts and sentinel grants are recorded as a single distribution: an address that is both a validator staker and a sentinel gets one distribution entry holding the sum, and sanctions filtering and KYC handling apply to sentinels exactly as they do to validators. Each entry records the sentinel share of its cumulative amount as `sentinelAmount`, which the index sums into `sentinelTokenTotal` in `latest.json`, so that sentinel spend does not eat into the prorated validator budget.
 
-With `--transactions=<dir>`, a Safe transaction bundle is also written to `<dir>/rewards-<periodEnd>.json`, outside of the rewards directory. It requires `--record` and `CUMULATIVE_MERKLE_DROP_ADDRESS`, and the SAFE token address is read from the staking contract. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount. Both programs are funded from the same treasury Safe, so that single `transfer` covers the combined validator and sentinel amount.
+With `--transactions=<dir>`, a Safe transaction bundle is also written to `<dir>/rewards-<periodEnd>.json`, outside of the rewards directory. It requires `--record`, and the SAFE token address is read from the staking contract. The bundle contains two transactions: a `setMerkleRoot` call on the rewards contract and a `transfer` call on the SAFE token contract to fund it with the newly distributed amount. Both programs are funded from the same treasury Safe, so that single `transfer` covers the combined validator and sentinel amount.
 
 ### `cmd:kyc`
 
@@ -224,7 +214,7 @@ Applies the KYC approvals in `src/distribution/kyc.json` to the Merkle distribut
 npm run cmd:kyc -- --record=./path/to/record
 ```
 
-Accounts are only ever approved through `src/distribution/kyc.json`; the command takes none on the command line. The `--record` flag is required and must point at the root of the `safenet-beta-data` repository, whose last distribution must end at the period end (`--rewardPeriodEnd`, defaulting to the most recent rewards period). Like `cmd:rewards`, it refuses to run while an account already flagged in the Merkle database is missing from the file. The command rebuilds the Merkle tree using the current sanctions list before writing the updated root and proofs back into `<record>/assets/rewards/`, and prints the newly approved accounts, or `No new KYC approvals.`. With `--transactions=<dir>` and `CUMULATIVE_MERKLE_DROP_ADDRESS` set, it also writes a Safe transaction bundle with the `setMerkleRoot` call to `<dir>/kyc-<periodEnd>.json`, unless the Merkle root is unchanged, in which case it prints `Merkle root unchanged, no transaction needed.` instead.
+Accounts are only ever approved through `src/distribution/kyc.json`; the command takes none on the command line. The `--record` flag is required and must point at the root of the `safenet-beta-data` repository, whose last distribution must end at the period end (`--rewardPeriodEnd`, defaulting to the most recent rewards period). Like `cmd:rewards`, it refuses to run while an account already flagged in the Merkle database is missing from the file. The command rebuilds the Merkle tree using the current sanctions list before writing the updated root and proofs back into `<record>/assets/rewards/`, and prints the newly approved accounts, or `No new KYC approvals.`. With `--transactions=<dir>`, it also writes a Safe transaction bundle with the `setMerkleRoot` call to `<dir>/kyc-<periodEnd>.json`, unless the Merkle root is unchanged, in which case it prints `Merkle root unchanged, no transaction needed.` instead.
 
 ### `cmd:validators`
 
@@ -263,7 +253,7 @@ The `--record` flag expects the root of the `safenet-beta-data` repository and w
 
 ### `cmd:sanctions`
 
-Prints the list of sanctioned accounts that are excluded from reward payouts: addresses flagged by the on-chain Chainalysis oracle, unioned with the UN, EU, UK, Swiss SECO and US OFAC addresses currently published by [`sanctions-address-lists`](https://github.com/safe-fndn/sanctions-address-lists) (or the repository set in `SANCTIONS_ADDRESS_REPO`), fetched from its `latest` release. Unlike the on-chain oracle, the published lists have no block height to pin them to, so this command always reflects the latest fetch rather than their state at a particular payout period. A period can instead be pinned to the newest dated `data-YYYY-MM-DD` snapshot release of the same repository whose UTC day ended at or before the period end (`Safenet.pinnedSanctionedAccounts`), which also reports the release it used.
+Prints the list of sanctioned accounts that are excluded from reward payouts: addresses flagged by the on-chain Chainalysis oracle, unioned with the UN, EU, UK, Swiss SECO and US OFAC addresses currently published by [`sanctions-address-lists`](https://github.com/safe-fndn/sanctions-address-lists), fetched from its `latest` release. Unlike the on-chain oracle, the published lists have no block height to pin them to, so this command always reflects the latest fetch rather than their state at a particular payout period. A period can instead be pinned to the newest dated `data-YYYY-MM-DD` snapshot release of the same repository whose UTC day ended at or before the period end (`Safenet.pinnedSanctionedAccounts`), which also reports the release it used.
 
 ```sh
 npm run cmd:sanctions

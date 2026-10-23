@@ -767,7 +767,7 @@ export class Safenet {
 		delegateRegistryStartBlock?: bigint;
 		sanctionsListAddress: Address;
 		sanctionsListStartBlock?: bigint;
-		sanctionsAddressRepo?: GitHubRepository;
+		sanctionsAddressRepo: GitHubRepository;
 		consensusClient: Client;
 		consensusBlockPageSize: bigint;
 		consensusAddress: Address;

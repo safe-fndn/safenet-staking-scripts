@@ -51,7 +51,7 @@ import {
 
 /**
  * The configuration an export reads the chains with. It is a superset of the `Safenet.create`
- * parameters, so the parsed command arguments can be passed as is.
+ * parameters, so that a command can pass the same object to both.
  */
 export type ExportConfiguration = CarSource & {
 	/** Ethereum mainnet: staking, the governance contracts, ENS and the drop. */
@@ -60,7 +60,7 @@ export type ExportConfiguration = CarSource & {
 	stakingStartBlock?: bigint;
 	delegateRegistryAddress: Address;
 	sanctionsListAddress: Address;
-	sanctionsAddressRepo?: GitHubRepository;
+	sanctionsAddressRepo: GitHubRepository;
 	/** Gnosis Chain: consensus and the sentinel oracle. */
 	consensusClient: Client;
 	consensusAddress: Address;
