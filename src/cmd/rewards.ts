@@ -6,7 +6,7 @@ import { type Address, formatUnits, getAddress, parseUnits } from "viem";
 import { z } from "zod";
 import { kyc as committedKyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
-import { mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
+import { distributionPayouts, mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
 import {
 	main,
 	recordRewardsDirectory,
@@ -154,17 +154,7 @@ main(
 		if (db !== undefined) {
 			const sanctions = await safenet.sanctionedAccounts(period);
 			const filters = { sanctions, kycThreshold, kycApprovals: kyc.accounts };
-			// Each entry carries its sentinel share alongside the total it is part
-			// of, so that a recipient who is both a validator staker and a
-			// sentinel is distributed to once, without losing track of how much
-			// of the distribution the sentinel program funded.
-			const flatPayouts = Object.fromEntries(
-				Object.entries(payouts).map(([addr, split]) => [
-					addr,
-					{ amount: payoutAmount(split), sentinelAmount: split.sentinelRewards },
-				]),
-			);
-			const update = await db.distribute(period, flatPayouts, unpaid, filters);
+			const update = await db.distribute(period, distributionPayouts(payouts), unpaid, filters);
 
 			console.log();
 			if (update === null) {
