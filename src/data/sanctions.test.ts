@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import Sqlite3 from "better-sqlite3";
 import { getAddress } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -147,8 +146,6 @@ describe("SanctionsData", () => {
 
 const timestamp = (date: string): bigint => BigInt(Date.parse(date) / 1000);
 
-const sha256 = (body: string): string => createHash("sha256").update(body).digest("hex");
-
 /**
  * Fakes a repository's GitHub release listing (a single page) and release
  * asset downloads, serving the given raw `<source>.json` bodies per release.
@@ -184,9 +181,6 @@ const EMPTY_LISTS = {
 	"ch-seco": "[]\n",
 	"us-ofac": "[]\n",
 };
-
-// `sha256sum` of `[]\n`.
-const EMPTY_LIST_SHA256 = "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570";
 
 describe("selectSnapshotRelease", () => {
 	const releases = ["latest", "data-2026-10-27", "data-2026-10-26", "data-2026-10-20"];
@@ -258,7 +252,7 @@ describe("SanctionsData.pinnedSanctionedAccounts", () => {
 
 	const period = { toTimestamp: timestamp("2026-10-27T00:00:00Z") };
 
-	it("fetches the lists from the period's snapshot and records their hashes", async () => {
+	it("fetches the lists from the period's snapshot", async () => {
 		const onchain = getAddress("0x0000000000000000000000000000000000000011");
 		const pinned = getAddress("0x0000000000000000000000000000000000000012");
 		const later = getAddress("0x0000000000000000000000000000000000000013");
@@ -274,17 +268,7 @@ describe("SanctionsData.pinnedSanctionedAccounts", () => {
 
 		expect(await data.pinnedSanctionedAccounts(period)).toEqual({
 			accounts: [onchain, pinned],
-			offchain: {
-				release: "data-2026-10-26",
-				// `sha256sum` of each raw asset, as served.
-				sha256: {
-					un: EMPTY_LIST_SHA256,
-					eu: EMPTY_LIST_SHA256,
-					uk: EMPTY_LIST_SHA256,
-					"ch-seco": EMPTY_LIST_SHA256,
-					"us-ofac": "f6090d4e93c8dddb16524786fdd71903ad740592dc17fa7e9b54673d987b7dc7",
-				},
-			},
+			release: "data-2026-10-26",
 		});
 		// Only the release listing and the pinned snapshot's assets are fetched.
 		expect(urls()).toEqual([
@@ -305,7 +289,7 @@ describe("SanctionsData.pinnedSanctionedAccounts", () => {
 
 		const result = await createSanctionsData("example/lists").pinnedSanctionedAccounts(period);
 		expect(result.accounts).toEqual([pinned]);
-		expect(result.offchain.release).toBe("data-2026-10-26");
+		expect(result.release).toBe("data-2026-10-26");
 		expect(urls()).toEqual([
 			"https://api.github.com/repos/example/lists/releases?per_page=100&page=1",
 			...latestAssetUrls("example/lists").map((url) =>
@@ -323,42 +307,5 @@ describe("SanctionsData.pinnedSanctionedAccounts", () => {
 		await expect(createSanctionsData().pinnedSanctionedAccounts(period)).rejects.toThrow(
 			`no sanctions address lists snapshot ended by ${period.toTimestamp}`,
 		);
-	});
-
-	it("accepts a matching expected snapshot", async () => {
-		stubReleases(["data-2026-10-26"], { "data-2026-10-26": EMPTY_LISTS });
-
-		const data = createSanctionsData();
-		const { offchain } = await data.pinnedSanctionedAccounts(period);
-		await expect(data.pinnedSanctionedAccounts(period, offchain)).resolves.toEqual({
-			accounts: [],
-			offchain,
-		});
-	});
-
-	it("detects a hash mismatch without retrying", async () => {
-		const urls = stubReleases(["data-2026-10-26"], { "data-2026-10-26": EMPTY_LISTS });
-
-		const data = createSanctionsData();
-		const { offchain } = await data.pinnedSanctionedAccounts(period);
-		const expected = { ...offchain, sha256: { ...offchain.sha256, uk: sha256("[]") } };
-		await expect(data.pinnedSanctionedAccounts(period, expected)).rejects.toThrow(
-			`sanctions address list uk in data-2026-10-26 has SHA-256 ${EMPTY_LIST_SHA256}, expected ${sha256("[]")}`,
-		);
-		// One listing and five assets per call.
-		expect(urls()).toHaveLength(12);
-	});
-
-	it("detects a release mismatch before fetching any asset", async () => {
-		const urls = stubReleases(["data-2026-10-26"], { "data-2026-10-26": EMPTY_LISTS });
-
-		const data = createSanctionsData();
-		const { offchain } = await data.pinnedSanctionedAccounts(period);
-		await expect(
-			data.pinnedSanctionedAccounts(period, { ...offchain, release: "data-2026-10-20" }),
-		).rejects.toThrow(
-			"sanctions address lists snapshot data-2026-10-26 does not match expected data-2026-10-20",
-		);
-		expect(urls()).toHaveLength(7);
 	});
 });

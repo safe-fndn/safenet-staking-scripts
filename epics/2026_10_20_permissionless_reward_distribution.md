@@ -1263,6 +1263,18 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - `cmd:export`, without overrides and generator: 15h (`permissionless/15g`);
 - **Not salvaged:** the manifest schema (14b), `allocations.json` (14c), `writePackageFiles` (14d), the generator (15b, 15h), and the file comparison (`permissionless/16a-original`), because `cmd:verify` reads no release asset.
 
+### Phase 15a
+
+- `pinnedSanctionedAccounts` goes back to the internal shape from 9b:
+  - `#fetchOffchainSource(tag, source)` returns the addresses, and `#offchainSanctionedAccounts(tag)` merges them. `sanctionedAccounts()` and the pinned call share it.
+  - `OffchainSource` is module-private again, and `OffchainSanctions` is removed.
+  - `PinnedSanctionedAccounts` is `{ accounts, release }`.
+- `IPFS_PARAMETERS` is unexported and `IpfsParameters` is removed, because the manifest's `ipfs` block was their only consumer. The object stays as module-private documentation of the parameters, and its test went with the export.
+- `fetchRewardsDb` still leaves extra files in `dir`. The epic's test case "a previous rewards DB with any file outside `latest.json` and `proofs/` is refused" is covered by 15d's `copyRewardsDb`, which both the export and `cmd:verify` go through.
+- `previous.test.ts`:
+  - "rejects a CAR of a different CID" uses a separately packed directory;
+  - the missing-`latest.json` test packs `other.json` instead of `allocations.json`.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

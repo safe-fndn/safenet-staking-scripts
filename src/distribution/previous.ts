@@ -39,8 +39,7 @@ export const DEFAULT_IPFS_GATEWAY_URL = "http://127.0.0.1:8080";
 export const CAR_MEDIA_TYPE = "application/vnd.ipld.car; version=1";
 
 /**
- * A rewards DB unpacked into a directory, in the shape of the manifest's `previous` block plus
- * the directory.
+ * A rewards DB unpacked into a directory.
  */
 export type RewardsDb = {
 	/** The package CID, verified against every block of the CAR. */
@@ -49,10 +48,7 @@ export type RewardsDb = {
 	merkleRoot: Hex;
 	/** The `rewardsUntil` of its `latest.json`, in seconds. */
 	rewardsUntil: bigint;
-	/**
-	 * The directory it was unpacked into, holding `latest.json` and `proofs/`, as well as
-	 * `manifest.json` and `allocations.json` for packages built by the export.
-	 */
+	/** The directory it was unpacked into, holding `latest.json` and `proofs/`. */
 	dir: string;
 };
 

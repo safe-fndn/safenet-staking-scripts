@@ -44,8 +44,7 @@ export const GOVERNANCE_CHAIN_ID = 1;
 export const MULTI_SEND_CALL_ONLY: Address = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2";
 
 /**
- * The governance configuration that the export reads from the Reality Module, its oracle and ENS,
- * in the shape of the manifest's `governance` block.
+ * The governance configuration that the export reads from the Reality Module, its oracle and ENS.
  */
 export type GovernanceConfiguration = {
 	/** How long in seconds a final Yes answer stays executable, `module.answerExpiration()`. */
@@ -75,8 +74,8 @@ export type GovernanceConfiguration = {
 };
 
 /**
- * What a distribution changes onchain, in the terms of the manifest's `distribution` block and
- * the package CID.
+ * What a distribution changes onchain: the funding of the Cumulative Merkle Drop, its Merkle root
+ * and the package CID.
  */
 export type DistributionUpdate = {
 	/** The SAFE that the Cumulative Merkle Drop needs on top of what it already received. */
