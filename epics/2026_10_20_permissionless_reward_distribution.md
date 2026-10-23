@@ -1043,6 +1043,45 @@ These entries describe the behaviour of Phase 11 as a whole. The 11a–11e entri
 - 11a's code and tests are the contenthash part of the unsplit Phase 11, unchanged. Only the module header and the test vector comment are narrowed to what 11a contains, and later sub-phases extend them.
 - The ABI entries for the vector calls (ENS registry `resolver`, resolver `contenthash`) are not added. The vector is hard-coded, and Phase 12 adds those entries.
 
+### Phase 11b
+
+- `src/abi.ts` gains `ERC20_ABI` (`transfer` only), `CUMULATIVE_MERKLE_DROP_ABI` (`setMerkleRoot` only) and `ENS_RESOLVER_ABI` (`setContenthash` only). Later phases add their own entries to these.
+- `governanceTransactions` types its options inline as `{ ensName: string; ensResolver: Address }`. 11d switches them to `Pick<GovernanceConfiguration, "ensName" | "ensResolver">` once that type exists.
+- **The proposal is a single Zodiac transaction.** It is a `delegatecall` (`operation = 1`) from the Governance Safe to the canonical `MultiSendCallOnly`, which batches the three calls in the order transfer → `setMerkleRoot` → `setContenthash`, each with `operation = 0`. This overrides resolved decision 3, "Governance Safe transactions, executed one by one", and the rejected "One `MultiSendCallOnly` delegatecall" alternative. Splitting into separate transactions only works around block gas limits, and three calls are nowhere near them. Batching also makes the update atomic, so the onchain root and the ENS `contenthash` can never disagree because a proposal executed only partly.
+  - `txHashes` has exactly one entry, and `execute.json` is a single `executeProposalWithIndex(CID, txHashes, to, 0, data, 1, 0)`.
+  - `proposal.json` (11e) records the one transaction and its three decoded calls, so that answerers can still review each call.
+  - It also overrides:
+    - Overview item 11;
+    - the Terminology sentence about "the Governance Safe transactions", of which there is now one;
+    - the "Transactions are encoded … `operation = 0`" sentence, which now applies only to the inner calls;
+    - the Action bundles table: `propose.json`'s `addProposal` has a single hash, and the bullet about the Transaction Builder batching three executions no longer applies;
+    - the `proposal.json` row in the Release assets table;
+    - the Zodiac nonce, which is now always 0 instead of the transaction index;
+    - the `cmd:verify` sample output `Transactions: 3 / 3`;
+    - the "Transactions:" test case.
+  - Downstream phases:
+    - Phase 13's `execute.json` makes one execution.
+    - Phase 16 re-derives both the batch and its calls and checks that they agree.
+    - Phase 17 checks a single Zodiac hash.
+    - The runbook (Phase 20) explains the single delegatecall, and that a RealityVetoModule veto blocks the whole update, with no partial execution.
+- Onchain checks, read-only, at mainnet block 26247609:
+  - The Governance Safe is Safe 1.4.1 (canonical singleton), and its transaction guard and module guard slots are zero. Its modules are the Reality Module and the RealityVetoModule.
+  - The Reality Module (a minimal proxy, with Zodiac `guard()` = 0) passes `operation` unchanged to `execTransactionFromModule`.
+  - `MULTI_SEND_CALL_ONLY` = `0x9641d764fc13c8B624c04430C7356C1C7C8102e2`, the canonical Safe 1.4.1 deployment, with runtime code hash equal to safe-deployments' `codeHash`. It is hard-coded, not read from chain.
+  - An `eth_call` from the module of `execTransactionFromModule(MULTI_SEND_CALL_ONLY, 0, batch, 1)` re-proposing the current root and CID returns `true`, both with a zero transfer and with 172,603.12 SAFE.
+- The API:
+  - `governanceCalls(update, ens)` returns the three inner calls (`GovernanceCall`, which is `GovernanceTransaction` with `operation: 0`, because `MultiSendCallOnly` reverts on a nested delegatecall).
+  - `multiSend(calls)` packs any batch (`uint8 operation ‖ address to ‖ uint256 value ‖ uint256 length ‖ bytes data` per call) into `{ to: MULTI_SEND_CALL_ONLY, value: 0n, data: multiSend(packed), operation: 1 }`.
+  - `governanceTransaction(update, ens)` is the single proposal transaction.
+  - `governanceTransactions` no longer exists, and `GovernanceTransaction.operation` is `0 | 1`.
+  - `src/abi.ts` gains `MULTI_SEND_ABI` (`multiSend(bytes)`).
+  - No `decodeMultiSend` is exported. The tests have their own, which slices the packed bytes independently of `multiSend`.
+- The test vector `BATCH_DATA` is the exact calldata simulated onchain. It was built by a separate script, not by `multiSend`.
+- Effect on later sub-phases:
+  - 11c hashes the one outer transaction with nonce 0.
+  - 11d calls `buildQuestion` with a one-element hash array, keeping the module's `bytes32[]` signature.
+  - In 11e, `proposal.json` becomes `{ calls: [3 × { data, operation: 0, to, value }], proposalId, questionId, transaction: { data, hash, operation: 1, to, value } }`.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

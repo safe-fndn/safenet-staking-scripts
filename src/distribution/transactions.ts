@@ -1,13 +1,63 @@
 /**
- * The Governance Safe transactions of a distribution.
+ * The Governance Safe transaction of a distribution.
  *
- * Everything here is a pure function of the distribution, so that the export and `cmd:verify`
- * derive identical values. The package CID is pinned onchain as the ENSIP-7 `contenthash` of the
+ * Everything here is a pure function of the distribution (the package CID, its Merkle root and the
+ * funding amount) and of the ENS name and resolver, so that the export and `cmd:verify` derive
+ * identical transactions. The distribution's calls are batched into a single `MultiSendCallOnly`
+ * delegatecall. The package CID is pinned onchain as the ENSIP-7 `contenthash` of the
  * rewards ENS name.
  */
 
 import { CID } from "multiformats/cid";
-import { concat, type Hex, hexToBytes, toHex } from "viem";
+import {
+	type Address,
+	concat,
+	encodeFunctionData,
+	encodePacked,
+	type Hex,
+	hexToBytes,
+	namehash,
+	size,
+	toHex,
+} from "viem";
+import { CUMULATIVE_MERKLE_DROP_ABI, ENS_RESOLVER_ABI, ERC20_ABI, MULTI_SEND_ABI } from "../abi.js";
+
+/**
+ * The canonical `MultiSendCallOnly` of Safe 1.4.1 (`safe-deployments`), the version of the
+ * Governance Safe. The Governance Safe delegatecalls it to execute a distribution's calls in one
+ * Zodiac transaction.
+ */
+export const MULTI_SEND_CALL_ONLY: Address = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2";
+
+/**
+ * What a distribution changes onchain, in the terms of the manifest's `distribution` block and
+ * the package CID.
+ */
+export type DistributionUpdate = {
+	/** The SAFE that the Cumulative Merkle Drop needs on top of what it already received. */
+	additionalAmount: bigint;
+	/** The package CID, which becomes the ENS `contenthash`. */
+	cid: CID;
+	cumulativeMerkleDrop: Address;
+	merkleRoot: Hex;
+	safeToken: Address;
+};
+
+/**
+ * A transaction the Governance Safe executes through the module: a call (`0`) or a delegatecall
+ * (`1`).
+ */
+export type GovernanceTransaction = {
+	to: Address;
+	value: bigint;
+	data: Hex;
+	operation: 0 | 1;
+};
+
+/**
+ * A call batched into a `MultiSendCallOnly` transaction, which only allows calls.
+ */
+export type GovernanceCall = GovernanceTransaction & { operation: 0 };
 
 const DAG_PB = 0x70;
 const SHA2_256 = 0x12;
@@ -48,3 +98,83 @@ export const decodeContenthash = (contenthash: Hex): CID => {
 	assertPackageCid(cid);
 	return cid;
 };
+
+/**
+ * The three Governance Safe calls of a distribution, in execution order:
+ *
+ * 1. `SAFE.transfer(cumulativeMerkleDrop, additionalAmount)`, so that the drop always holds enough
+ *    tokens for its root;
+ * 2. `CumulativeMerkleDrop.setMerkleRoot(merkleRoot)`;
+ * 3. `resolver.setContenthash(namehash(ensName), 0xe301 ‖ CID)`.
+ *
+ * The transfer is included even when `additionalAmount` is 0, so a proposal always has the same
+ * three calls.
+ */
+export const governanceCalls = (
+	update: DistributionUpdate,
+	config: { ensName: string; ensResolver: Address },
+): [GovernanceCall, GovernanceCall, GovernanceCall] => [
+	{
+		to: update.safeToken,
+		value: 0n,
+		data: encodeFunctionData({
+			abi: ERC20_ABI,
+			functionName: "transfer",
+			args: [update.cumulativeMerkleDrop, update.additionalAmount],
+		}),
+		operation: 0,
+	},
+	{
+		to: update.cumulativeMerkleDrop,
+		value: 0n,
+		data: encodeFunctionData({
+			abi: CUMULATIVE_MERKLE_DROP_ABI,
+			functionName: "setMerkleRoot",
+			args: [update.merkleRoot],
+		}),
+		operation: 0,
+	},
+	{
+		to: config.ensResolver,
+		value: 0n,
+		data: encodeFunctionData({
+			abi: ENS_RESOLVER_ABI,
+			functionName: "setContenthash",
+			args: [namehash(config.ensName), encodeContenthash(update.cid)],
+		}),
+		operation: 0,
+	},
+];
+
+/**
+ * Batches calls into one `MultiSendCallOnly.multiSend` delegatecall. Each call is packed as
+ * `uint8 operation ‖ address to ‖ uint256 value ‖ uint256 dataLength ‖ bytes data`.
+ */
+export const multiSend = (calls: readonly GovernanceCall[]): GovernanceTransaction => ({
+	to: MULTI_SEND_CALL_ONLY,
+	value: 0n,
+	data: encodeFunctionData({
+		abi: MULTI_SEND_ABI,
+		functionName: "multiSend",
+		args: [
+			concat(
+				calls.map(({ operation, to, value, data }) =>
+					encodePacked(
+						["uint8", "address", "uint256", "uint256", "bytes"],
+						[operation, to, value, BigInt(size(data)), data],
+					),
+				),
+			),
+		],
+	}),
+	operation: 1,
+});
+
+/**
+ * The single Governance Safe transaction of a distribution: its three calls batched into one
+ * `MultiSendCallOnly` delegatecall, so that they execute atomically.
+ */
+export const governanceTransaction = (
+	update: DistributionUpdate,
+	config: { ensName: string; ensResolver: Address },
+): GovernanceTransaction => multiSend(governanceCalls(update, config));
