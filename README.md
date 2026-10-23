@@ -3,6 +3,7 @@
 Scripts for indexing Safenet Beta consensus events and computing validator participation rates and SAFE reward payouts at the end of each accounting period.
 
 > [!NOTE]
+>
 > Safenet is currently in Beta. The reward mechanism used in this repo is a proposal pending SafeDAO approval. Parameters and mechanics may change.
 
 ## Design Overview
@@ -30,34 +31,34 @@ cp .env.sample .env
 
 All scripts read configuration from environment variables (or from a `.env` file in the project root). The available variables are:
 
-| Variable                         | Description                                                                                | Default in `.env.sample`                     |
-| -------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------- |
-| `DEBUG`                          | Debug log filter. All logs are under the `safenet:` prefix.                                | `safenet,safenet:*`                          |
-| `DATABASE_FILE`                  | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence. | `:memory:`                                   |
-| `STAKING_RPC_URL`                | RPC endpoint for the staking chain (Ethereum mainnet).                                     | `https://mainnet.gateway.tenderly.co`        |
-| `STAKING_BLOCK_PAGE_SIZE`        | Number of blocks to fetch logs for in a single RPC call on the staking chain.              | `100`                                        |
-| `STAKING_ADDRESS`                | Address of the staking contract.                                                           | `0x115E78f160e1E3eF163B05C84562Fa16fA338509` |
-| `STAKING_START_BLOCK`            | Block at which the staking contract was deployed.                                          | `24585750`                                   |
-| `SANCTIONS_LIST_ADDRESS`         | Address of the Chainalysis sanctions list oracle.                                          | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
-| `SANCTIONS_LIST_START_BLOCK`     | Block at which the sanctions list oracle was deployed.                                     | `14356508`                                   |
-| `SANCTIONS_ADDRESS_REPO`         | GitHub `owner/name` repo of the UN/EU/UK/Swiss SECO/US OFAC address lists (optional).      | `safe-fndn/sanctions-address-lists`          |
-| `GITHUB_TOKEN`                   | GitHub token for the release listing API (optional; avoids the 60/hour IP rate limit).     | _(unset)_                                    |
-| `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                               | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
-| `REALITY_MODULE_ADDRESS`         | Zodiac Reality Module on the Governance Safe (`cmd:export`, `cmd:verify`).                               | `0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC` |
-| `REWARDS_ENS_NAME`               | ENS name whose `contenthash` pins the latest rewards DB (`cmd:export`, `cmd:verify`).                    | `rewards.safenet-gov.eth`                    |
-| `IPFS_GATEWAY_URL`               | Trustless gateway the previous rewards DB's CAR is fetched from (`cmd:export`, `cmd:verify`, optional).  | `http://127.0.0.1:8080` (local Kubo)         |
-| `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
-| `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
-| `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                         | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
-| `CONSENSUS_START_BLOCK`          | Block at which consensus began. Events before this block are ignored.                      | `45210396`                                   |
-| `SENTINEL_ORACLE_ADDRESS`        | Address of the sentinel oracle contract on the consensus chain.                            | _(placeholder)_                              |
-| `SENTINEL_ORACLE_START_BLOCK`    | Block at which the sentinel oracle was deployed.                                           | _(placeholder)_                              |
+| Variable                         | Description                                                                                                         | Default in `.env.sample`                     |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `DEBUG`                          | Debug log filter. All logs are under the `safenet:` prefix.                                                         | `safenet,safenet:*`                          |
+| `DATABASE_FILE`                  | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence.                          | `:memory:`                                   |
+| `STAKING_RPC_URL`                | RPC endpoint for the staking chain (Ethereum mainnet).                                                              | `https://mainnet.gateway.tenderly.co`        |
+| `STAKING_BLOCK_PAGE_SIZE`        | Number of blocks to fetch logs for in a single RPC call on the staking chain.                                       | `100`                                        |
+| `STAKING_ADDRESS`                | Address of the staking contract.                                                                                    | `0x115E78f160e1E3eF163B05C84562Fa16fA338509` |
+| `STAKING_START_BLOCK`            | Block at which the staking contract was deployed.                                                                   | `24585750`                                   |
+| `SANCTIONS_LIST_ADDRESS`         | Address of the Chainalysis sanctions list oracle.                                                                   | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
+| `SANCTIONS_LIST_START_BLOCK`     | Block at which the sanctions list oracle was deployed.                                                              | `14356508`                                   |
+| `SANCTIONS_ADDRESS_REPO`         | GitHub `owner/name` repo of the UN/EU/UK/Swiss SECO/US OFAC address lists (optional).                               | `safe-fndn/sanctions-address-lists`          |
+| `GITHUB_TOKEN`                   | GitHub token for the release listing API (optional; avoids the 60/hour IP rate limit).                              | _(unset)_                                    |
+| `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                                                        | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
+| `REALITY_MODULE_ADDRESS`         | Zodiac Reality Module on the Governance Safe (`cmd:export`, `cmd:verify`).                                          | `0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC` |
+| `REWARDS_ENS_NAME`               | ENS name whose `contenthash` pins the latest rewards DB (`cmd:export`, `cmd:verify`, `cmd:plan`).                   | `rewards.safenet-gov.eth`                    |
+| `IPFS_GATEWAY_URL`               | Trustless gateway the previous rewards DB's CAR is fetched from (`cmd:export`, `cmd:verify`, `cmd:plan`, optional). | `http://127.0.0.1:8080` (local Kubo)         |
+| `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                                                | `https://gnosis.gateway.tenderly.co`         |
+| `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.                                     | `25`                                         |
+| `CONSENSUS_ADDRESS`              | Address of the consensus contract.                                                                                  | `0x223624cBF099e5a8f8cD5aF22aFa424a1d1acEE9` |
+| `CONSENSUS_START_BLOCK`          | Block at which consensus began. Events before this block are ignored.                                               | `45210396`                                   |
+| `SENTINEL_ORACLE_ADDRESS`        | Address of the sentinel oracle contract on the consensus chain.                                                     | _(placeholder)_                              |
+| `SENTINEL_ORACLE_START_BLOCK`    | Block at which the sentinel oracle was deployed.                                                                    | _(placeholder)_                              |
 
 Every variable can also be passed as a CLI flag using camelCase (e.g. `--databaseFile ./data.db`).
 
 ## Commands
 
-All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Tuesday to Tuesday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted, except for `cmd:export` and `cmd:verify`, which take no period flags and derive the period from the previous rewards DB.
+All commands are run via `npm run <command>`. Flags use camelCase (e.g. `--rewardPeriodStart`). The reward period defaults to the most recently completed two-week window (Tuesday to Tuesday, UTC) when `--rewardPeriodStart` and `--rewardPeriodEnd` are omitted, except for `cmd:export`, `cmd:verify` and `cmd:plan`, which take no period flags and derive the period from the previous rewards DB.
 
 ### `cmd:index`
 
@@ -99,6 +100,21 @@ Work that completes a period can land after its end, so it is counted up to the 
 A validator signature counts towards the period its signing ceremony completed in, and only if the ceremony's transaction attestation lands no later than the settlement block. Sentinel reveals are attributed to the period of the request they answer rather than the period they happened in, so a reveal landing after the period boundary still counts towards its request, as long as it lands no later than the settlement block. Unlike validators, there is no on-chain registry of sentinels, so only sentinels that revealed at least once appear in the output.
 
 The `--record` flag expects the root of the `safenet-beta-data` repository and writes results to `<record>/assets/validator-info.json`, updating the `participation_rate_14d` field for any validator already in the file. Validators not yet present are inserted automatically. Only validator rates are recorded — sentinel rates are print-only, and are unaffected by `--category`.
+
+### `cmd:plan`
+
+Prints JSON for the next distribution after the ENS-pinned rewards DB, using the same verified CAR and onchain Merkle root check as `cmd:export`. It derives the two-week period with the same Beta → Aegis gap rule and does no event indexing, reward computation or sanctions lookup.
+
+```sh
+npm run --silent cmd:plan
+npm run --silent cmd:plan -- --previousCar=./previous.car
+```
+
+The JSON shape for automation is `{ "previousCid": "bafy…", "period": { "fromTimestamp": "1791849600", "toTimestamp": "1793059200" }, "settled": false }`. Timestamps are decimal strings in Unix seconds. Stdout contains only JSON; use npm's `--silent` flag to suppress its script banner. Diagnostics go to stderr.
+
+`settled` means the consensus block exactly 48 blocks after the last block at or before the period end exists, matching `Safenet.settlement`. A period that has not ended or settled succeeds with `false`; RPC, configuration, missing previous DB and root verification errors fail. Export may still wait for Ethereum indexing to reach the settlement timestamp (up to one more Ethereum block). Release existence checks belong to the workflow.
+
+Configuration uses the existing base environment plus required `REWARDS_ENS_NAME` and `CUMULATIVE_MERKLE_DROP_ADDRESS`. Optional `--previousCar` and `--ipfsGatewayUrl` (env `PREVIOUS_CAR` and `IPFS_GATEWAY_URL`) work as in `cmd:export`; no Reality Module configuration, period flags or reward overrides are needed. The fetched rewards DB is temporary and removed on success or failure; `DATABASE_FILE` is not opened.
 
 ### `cmd:export`
 
@@ -252,13 +268,13 @@ npm run cmd:sanctions
 The scripts can also be run as a Docker container. You can either:
 
 - Build the image locally:
-    ```sh
-    docker build -t safenet-staking-scripts .
-    ```
+  ```sh
+  docker build -t safenet-staking-scripts .
+  ```
 - Pull the image hosted on the GitHub Container Registry:
-    ```sh
-    docker pull ghcr.io/safe-fndn/safenet-staking-scripts:main
-    ```
+  ```sh
+  docker pull ghcr.io/safe-fndn/safenet-staking-scripts:main
+  ```
 
 The container entrypoint accepts a command name followed by any flags. Pass configuration via environment variables with `-e`, and mount a host directory with `-v` when using a persistent database file.
 

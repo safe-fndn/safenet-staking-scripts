@@ -1377,6 +1377,14 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - The cache follows `safenet-beta-data`: `actions/cache@v4` stores `safenet.db` under `safenet-aegis-db-<run_id>` and restores with prefix `safenet-aegis-db-`. A cache miss starts indexing from an empty database. The workflow needs only `contents: read` and no GitHub release credentials or compression commands.
 - `actions/upload-artifact@v7` uploads `safenet.db` directly as `index-snapshot-<run_id>-<run_attempt>`, using repository-default artifact retention. Operators periodically download and retain snapshots manually.
 
+### Phase 18a
+
+- `cmd:plan` prints canonical JSON with `{ previousCid, period: { fromTimestamp, toTimestamp }, settled }`. Timestamps are decimal strings. Use `npm run --silent cmd:plan` to suppress npm's banner; command stdout contains only JSON and diagnostics go to stderr.
+- `settled` checks that the consensus settlement block exists, matching `Safenet.settlement`: the last block at or before the period end plus 48. A period that has not ended or settled returns `false` successfully; other RPC, configuration and previous-DB verification errors fail. Ethereum indexing may still need one more block to reach the consensus settlement timestamp.
+- The command reuses verified previous-DB resolution, `nextRewardsStart` and `rewardsPeriod`, without constructing `Safenet`, opening `DATABASE_FILE`, indexing events, computing rewards or fetching sanctions. It needs ENS/drop configuration and the existing base arguments, but no Reality Module configuration. Ethereum chain ID is checked consistently with export.
+- The temporary previous rewards DB is removed before successful output and on failure. Release-existence checks remain the workflow's responsibility in Phase 18b.
+- Added `tests/plan-cli.test.ts` beyond the phase's three listed files to cover actual CLI parsing, JSON output, period derivation, settlement boundaries, failure propagation and cleanup.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
