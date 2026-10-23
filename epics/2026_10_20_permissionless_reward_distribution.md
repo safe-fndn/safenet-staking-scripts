@@ -726,7 +726,7 @@ A refactor with no behaviour change. The flattening from `RewardSplit` to `Payou
 
 **Depends on:** 15a, 15c, 15e, Phases 7, 9c, 13d **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~130 LOC, 2 files
 
-`exportPackage(safenet, config, period, dir)`, the second half: the settlement, `rewards` with `minPayout` 0, `sentinelRewards`, the pinned sanctions, `distribute` with `kyc()`, `packDirectory`, `proposal()` and `actionBundles()`. It returns everything in memory, including the reward splits and the forfeited sentinel grants that `cmd:verify` prints, and has no CLI. Reference: `permissionless/15e`, without the manifest, the allocations and the generator.
+`exportPackage(safenet, config, dir)`, the second half: the settlement, `rewards` with `minPayout` 0, `sentinelRewards`, the pinned sanctions, `distribute` with `kyc()`, `packDirectory`, `proposal()` and `actionBundles()`. It returns everything in memory, including the reward splits and the forfeited sentinel grants that `cmd:verify` prints, and has no CLI. Reference: `permissionless/15e`, without the manifest, the allocations and the generator.
 
 ### Phase 15g — Release assets
 
@@ -1301,6 +1301,23 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - **Removed:** `ExportPeriod` and the continuity check, with its three refusal tests. Tests now cover the first Aegis period after Beta, and the two weeks after an Aegis rewards DB, including the budget catch-up.
   - **Wording:** the manifest wording on `ExportInputs.previous` is reworded.
 - The derived period may not have ended or settled yet. The period's queries in `exportPackage` then refuse it, with `timestamp … is after the latest block` or `settlement block … does not exist yet`.
+
+### Phase 15f
+
+- Ported from `permissionless/15e` without the manifest, allocations and generator:
+  - there is no `ExportParameters`, and `minPayout` is fixed at 0;
+  - the staking boundary-block and consensus chain-ID reads are dropped, and so is `writePackageFiles`;
+  - `safeToken()` is still read at `latest`.
+- `exportPackage(safenet, config, dir)` takes the period from `exportInputs`: the two weeks after the previous rewards DB.
+- `Export` is `ExportInputs` plus:
+  - `settlement`, `payouts` (the merged `RewardSplit`s, before filters), `unpaid`, `forfeited` and `sanctionsRelease`;
+  - the flattened `MerkleDb` update: `additionalAmount`, `merkleRoot` and `newlyApproved`;
+  - `cid`, `car`, `dir`, `proposal` and `bundles`.
+- A period that hasn't ended or settled is refused with `period <from> → <to> after rewards DB <cid> has not settled yet (<cause>)`, with the original error as `cause`. `blockAtTimestamp` now throws `TimestampAfterLatestBlockError`, and `Safenet.settlement` throws `SettlementBlockMissingError`. Both are exported, keep their messages, and are matched with `instanceof`. 15f therefore also changes `src/utils/blocks.ts` and `src/safenet.ts`.
+- The test harness gains an optional `genesisTimestamp` on `MockChain`/`Scenario` (default 0, documented in `AGENTS.md`'s Block timing), so 15f also changes `tests/harness/chain.ts` and `tests/harness/scenario.ts`.
+  - The end-to-end scenario starts an hour before `AEGIS_REWARDS_START`, with 1-hour consensus and 1-day staking blocks, so it spans the first Aegis period: about 400 blocks.
+  - The expected amounts are the two-week Aegis values. Every payout is above the threshold and KYC-withheld, which keeps end-to-end KYC coverage.
+  - Tests cover a period that hasn't ended and one that hasn't settled.
 
 ## Open Questions and Assumptions
 

@@ -60,7 +60,7 @@ Each element in `slots` is either a `BlockSpec` (`{ events?, assertTimestamp? }`
 
 ### Block timing
 
-`MockChain` starts at block 1, timestamp 0. Each slot advances time by `blockTime` before appending. So on the staking chain:
+`MockChain` starts at block 1, timestamp 0 (or the scenario's `genesisTimestamp`, which offsets every timestamp below). Each slot advances time by `blockTime` before appending. So on the staking chain:
 
 - slot 0 → block 1, t = 0 s
 - slot 1 → block 2, t = 12 s

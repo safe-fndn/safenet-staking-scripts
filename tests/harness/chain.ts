@@ -35,6 +35,8 @@ export type BlockSpec = {
 export type ChainSpec = {
 	chainId: number;
 	blockTime: bigint;
+	/** The timestamp of blocks 0 and 1, `0` by default. */
+	genesisTimestamp?: bigint;
 	slots: (BlockSpec | null)[];
 };
 
@@ -112,7 +114,7 @@ export class MockChain {
 	#chainId: number;
 	#blocks: Map<bigint, Block>;
 
-	constructor({ chainId, blockTime, slots }: ChainSpec) {
+	constructor({ chainId, blockTime, genesisTimestamp = 0n, slots }: ChainSpec) {
 		this.#chainId = chainId;
 		this.#blocks = new Map(
 			slots.reduce(
@@ -130,11 +132,14 @@ export class MockChain {
 							},
 				{
 					number: 1n,
-					timestamp: 0n,
+					timestamp: genesisTimestamp,
 					// Like a real chain, there is an empty genesis block 0, so
 					// that block lookups can search from block 0 when no start
 					// block is configured. It shares its timestamp with block 1.
-					blocks: [[0n, { number: 0n, timestamp: 0n, logs: [] }]] as [bigint, Block][],
+					blocks: [[0n, { number: 0n, timestamp: genesisTimestamp, logs: [] }]] as [
+						bigint,
+						Block,
+					][],
 				},
 			)?.blocks,
 		);

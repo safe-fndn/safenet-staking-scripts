@@ -5,6 +5,17 @@ import type { BlockTimestamp } from "../indexing/events.js";
 import { type Backoff, backoff } from "./backoff.js";
 
 /**
+ * Thrown when a timestamp is later than the latest block, so that the block at it is not known
+ * yet.
+ */
+export class TimestampAfterLatestBlockError extends Error {
+	constructor(timestamp: bigint) {
+		super(`timestamp ${timestamp} is after the latest block`);
+		this.name = "TimestampAfterLatestBlockError";
+	}
+}
+
+/**
  * Returns the last block with `timestamp ≤ t`, searching no earlier than
  * `fromBlock` (default: genesis).
  *
@@ -29,7 +40,7 @@ export const blockAtTimestamp = async (
 
 	const latest = await block({ blockTag: "latest" });
 	if (timestamp > latest.timestamp) {
-		throw new Error(`timestamp ${timestamp} is after the latest block`);
+		throw new TimestampAfterLatestBlockError(timestamp);
 	}
 	if (timestamp === latest.timestamp) {
 		return latest;
