@@ -19,6 +19,7 @@ export class Transactions extends EventIndexer<typeof EVENTS, AttestationData> {
 			case "TransactionAttested": {
 				this.data.registerTransactionAttestation({
 					sid: log.args.signatureId,
+					blockTimestamp: log.blockTimestamp,
 				});
 				break;
 			}

@@ -1,4 +1,4 @@
-import { type Address, getAbiItem } from "viem";
+import { getAbiItem } from "viem";
 import { COORDINATOR_ABI } from "../abi.js";
 import type { AttestationData } from "../data/attestations.js";
 import { type Configuration, EventIndexer, type Log } from "./events.js";
@@ -9,11 +9,6 @@ const EVENTS = [
 	getAbiItem({ abi: COORDINATOR_ABI, name: "SignShared" }),
 	getAbiItem({ abi: COORDINATOR_ABI, name: "SignCompleted" }),
 ];
-
-export type ParticipationSummary = {
-	total: number;
-	participants: Record<Address, number>;
-};
 
 export class Signatures extends EventIndexer<typeof EVENTS, AttestationData> {
 	constructor(config: Configuration<AttestationData>) {
