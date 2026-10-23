@@ -1,0 +1,177 @@
+name: distribution
+
+on:
+  schedule:
+    - cron: "23 4 * * 2"
+  workflow_dispatch:
+    inputs:
+      verifyFromGenesis:
+        description: Verify without restoring the event database cache
+        type: boolean
+        default: false
+
+concurrency:
+  group: distribution
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  DATABASE_FILE: safenet.db
+  STAKING_RPC_URL: ${{ secrets.STAKING_RPC_URL }}
+  CONSENSUS_RPC_URL: ${{ secrets.CONSENSUS_RPC_URL }}
+  CONSENSUS_ADDRESS: ${{ vars.CONSENSUS_ADDRESS }}
+  CONSENSUS_START_BLOCK: ${{ vars.CONSENSUS_START_BLOCK }}
+  SENTINEL_ORACLE_ADDRESS: ${{ vars.SENTINEL_ORACLE_ADDRESS }}
+  SENTINEL_ORACLE_START_BLOCK: ${{ vars.SENTINEL_ORACLE_START_BLOCK }}
+  IPFS_GATEWAY_URL: ${{ vars.IPFS_GATEWAY_URL }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      shouldRun: ${{ steps.release.outputs.shouldRun }}
+      previousCid: ${{ steps.plan.outputs.previousCid }}
+      periodStart: ${{ steps.plan.outputs.periodStart }}
+      periodEnd: ${{ steps.plan.outputs.periodEnd }}
+      settled: ${{ steps.plan.outputs.settled }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+
+      - name: Plan next period
+        id: plan
+        run: |
+          : "${STAKING_RPC_URL:?Set the STAKING_RPC_URL repository secret}"
+          : "${CONSENSUS_RPC_URL:?Set the CONSENSUS_RPC_URL repository secret}"
+          : "${CONSENSUS_ADDRESS:?Set the CONSENSUS_ADDRESS repository variable}"
+          : "${CONSENSUS_START_BLOCK:?Set the CONSENSUS_START_BLOCK repository variable}"
+          : "${SENTINEL_ORACLE_ADDRESS:?Set the SENTINEL_ORACLE_ADDRESS repository variable}"
+          : "${SENTINEL_ORACLE_START_BLOCK:?Set the SENTINEL_ORACLE_START_BLOCK repository variable}"
+          : "${IPFS_GATEWAY_URL:?Set IPFS_GATEWAY_URL to a reachable trustless gateway}"
+          cp .env.sample .env
+          npm run --silent cmd:plan > "$RUNNER_TEMP/plan.json"
+          previous_cid=$(jq -er '.previousCid' "$RUNNER_TEMP/plan.json")
+          period_start=$(jq -er '.period.fromTimestamp' "$RUNNER_TEMP/plan.json")
+          period_end=$(jq -er '.period.toTimestamp' "$RUNNER_TEMP/plan.json")
+          settled=$(jq -r '.settled' "$RUNNER_TEMP/plan.json")
+          [[ "$previous_cid" =~ ^b[a-z2-7]+$ && "$period_start" =~ ^[0-9]+$ &&
+             "$period_end" =~ ^[0-9]+$ && "$settled" =~ ^(true|false)$ ]]
+          printf 'previousCid=%s\nperiodStart=%s\nperiodEnd=%s\nsettled=%s\n' \
+            "$previous_cid" "$period_start" "$period_end" "$settled" >> "$GITHUB_OUTPUT"
+
+      - name: Skip unsettled or already released periods
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SETTLED: ${{ steps.plan.outputs.settled }}
+          PERIOD_END: ${{ steps.plan.outputs.periodEnd }}
+        run: |
+          echo "shouldRun=false" >> "$GITHUB_OUTPUT"
+          if [[ "$SETTLED" != true ]]; then
+            echo "Period $PERIOD_END has not settled yet."
+            exit 0
+          fi
+          status=$(curl --silent --show-error --output "$RUNNER_TEMP/release.json" \
+            --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/rewards-$PERIOD_END")
+          case "$status" in
+            200) echo "Release rewards-$PERIOD_END already exists." ;;
+            404) echo "shouldRun=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "Release lookup failed: HTTP $status" >&2; exit 1 ;;
+          esac
+
+  export:
+    needs: plan
+    if: needs.plan.outputs.shouldRun == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      artifactName: distribution-assets-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+
+      # Restore only: distribution jobs never save or share their modified DBs.
+      # A miss starts indexing from the configured deployment blocks.
+      - uses: actions/cache/restore@v4
+        with:
+          path: safenet.db
+          key: safenet-aegis-db-export-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: safenet-aegis-db-
+
+      - name: Index and export
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERIOD_END: ${{ needs.plan.outputs.periodEnd }}
+        run: |
+          cp .env.sample .env
+          npm run cmd:index
+          # The gateway supplies the ENS-pinned previous CAR, including the first run.
+          npm run --silent cmd:export -- --out release-assets | tee export-summary.txt
+          # ENS may advance between plan and export. Never hand off another period.
+          test -f "release-assets/rewards-$PERIOD_END.car"
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: distribution-assets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-assets/
+          if-no-files-found: error
+
+      - name: Save export summary for release notes
+        uses: actions/upload-artifact@v7
+        with:
+          name: distribution-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: export-summary.txt
+          if-no-files-found: error
+
+  verify:
+    needs: [plan, export]
+    runs-on: ubuntu-latest
+    outputs:
+      cid: ${{ steps.verify.outputs.cid }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+
+      - uses: actions/cache/restore@v4
+        if: ${{ !inputs.verifyFromGenesis }}
+        with:
+          path: safenet.db
+          key: safenet-aegis-db-verify-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: safenet-aegis-db-
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.export.outputs.artifactName }}
+          path: release-assets
+
+      - name: Independently verify the exported CID
+        id: verify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          cp .env.sample .env
+          cid=$(cat release-assets/cid.txt)
+          [[ "$cid" =~ ^b[a-z2-7]+$ ]]
+          npm run cmd:verify -- --cid "$cid"
+          echo "cid=$cid" >> "$GITHUB_OUTPUT"
