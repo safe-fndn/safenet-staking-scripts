@@ -14,6 +14,7 @@
 		"cmd:stake": "tsx src/cmd/stake.ts",
 		"cmd:totals": "tsx src/cmd/totals.ts",
 		"cmd:validators": "tsx src/cmd/validators.ts",
+		"cmd:verify": "tsx src/cmd/verify.ts",
 		"fix": "biome check --write",
 		"test": "vitest run",
 		"test:watch": "vitest watch"
