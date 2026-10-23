@@ -133,7 +133,7 @@ Key business-logic constants embedded in `src/safenet.ts`:
 
 ## CLI Argument / Environment Variable Convention
 
-`src/utils/args.ts` uses Zod to parse both CLI flags and environment variables. CLI flags use **camelCase** (e.g. `--databaseFile`); env vars use **SCREAMING_SNAKE_CASE** (e.g. `DATABASE_FILE`). The mapping is automatic. The `rewardsPeriod()` helper in that file returns the most recently completed two-week **Tuesday-to-Tuesday UTC** window when `--rewardPeriodStart`/`--rewardPeriodEnd` are omitted.
+`src/utils/args.ts` uses Zod to parse both CLI flags and environment variables. CLI flags use **camelCase** (e.g. `--databaseFile`); env vars use **SCREAMING_SNAKE_CASE** (e.g. `DATABASE_FILE`). The mapping is automatic. The `rewardsPeriod()` helper in that file returns the most recently completed two-week **Tuesday-to-Tuesday UTC** window when `--rewardPeriodStart`/`--rewardPeriodEnd` are omitted. The one exception is `GITHUB_TOKEN`, which `src/utils/gh.ts` reads directly from `process.env` on each GitHub API request, so it never passes through argument parsing.
 
 ## Event Indexing Patterns
 
