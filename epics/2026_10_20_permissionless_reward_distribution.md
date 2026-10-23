@@ -360,7 +360,7 @@ It is parsed with a zod schema that rejects duplicates, unsorted accounts and ma
 
 `cmd:export` takes the following flags:
 
-- `--rewardPeriodStart` and `--rewardPeriodEnd`, both required, with no implicit "last Tuesday". This one period covers both validator and sentinel rewards, and there is no separate sentinel period option. The start must follow the previous rewards DB's `rewardsUntil`.
+- No period flags. The period is derived from the previous rewards DB: the two weeks from `nextRewardsStart(previous.rewardsUntil)`, which keeps the Beta → Aegis gap. This one period covers both validator and sentinel rewards.
 - `--previousCar <file>`, optional. It is a local source for the ENS-named CID; without it, the CAR is fetched from `IPFS_GATEWAY_URL`.
 - `--out <dir>`, required, missing or empty. It receives the release assets only.
 
@@ -720,7 +720,7 @@ A refactor with no behaviour change. The flattening from `RewardSplit` to `Payou
 
 **Depends on:** 15b, 15d, Phase 2a **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~120 LOC, 2 files
 
-`exportInputs(config, period, dir)`, the first half of the pipeline: check that the staking chain is chain 1, read one block number, read the governance configuration and resolve the previous rewards DB at that block, assert that both report the same ENS resolver, check that the period follows the previous `rewardsUntil`, copy the previous rewards DB into `dir`, and compute the default amounts against it. There are no overrides. Reference: `permissionless/15d`, without the overrides.
+`exportInputs(config, dir)`, the first half of the pipeline: check that the staking chain is chain 1, read one block number, read the governance configuration and resolve the previous rewards DB at that block, assert that both report the same ENS resolver, copy the previous rewards DB into `dir`, derive the period as the two weeks from `nextRewardsStart(previous.rewardsUntil)`, and compute the default amounts for it against the copy. There are no overrides. Reference: `permissionless/15d`, without the overrides.
 
 ### Phase 15f — Export package
 
@@ -738,7 +738,7 @@ The pure `releaseAssets(export)`, which returns every asset as bytes keyed by na
 
 **Depends on:** 15g **Files:** `src/cmd/export.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~100 LOC, 5 files
 
-The command, with its arguments inline in the command file like the other commands: the required period, `--previousCar`, `--out`, `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `CUMULATIVE_MERKLE_DROP_ADDRESS` and `IPFS_GATEWAY_URL`, which moves out of the base schema in `src/utils/args.ts`. The package is built in a temporary directory, and only the release assets land in `--out`. Reference: `permissionless/15g`, without the overrides and the generator.
+The command, with its arguments inline in the command file like the other commands: `--previousCar`, `--out`, `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `CUMULATIVE_MERKLE_DROP_ADDRESS` and `IPFS_GATEWAY_URL`, which moves out of the base schema in `src/utils/args.ts`. The package is built in a temporary directory, and only the release assets land in `--out`. Reference: `permissionless/15g`, without the overrides and the generator.
 
 ### Phase 16 — `cmd:verify`
 
@@ -754,7 +754,7 @@ Split into 16a–16c before implementation, to keep each PR small. Each sub-phas
 
 **Depends on:** 16a, 15f **Files:** `src/distribution/export.ts`, `src/distribution/verify.ts`, `tests/verify.test.ts` **Estimate:** ~100 LOC, 3 files
 
-`exportInputs` gets an optional period, which defaults to the two weeks after the previous `rewardsUntil`. `verifyProposal` runs `exportPackage` into a temporary directory, then `findProposal` from the Ethereum block at the settlement. It returns both, with the outcome: none yet, matching, or different (with the matching question, if any).
+`verifyProposal` runs `exportPackage` into a temporary directory, then `findProposal` from the Ethereum block at the settlement. It returns both, with the outcome: none yet, matching, or different (with the matching question, if any).
 
 ### Phase 16c — `cmd:verify`
 
@@ -1292,6 +1292,15 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - The layout refusals target a missing directory and check that it is never created.
   - There is an extra refusal for `proofs` as a file.
   - The round trip (copy → `distribute` → `packDirectory` → `unpackCar` → copy) ends with a copy equal to the distributed directory.
+
+### Phase 15e
+
+- Ported from `permissionless/15d`, with these exceptions:
+  - **No overrides:** the amounts are always `totalRewardsAmount` against `new MerkleDb({ root: dir })` and the prorated `sentinelRewardsAmount`. The override test is removed.
+  - **No period argument:** `exportInputs(config, dir)` derives the period as `rewardsPeriod({ rewardPeriodStart: nextRewardsStart(previous.rewardsUntil) })`. That is the two weeks from the previous `rewardsUntil`, which keeps the Beta → Aegis gap. The period is returned as `ExportInputs.period`.
+  - **Removed:** `ExportPeriod` and the continuity check, with its three refusal tests. Tests now cover the first Aegis period after Beta, and the two weeks after an Aegis rewards DB, including the budget catch-up.
+  - **Wording:** the manifest wording on `ExportInputs.previous` is reworded.
+- The derived period may not have ended or settled yet. The period's queries in `exportPackage` then refuse it, with `timestamp … is after the latest block` or `settlement block … does not exist yet`.
 
 ## Open Questions and Assumptions
 
