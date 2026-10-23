@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { getAddress } from "viem";
 import { getBlock, getChainId } from "viem/actions";
 import { z } from "zod";
+import { AEGIS } from "../config/aegis.js";
 import { resolvePreviousRewardsDb } from "../distribution/previous.js";
 import { GOVERNANCE_CHAIN_ID } from "../distribution/transactions.js";
 import { nextRewardsStart } from "../merkledb/index.js";
@@ -19,8 +20,11 @@ main(
 	{
 		previousCar: z.string().min(1).optional(),
 		ipfsGatewayUrl: z.url().optional(),
-		cumulativeMerkleDropAddress: z.string().transform((v) => getAddress(v)),
-		rewardsEnsName: z.string().min(1),
+		cumulativeMerkleDropAddress: z
+			.string()
+			.transform((v) => getAddress(v))
+			.default(AEGIS.ethereum.cumulativeMerkleDrop),
+		rewardsEnsName: z.string().min(1).default(AEGIS.ethereum.rewardsEnsName),
 	},
 	async (args) => {
 		const withBackoff = backoff();

@@ -4,6 +4,7 @@
 
 import { getAddress } from "viem";
 import { z } from "zod";
+import { AEGIS } from "../config/aegis.js";
 import { kyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { Safenet } from "../safenet.js";
@@ -18,15 +19,9 @@ main(
 		cumulativeMerkleDropAddress: z
 			.string()
 			.transform((v) => getAddress(v))
-			.optional(),
+			.default(AEGIS.ethereum.cumulativeMerkleDrop),
 	},
 	async (args) => {
-		// Check up front, so that a misconfigured run fails before recording
-		// anything rather than after.
-		if (args.transactions !== undefined && args.cumulativeMerkleDropAddress === undefined) {
-			throw new Error("--transactions requires CUMULATIVE_MERKLE_DROP_ADDRESS");
-		}
-
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 
@@ -46,7 +41,7 @@ main(
 		// sanctioned, and stay the same with them, when they had nothing withheld.
 		if (update.merkleRoot === previous?.merkleRoot) {
 			console.log("Merkle root unchanged, no transaction needed.");
-		} else if (args.transactions !== undefined && args.cumulativeMerkleDropAddress !== undefined) {
+		} else if (args.transactions !== undefined) {
 			const bundle = await writeTransactionBundle(args.transactions, `kyc-${period.toTimestamp}`, [
 				{
 					to: args.cumulativeMerkleDropAddress,
