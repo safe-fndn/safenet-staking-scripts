@@ -69,6 +69,12 @@ DATABASE_FILE=./data.db npm run cmd:index
 
 Indexing is incremental: subsequent runs only fetch events since the last indexed block. Once the database is populated, point `DATABASE_FILE` to the same file when running any of the accounting commands to avoid re-fetching from the RPC.
 
+The [daily indexing workflow](.github/workflows/index.yml) runs at 03:23 UTC and can also be started with `workflow_dispatch`. Before enabling it, configure the repository secrets `STAKING_RPC_URL` and `CONSENSUS_RPC_URL`, and the repository variables `CONSENSUS_ADDRESS`, `CONSENSUS_START_BLOCK`, `SENTINEL_ORACLE_ADDRESS` and `SENTINEL_ORACLE_START_BLOCK` for the actual Aegis deployments. All four variables are required: the sample consensus configuration may refer to Beta, and its sentinel address is a zero placeholder. The workflow uses Node.js 24, `npm ci`, `DATABASE_FILE=safenet.db` and the remaining defaults from `.env.sample` (including staking, delegation and sanctions contracts/start blocks, page sizes and debug logging).
+
+The workflow uses `actions/cache@v4` to restore and save `safenet.db`, with the run-specific key `safenet-aegis-db-<run_id>` and restore prefix `safenet-aegis-db-`. Indexing starts with an empty database on a cache miss. Cache persistence is intentionally lightweight and subject to GitHub's cache scope and eviction rules. Runs share the `index-snapshot` concurrency group and do not cancel an in-flight run.
+
+After indexing, the database is uploaded as the workflow artifact `index-snapshot-<run_id>-<run_attempt>`, containing `safenet.db`. Artifacts use the repository's configured Actions retention period; the workflow sets no retention override. Periodically download an artifact from Actions, extract it, and save the database yourself for longer-term recovery. A downloaded database can be used locally via `DATABASE_FILE`. Snapshots are event caches; canonical rewards references remain the onchain Merkle root and ENS `contenthash`.
+
 ### `cmd:participation`
 
 Prints validator and sentinel participation rates over a reward period in a single table, with a `Category` column distinguishing the two. Validator participation is the number of consensus signatures over the total transactions; sentinel participation is the number of sentinel oracle requests a sentinel revealed for over all requests created in the period.

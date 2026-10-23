@@ -199,7 +199,7 @@ The currently pinned rewards DB uses tab indentation, recursively sorted keys an
 
 ### Release assets, not git, for data availability
 
-Packages and index snapshots are published as **GitHub Release assets** of this repository. These are explicitly non-canonical mirrors, and the release notes say so. The canonical references remain the onchain Merkle root and the ENS `contenthash` set by the Governance Safe.
+Reward packages are published as **GitHub Release assets** of this repository. These are explicitly non-canonical mirrors, and the release notes say so. The reproducible SQLite event index uses GitHub Actions cache for incremental runs and workflow artifacts for downloadable results. Periodic long-term DB snapshots are stored manually. The canonical references remain the onchain Merkle root and the ENS `contenthash` set by the Governance Safe.
 
 ### Alternatives Considered
 
@@ -212,7 +212,7 @@ Packages and index snapshots are published as **GitHub Release assets** of this 
 - **Compute the CID with the Kubo CLI.** This adds a non-npm toolchain to every verifier, and the output would depend on the Kubo version. Kept only as a cross-check in a test. Rejected.
 - **Three separate Zodiac transactions**, executed one by one. Splitting only works around block gas limits, which three calls are nowhere near, and a partial execution leaves the onchain root and the ENS `contenthash` disagreeing. Rejected in favour of one `MultiSendCallOnly` delegatecall (Phase 11b).
 - **Raw calldata files for propose/answer/execute.** Replaced by Transaction Builder bundles, which any Safe can load directly.
-- **Persist the SQLite index with `actions/cache`.** Caches are evicted after 7 days, are scoped to a branch, and cannot be downloaded publicly. Rejected in favour of release assets.
+- **Publish the SQLite index as release assets.** Rejected to reduce persistence machinery. The index is reproducible from onchain data; use `actions/cache` for incremental indexing, upload each result as a workflow artifact, and store periodic snapshots manually.
 - **A manifest and per-recipient allocations in the package**, recording the inputs (governance configuration, parameters, sanctions hashes, generator commit, boundary blocks) next to `latest.json`. Everything they record is either onchain, a constant, versioned in this repository, or derivable from the diff with the previous rewards DB, and a byte-for-byte re-derivation checks all of it. They would also change the layout consumers know from the Beta rewards DB. Rejected in the redux.
 - **Verify the release files byte for byte** (the CAR, `cid.txt`, `proposal.json`, the action bundles and `SHA256SUMS`). The onchain proposal is what executes, and a matching `setContenthash` CID already implies an identical package. The bundles also depend on governance values that the answer does not. Rejected in the redux.
 - **Reward overrides on `cmd:export`** (`--totalRewards`, `--sentinelRewards`, `--minPayout`). An overridden export could only be verified by supplying the same overrides again. Rejected in the redux.
@@ -227,8 +227,8 @@ None of these users needs SEF approval or write access to the repository. The on
 ### Automated publisher (GitHub Actions)
 
 ```
-daily     restore index snapshot ─► cmd:index ─► cmd:index --validate ─► rotate snapshot assets
-cadence   restore snapshot ─► cmd:index ─► cmd:export ─┬─► (fresh runner) cmd:export, compare SHA256SUMS ─► gh release create rewards-<toTimestamp>
+daily     restore DB cache ─► cmd:index ─► save cache + upload DB artifact
+cadence   restore DB cache ─► cmd:index ─► cmd:export ─┬─► (fresh runner) cmd:export, compare SHA256SUMS ─► gh release create rewards-<toTimestamp>
                                                        └─► release-asset artifact ──────────────────────┘
 ```
 
@@ -377,7 +377,7 @@ There is no period flag: the period is the two weeks after the previous rewards 
 
 `cmd:rewards` and `cmd:kyc` take `--transactions <dir>` for their Safe transaction bundle, instead of writing it into the rewards directory.
 
-`cmd:index` gains `--validate`. It runs `PRAGMA integrity_check`, checks that every `event_indexers` row is within `--maxLag` seconds (default 3600) of its chain head, and runs a smoke query over the last complete period that needs no RPC.
+`cmd:index` keeps its existing indexing behavior. Cache validation is out of scope. Index results are downloadable workflow artifacts; periodic long-term DB snapshots are stored manually.
 
 ### Configuration
 
@@ -395,16 +395,16 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 
 `.github/workflows/index.yml` (daily and `workflow_dispatch`):
 
-- `concurrency: index-snapshot`, `permissions: contents: write`.
-- Download `safenet.db.zst` from the `index-snapshot` release. If that fails, fall back to `safenet.db.previous.zst`, then to an empty database. The first run starts empty and indexes from the Aegis consensus deployment block.
-- `cmd:index`, then `cmd:index --validate`.
-- Re-upload the old current asset as `safenet.db.previous.zst`, then the new one as `safenet.db.zst` (`gh release upload --clobber`). In this order, a failure in between always leaves one good snapshot. The Beta database was about 300 MB uncompressed, well below the 2 GiB asset limit.
+- Serialize indexing runs and grant only `contents: read`.
+- Restore `safenet.db` with `actions/cache`, following `safenet-beta-data`: a unique run key and a shared restore prefix select the latest available database. On a miss, start empty and index from the configured deployment blocks.
+- Run `cmd:index`, then let the cache action save the updated database after a successful run.
+- Upload the resulting database as a workflow artifact using the repository's configured retention period. Periodic snapshots for longer-term storage are downloaded and saved manually. There are no indexing releases, asset rotation, or automatic historical recovery.
 
 `.github/workflows/distribution.yml` runs on a weekly schedule and on `workflow_dispatch` (with optional explicit period and opt-in "verify from genesis" inputs):
 
 - **plan** job: `cmd:plan` reads the ENS-pinned CID and its `rewardsUntil`, and computes the next period as `[rewardsUntil, rewardsUntil + 2 weeks]`, with the one-off Beta → Aegis exception (`[2026-10-13, 2026-10-27]`). Exit cleanly if that period has not settled yet or already has a release. A release that already exists means a proposal is in flight. This makes the weekly schedule idempotent against the two-week cadence.
-- **export** job: restore the snapshot, then run `cmd:index` and `cmd:export`, from source after `npm ci`. The output depends only on the checkout, so running the published Docker image instead gives the same bytes. The previous CAR comes from the release whose `cid.txt` matches, if there is one. Otherwise it comes from the `IPFS_GATEWAY_URL` repository variable, which must point at a reachable trustless gateway; the runner has no local node. This applies at least to the first run, whose previous rewards DB (`bafybeiczeo7…`) predates the releases. Upload the release assets as a workflow artifact.
-- **verify** job: on a separate runner, run a fresh `npm ci`, restore the snapshot, and run `cmd:verify --cid "$(cat cid.txt)"` with the artifact's `cid.txt`. Nothing has been proposed yet, so it reports "no proposal yet" and passes when the independently derived CID matches.
+- **export** job: restore the DB cache (or start empty on a miss), then run `cmd:index` and `cmd:export`, from source after `npm ci`. The output depends only on the checkout, so running the published Docker image instead gives the same bytes. The previous CAR comes from the release whose `cid.txt` matches, if there is one. Otherwise it comes from the `IPFS_GATEWAY_URL` repository variable, which must point at a reachable trustless gateway; the runner has no local node. This applies at least to the first run, whose previous rewards DB (`bafybeiczeo7…`) predates the releases. Upload the release assets as a workflow artifact.
+- **verify** job: on a separate runner, run a fresh `npm ci`, restore the DB cache (or start empty on a miss), and run `cmd:verify --cid "$(cat cid.txt)"` with the artifact's `cid.txt`. Nothing has been proposed yet, so it reports "no proposal yet" and passes when the independently derived CID matches.
 - **release** job: `gh release create rewards-<toTimestamp>` with the assets, and notes giving the CID, root, amount, sanctions release and new KYC approvals (from the `cmd:export` summary), the commit the workflow ran on (informational only), the Safe Transaction Builder instructions, and the non-canonical disclaimer. No environment protection, no required reviewers.
 
 Steps that resolve a sanctions snapshot set `env: GITHUB_TOKEN: ${{ github.token }}` (Phase 9e).
@@ -465,7 +465,7 @@ The remaining phases build on them:
 15b (governance) ┬─► 15e (inputs) ┴─► 15f (package) ┬─► 15g (assets) ─► 15h (cmd:export) ┬─► 18a (cmd:plan) ───┐
 15d (layout) ────┘                                  │                                   │                     │
 16a (proposal lookup) ──────────────────────────────┴─► 16b (re-derivation) ────────────┴─► 16c (cmd:verify) ─┤
-17a (index --validate) ─► 17b (index.yml) ────────────────────────────────────────────────────────────────────┴─► 18b ─► 18c ─► 19 ─► 20
+17a (index.yml) ───────────────────────────────────────────────────────────────────────────────────────────┴─► 18b ─► 18c ─► 19 ─► 20
 ```
 
 The **Depends on** lines below are authoritative.
@@ -764,17 +764,11 @@ The command takes `--previousCar`, `--cid` and the same configuration as `cmd:ex
 
 ### Phase 17 — Daily indexing Action
 
-Split into 17a and 17b before implementation. Each sub-phase is its own commit, branch and PR, and Phase 17 has no commit of its own. Independent of every other phase.
+Cache validation was removed to reduce scope. The remaining daily indexing workflow is renumbered from 17b to 17a, with its own commit, branch and PR; Phase 17 has no commit of its own. Independent of every other phase.
 
-### Phase 17a — `cmd:index --validate`
+### Phase 17a — Daily indexing workflow
 
-**Files:** `src/cmd/index.ts`, `README.md` **Estimate:** ~100 LOC, 2 files
-
-`PRAGMA integrity_check`, the per-indexer lag check against `--maxLag`, and the smoke query over the last complete period.
-
-### Phase 17b — Daily indexing workflow
-
-**Depends on:** 17a **Files:** `.github/workflows/index.yml`, `README.md` **Estimate:** ~80 LOC, 2 files
+**Depends on:** None **Files:** `.github/workflows/index.yml`, `README.md` **Estimate:** ~80 LOC, 2 files
 
 The snapshot workflow described under [GitHub Actions](#github-actions).
 
@@ -790,7 +784,7 @@ A JS command that resolves the ENS-pinned rewards DB and prints, as JSON, its CI
 
 ### Phase 18b — Plan, export and verify jobs
 
-**Depends on:** 18a, 17b, 16c **Files:** `.github/workflows/distribution.yml` **Estimate:** ~110 LOC, 1 file
+**Depends on:** 18a, 17a, 16c **Files:** `.github/workflows/distribution.yml` **Estimate:** ~110 LOC, 1 file
 
 The plan, export and verify jobs. The verify job runs `cmd:verify --cid` with the artifact's `cid.txt` on a fresh runner. Releases are exported from source after `npm ci`. With no generator commit recorded, the published Docker image would produce the same bytes, so the choice does not matter.
 
@@ -1372,6 +1366,16 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - Reporting stays local to `cmd:verify`; the export command's summary is unchanged. The verifier also prints the lookup's Ethereum block and every observed matching question ID, alongside the current mapping and execution flag. Cleared or invalidated mappings are printed unchanged.
 - Sentinel reporting uses total earned rewards, the per-sentinel grant and forfeited amounts rather than inferring recipient counts. The summary identifies earned rewards before filters separately from the additional funding amount.
 - The optional `--cid` is compared exactly with the derived CID's canonical string. A mismatch prints both values and `FAILED`, and sets exit code 1 after the summary and question lists. No proposal yet succeeds when the CID is omitted or matches.
+
+### Phase 17a
+
+- Cache validation was dropped at the user's request to reduce epic scope, and its uncommitted implementation and tests were removed. The remaining daily indexing workflow (formerly 17b) is renumbered to 17a. `cmd:index` remains unchanged, and no `--validate` or `--maxLag` flags are added.
+- The user chose `actions/cache` for incremental indexing, following `safenet-beta-data`, plus a workflow artifact of each result. The event index is reproducible from onchain data; there is no release-based persistence or automatic historical recovery. Periodic long-term DB snapshots are stored manually. The daily workflow runs indexing without a separate cache-validation step.
+- The daily schedule is 03:23 UTC, with manual dispatch also supported. Runs share the `index-snapshot` concurrency group and do not cancel an in-flight run.
+- The workflow requires two repository secrets (`STAKING_RPC_URL`, `CONSENSUS_RPC_URL`) and four repository variables (`CONSENSUS_ADDRESS`, `CONSENSUS_START_BLOCK`, `SENTINEL_ORACLE_ADDRESS`, `SENTINEL_ORACLE_START_BLOCK`) for the actual Aegis deployments. Remaining settings come from `.env.sample`, with `DATABASE_FILE=safenet.db`. This avoids silently using the sample's sentinel placeholder or Beta consensus settings.
+- The release restore, rotation and bootstrap implementation was removed. No helper scripts, dependencies or additional repository tests are introduced; offline workflow verification uses scratch files.
+- The cache follows `safenet-beta-data`: `actions/cache@v4` stores `safenet.db` under `safenet-aegis-db-<run_id>` and restores with prefix `safenet-aegis-db-`. A cache miss starts indexing from an empty database. The workflow needs only `contents: read` and no GitHub release credentials or compression commands.
+- `actions/upload-artifact@v7` uploads `safenet.db` directly as `index-snapshot-<run_id>-<run_attempt>`, using repository-default artifact retention. Operators periodically download and retain snapshots manually.
 
 ## Open Questions and Assumptions
 
