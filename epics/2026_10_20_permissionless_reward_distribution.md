@@ -1366,6 +1366,13 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - Tests mock `exportPackage` to check orchestration, summary preservation and cleanup, and use the actual `findProposal` against raw viem logs. The existing export tests cover real re-derivation. Cleanup is checked on success and export, boundary or proposal lookup failure.
 - CID mismatch handling remains in Phase 16c with the CLI flag.
 
+### Phase 16c
+
+- Added `tests/verify-cli.test.ts` beyond the listed phase files. It exercises the actual command and argument parser with mocked verification, covering exact token arithmetic and summary output, matching and different questions, CID checks, environment variables, unsupported flags and failure exit codes.
+- Reporting stays local to `cmd:verify`; the export command's summary is unchanged. The verifier also prints the lookup's Ethereum block and every observed matching question ID, alongside the current mapping and execution flag. Cleared or invalidated mappings are printed unchanged.
+- Sentinel reporting uses total earned rewards, the per-sentinel grant and forfeited amounts rather than inferring recipient counts. The summary identifies earned rewards before filters separately from the additional funding amount.
+- The optional `--cid` is compared exactly with the derived CID's canonical string. A mismatch prints both values and `FAILED`, and sets exit code 1 after the summary and question lists. No proposal yet succeeds when the CID is omitted or matches.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
