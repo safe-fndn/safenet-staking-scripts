@@ -131,7 +131,10 @@ export class MockChain {
 				{
 					number: 1n,
 					timestamp: 0n,
-					blocks: [] as [bigint, Block][],
+					// Like a real chain, there is an empty genesis block 0, so
+					// that block lookups can search from block 0 when no start
+					// block is configured. It shares its timestamp with block 1.
+					blocks: [[0n, { number: 0n, timestamp: 0n, logs: [] }]] as [bigint, Block][],
 				},
 			)?.blocks,
 		);
@@ -152,7 +155,8 @@ export class MockChain {
 					number: toHex(block.number),
 					timestamp: toHex(block.timestamp),
 					hash: keccak256(toHex(block.number, { size: 8 })),
-					parentHash: keccak256(toHex(block.number - 1n, { size: 8 })),
+					parentHash:
+						block.number > 0n ? keccak256(toHex(block.number - 1n, { size: 8 })) : zeroHash,
 					// stubbed fields
 					baseFeePerGas: null,
 					blobGasUsed: "0x0",

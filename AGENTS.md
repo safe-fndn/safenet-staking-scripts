@@ -68,6 +68,10 @@ Each element in `slots` is either a `BlockSpec` (`{ events?, assertTimestamp? }`
 
 Use `assertTimestamp` to catch arithmetic mistakes: place it on the slot that should fall exactly on a period boundary and the harness will throw if the actual timestamp differs.
 
+Block 0 is an empty genesis block that shares timestamp 0 with block 1, so that block lookups can search from block 0 when no start block is configured.
+
+Sentinel participation and rewards only count reveals up to the period's settlement block, `SETTLEMENT_BLOCKS` (48) consensus blocks after the last consensus block at or before `toTimestamp`, and fail while that block does not exist. They index every indexer, on both chains, up to the settlement block's timestamp. Scenarios that query them must extend the consensus chain with `...emptyBlocks(Number(SETTLEMENT_BLOCKS))` past the end of the period, and the staking chain up to at least the settlement timestamp.
+
 ### Minimum event sequence for a reward test
 
 **Staking chain** (all events may share the first slot):
