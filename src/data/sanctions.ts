@@ -5,10 +5,11 @@
  * - The on-chain Chainalysis sanctions oracle, indexed like any other chain
  *   event (see `src/indexing/sanctions.ts`) and stored with a block
  *   timestamp, so historic payouts can be recomputed reproducibly.
- * - The UN, EU, UK, Swiss SECO and US OFAC address lists published by the
- *   `sanctions-address-lists` project
- *   <https://github.com/safe-research/sanctions-address-lists>, fetched live
- *   since there is no on-chain timestamp to pin them to.
+ * - The UN, EU, UK, Swiss SECO and US OFAC address lists published as
+ *   release assets of a `sanctions-address-lists` GitHub repository
+ *   (<https://github.com/safe-fndn/sanctions-address-lists> unless
+ *   configured otherwise), fetched live from its `latest` release since
+ *   there is no on-chain timestamp to pin them to.
  */
 
 import type { Database, Statement } from "better-sqlite3";
@@ -16,6 +17,7 @@ import debug from "debug";
 import { type Address, getAddress, isAddress } from "viem";
 import { z } from "zod";
 import { type Backoff, backoff } from "../utils/backoff.js";
+import { type GitHubRepository, releaseAsset } from "../utils/gh.js";
 import type { ToTimestamp } from "../utils/ranges.js";
 
 type Sanction<bool = boolean> = {
@@ -31,15 +33,21 @@ type SanctionInstant = {
 /** Per-jurisdiction source identifiers, matching the release asset file names. */
 const OFFCHAIN_SOURCES = ["un", "eu", "uk", "ch-seco", "us-ofac"] as const;
 
-export const DEFAULT_SANCTIONS_REPO_URL =
-	"https://github.com/safe-research/sanctions-address-lists/releases/download/latest";
+type OffchainSource = (typeof OFFCHAIN_SOURCES)[number];
+
+/** The GitHub repository that publishes the offchain address lists, unless configured otherwise. */
+export const DEFAULT_SANCTIONS_ADDRESS_REPO: GitHubRepository = "safe-fndn/sanctions-address-lists";
 
 const zAddressList = z.array(z.string());
 
 export type SanctionsDataConfiguration = {
 	db: Database;
-	/** Base URL that per-source `<source>.json` offchain address lists are fetched from. */
-	sanctionsRepoUrl?: string;
+	/**
+	 * The GitHub repository whose release assets the per-source `<source>.json`
+	 * offchain address lists are fetched from. Defaults to
+	 * `DEFAULT_SANCTIONS_ADDRESS_REPO`.
+	 */
+	sanctionsAddressRepo?: GitHubRepository;
 };
 
 export class SanctionsData {
@@ -48,10 +56,10 @@ export class SanctionsData {
 		upsertSanction: Statement<Sanction<0 | 1>, number>;
 		selectSanctionedAccounts: Statement<SanctionInstant, Address>;
 	};
-	#sanctionsRepoUrl: string;
+	#sanctionsAddressRepo: GitHubRepository;
 	#backoff: Backoff;
 
-	constructor({ db, sanctionsRepoUrl }: SanctionsDataConfiguration) {
+	constructor({ db, sanctionsAddressRepo }: SanctionsDataConfiguration) {
 		this.#db = db;
 		this.#db.exec(`
 			CREATE TABLE IF NOT EXISTS sanctions(
@@ -86,7 +94,7 @@ export class SanctionsData {
 				ORDER BY account COLLATE NOCASE ASC
 			`),
 		};
-		this.#sanctionsRepoUrl = sanctionsRepoUrl ?? DEFAULT_SANCTIONS_REPO_URL;
+		this.#sanctionsAddressRepo = sanctionsAddressRepo ?? DEFAULT_SANCTIONS_ADDRESS_REPO;
 		this.#backoff = backoff({ debug: debug("safenet:sanctions-lists") });
 	}
 
@@ -123,15 +131,13 @@ export class SanctionsData {
 		return this.#queries.selectSanctionedAccounts.pluck().all({ blockTimestamp });
 	}
 
-	async #fetchOffchainSource(source: string): Promise<Address[]> {
-		const url = `${this.#sanctionsRepoUrl}/${source}.json`;
-		const body = await this.#backoff(async () => {
-			const response = await fetch(url);
-			if (!response.ok) {
-				throw new Error(`failed to fetch '${url}': ${response.status} ${response.statusText}`);
-			}
-			return await response.json();
-		});
+	async #fetchOffchainSource(tag: string, source: OffchainSource): Promise<Address[]> {
+		const raw = await releaseAsset(
+			this.#sanctionsAddressRepo,
+			{ tag, asset: `${source}.json` },
+			this.#backoff,
+		);
+		const body = JSON.parse(new TextDecoder().decode(raw));
 
 		// The published lists are address-only screening: addresses are only
 		// included when explicitly published by the official source, never
@@ -144,9 +150,9 @@ export class SanctionsData {
 			.map((address) => getAddress(address));
 	}
 
-	async #offchainSanctionedAccounts(): Promise<Address[]> {
+	async #offchainSanctionedAccounts(tag: string): Promise<Address[]> {
 		const lists = await Promise.all(
-			OFFCHAIN_SOURCES.map((source) => this.#fetchOffchainSource(source)),
+			OFFCHAIN_SOURCES.map((source) => this.#fetchOffchainSource(tag, source)),
 		);
 		return [...new Set(lists.flat())];
 	}
@@ -154,11 +160,12 @@ export class SanctionsData {
 	/**
 	 * Returns the accounts sanctioned as of a given timestamp: those flagged
 	 * by the on-chain Chainalysis oracle, unioned with the UN, EU, UK, Swiss
-	 * SECO and US OFAC addresses currently published by `sanctions-address-lists`.
+	 * SECO and US OFAC addresses currently published in the `latest` release
+	 * of the configured `sanctions-address-lists` repository.
 	 */
 	async sanctionedAccounts({ toTimestamp }: ToTimestamp): Promise<Address[]> {
 		const onchain = this.#onchainSanctionedAccounts({ toTimestamp });
-		const offchain = await this.#offchainSanctionedAccounts();
+		const offchain = await this.#offchainSanctionedAccounts("latest");
 		return [...new Set([...onchain, ...offchain])];
 	}
 }
