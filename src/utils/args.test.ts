@@ -2,6 +2,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { MerkleDb } from "../merkledb/index.js";
 import { sentinelRewardsAmount, totalRewardsAmount } from "./args.js";
 import {
 	AEGIS_REWARDS_START,
@@ -12,27 +13,28 @@ import {
 
 const WEEK = 60n * 60n * 24n * 7n;
 
-const records = [] as string[];
+const roots = [] as string[];
 
 /**
- * Creates a temporary record directory whose `latest.json` holds exactly `contents`.
+ * Creates a `MerkleDb` in a temporary rewards directory whose `latest.json` holds exactly
+ * `contents`.
  */
-const createRecord = async (contents: string): Promise<string> => {
-	const record = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-args-"));
-	records.push(record);
-	await fs.mkdir(path.join(record, "assets", "rewards"), { recursive: true });
-	await fs.writeFile(path.join(record, "assets", "rewards", "latest.json"), contents, "utf8");
-	return record;
+const createRecord = async (contents: string): Promise<MerkleDb> => {
+	const root = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-args-"));
+	roots.push(root);
+	await fs.writeFile(path.join(root, "latest.json"), contents, "utf8");
+	return new MerkleDb({ root });
 };
 
 /**
- * Creates a temporary record directory with a `latest.json` written by this tooling.
+ * Creates a `MerkleDb` in a temporary rewards directory with a `latest.json` written by this
+ * tooling.
  */
 const createAegisRecord = (index: {
 	rewardsUntil: bigint;
 	tokenTotal: bigint;
 	sentinelTokenTotal: bigint;
-}): Promise<string> =>
+}): Promise<MerkleDb> =>
 	createRecord(`{
 	"epoch": 0,
 	"merkleRoot": "0x${"42".repeat(32)}",
@@ -44,8 +46,8 @@ const createAegisRecord = (index: {
 `);
 
 afterEach(async () => {
-	for (const record of records.splice(0)) {
-		await fs.rm(record, { recursive: true, force: true });
+	for (const root of roots.splice(0)) {
+		await fs.rm(root, { recursive: true, force: true });
 	}
 });
 
@@ -80,17 +82,20 @@ describe("totalRewardsAmount", () => {
 }
 `);
 		expect(
-			await totalRewardsAmount({
-				rewardPeriodStart: AEGIS_REWARDS_START,
-				rewardPeriodEnd: AEGIS_REWARDS_START + 2n * WEEK,
+			await totalRewardsAmount(
+				{
+					rewardPeriodStart: AEGIS_REWARDS_START,
+					rewardPeriodEnd: AEGIS_REWARDS_START + 2n * WEEK,
+				},
 				record,
-			}),
+			),
 		).toBe(192307692307692307692307n);
 	});
 
 	it("refuses a record that is not caught up to the end of Beta", async () => {
-		const empty = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-args-"));
-		records.push(empty);
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), "safenet-args-"));
+		roots.push(root);
+		const empty = new MerkleDb({ root });
 		const beta = await createAegisRecord({
 			rewardsUntil: BETA_REWARDS_UNTIL - 2n * WEEK,
 			tokenTotal: 0n,
@@ -98,11 +103,13 @@ describe("totalRewardsAmount", () => {
 		});
 		for (const record of [empty, beta]) {
 			await expect(
-				totalRewardsAmount({
-					rewardPeriodStart: AEGIS_REWARDS_START,
-					rewardPeriodEnd: AEGIS_REWARDS_START + 2n * WEEK,
+				totalRewardsAmount(
+					{
+						rewardPeriodStart: AEGIS_REWARDS_START,
+						rewardPeriodEnd: AEGIS_REWARDS_START + 2n * WEEK,
+					},
 					record,
-				}),
+				),
 			).rejects.toThrow("record is not caught up to the end of Beta");
 		}
 	});
@@ -118,11 +125,13 @@ describe("totalRewardsAmount", () => {
 			sentinelTokenTotal,
 		});
 		expect(
-			await totalRewardsAmount({
-				rewardPeriodStart: AEGIS_REWARDS_START + 4n * WEEK,
-				rewardPeriodEnd: AEGIS_REWARDS_START + 6n * WEEK,
+			await totalRewardsAmount(
+				{
+					rewardPeriodStart: AEGIS_REWARDS_START + 4n * WEEK,
+					rewardPeriodEnd: AEGIS_REWARDS_START + 6n * WEEK,
+				},
 				record,
-			}),
+			),
 		).toBe(192307692307692307692314n);
 	});
 
@@ -135,11 +144,13 @@ describe("totalRewardsAmount", () => {
 			tokenTotal: BETA_TOKEN_TOTAL + paid,
 			sentinelTokenTotal: 0n,
 		});
-		const amount = await totalRewardsAmount({
-			rewardPeriodStart: AEGIS_REWARDS_START + 50n * WEEK,
-			rewardPeriodEnd: AEGIS_REWARDS_START + 52n * WEEK,
-			record: last,
-		});
+		const amount = await totalRewardsAmount(
+			{
+				rewardPeriodStart: AEGIS_REWARDS_START + 50n * WEEK,
+				rewardPeriodEnd: AEGIS_REWARDS_START + 52n * WEEK,
+			},
+			last,
+		);
 		expect(amount).toBe(192307692307692307692315n);
 		expect(paid + amount).toBe(AEGIS_VALIDATOR_REWARDS);
 
@@ -150,11 +161,13 @@ describe("totalRewardsAmount", () => {
 			sentinelTokenTotal: 0n,
 		});
 		expect(
-			await totalRewardsAmount({
-				rewardPeriodStart: AEGIS_REWARDS_START + 52n * WEEK,
-				rewardPeriodEnd: AEGIS_REWARDS_START + 54n * WEEK,
-				record: done,
-			}),
+			await totalRewardsAmount(
+				{
+					rewardPeriodStart: AEGIS_REWARDS_START + 52n * WEEK,
+					rewardPeriodEnd: AEGIS_REWARDS_START + 54n * WEEK,
+				},
+				done,
+			),
 		).toBe(0n);
 	});
 });

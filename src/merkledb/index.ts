@@ -21,7 +21,10 @@ import { sortByAddress } from "../utils/sort.js";
 import { MerkleTreeMap } from "./treemap.js";
 
 export type MerkleDbConfiguration = {
-	record: string;
+	/**
+	 * The rewards directory itself, holding `latest.json` and `proofs/`.
+	 */
+	root: string;
 };
 
 export type Update = {
@@ -109,8 +112,8 @@ export const nextRewardsStart = (rewardsUntil: bigint): bigint =>
 export class MerkleDb {
 	#root: string;
 
-	constructor({ record }: MerkleDbConfiguration) {
-		this.#root = path.join(record, "assets", "rewards");
+	constructor({ root }: MerkleDbConfiguration) {
+		this.#root = root;
 	}
 
 	#path(...segments: string[]): string {
