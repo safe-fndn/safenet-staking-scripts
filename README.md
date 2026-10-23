@@ -118,6 +118,8 @@ Configuration uses the existing base environment plus required `REWARDS_ENS_NAME
 
 ### `cmd:export`
 
+See the [operator runbook](docs/permissionless-distribution.md) for reviewing, proposing, answering, challenging and executing a distribution.
+
 Builds the reward distribution package for the next period on top of the rewards DB that the ENS `contenthash` of `REWARDS_ENS_NAME` pins, and writes its release assets. Anyone can run it, and the same code, lockfile and `src/distribution/kyc.json` always produce byte-identical assets for a period.
 
 ```sh
@@ -150,7 +152,7 @@ The [distribution workflow](.github/workflows/distribution.yml) runs Tuesdays at
 
 Only after plan, export and verify succeed does the release job publish `rewards-<periodEnd>`, targeting the workflow commit, with the eight assets above and the export summary as notes. It downloads the same run's assets and summary without a checkout or dependency install; only this job receives `contents: write`. The commit label is informational. The summary includes funding, validator and sentinel rewards, unpaid and forfeited amounts, sanctions and new KYC approvals; no approval list means 0 new approvals.
 
-Release notes describe the manual Safe Transaction Builder flow: propose, wait for confirmation, post the initial Yes with `answer.json` only for the original nonce-0 question with no earlier answer, then wait for Yes finality and cooldown before executing within answer expiration. Check live Reality.eth and module timing; re-asked questions and earlier answers require manual handling. The workflow sends no onchain transactions. Release assets are non-canonical mirrors; the onchain Cumulative Merkle Drop root and `rewards.safenet-gov.eth` ENS `contenthash` remain canonical.
+Release notes also summarize the manual Safe Transaction Builder flow, which the [operator runbook](docs/permissionless-distribution.md#propose-answer-and-execute) describes in full. The workflow sends no onchain transactions. Release assets are non-canonical mirrors; the onchain Cumulative Merkle Drop root and `rewards.safenet-gov.eth` ENS `contenthash` remain canonical.
 
 ### `cmd:verify`
 

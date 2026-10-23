@@ -1402,6 +1402,18 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - Answer instructions apply only to the original nonce-0 question without an earlier answer; re-asked questions and existing answers require manual handling. Finality, cooldown and answer expiration are checked live rather than hard-coded. The workflow publishes files but submits no onchain transactions.
 - This phase changes only the workflow and README. Dependency, publication and notes checks use scratch scripts and a mocked GitHub CLI; no live workflow or release was run.
 
+### Phase 19
+
+- `docs/permissionless-distribution.md` is kept brief. It links to the README's command reference and to `AGENTS.md#distribution-inputs` rather than repeating them. The README's release-notes paragraph links to the runbook's Propose, Answer and Execute section.
+- "Answer No and let the answer expire" is refined:
+  - A final No never executes.
+  - Only a final Yes is bounded by `answerExpiration()`, measured from finalization. It can be cleared afterwards with `markProposalWithExpiredAnswerAsInvalid`.
+  - A superseded Yes must be vetoed or left to expire.
+- A question finalized No, an expired Yes, or an `INVALIDATED` mapping can't be re-asked, because `addProposalWithNonce` requires an oracle result of `INVALIDATED`. The same CID and transaction therefore can't be proposed again, and a rejected period needs a changed export.
+- `execute.json` keeps working after a re-ask, because it uses the module's current question mapping. Only `answer.json` is tied to nonce 0.
+- The RealityVetoModule was read from its bytecode and getters, read-only, because its source wasn't available. It exposes `VETOER()` (`0xB6b5…2FaE`), `SAFE()`, `REALITY_MODULE()` and `vetoProposal(bytes32)`, and calls the module's `markProposalAsInvalidByHash`. The runbook names these, and the user confirmed that `vetoProposal` takes the question hash. The deployment record is an internal page, so the runbook names it without a link.
+- The Phase 11b and 13 entries above say "the runbook (Phase 20)". Under the current numbering, the runbook is Phase 19.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
