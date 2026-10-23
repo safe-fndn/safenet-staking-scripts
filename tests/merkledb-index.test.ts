@@ -4,6 +4,7 @@ import path from "node:path";
 import { zeroHash } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
 import { MerkleDb } from "../src/merkledb/index.js";
+import { canonicalJson } from "../src/utils/json.js";
 import { AEGIS_REWARDS_START, BETA_REWARDS_UNTIL } from "../src/utils/sep.js";
 import { namedAddress, parseSafe } from "./harness/utils.js";
 
@@ -28,8 +29,8 @@ const createRewardsDirectory = async (contents: string): Promise<string> => {
 const readLatest = async (root: string): Promise<Record<string, unknown>> =>
 	JSON.parse(await fs.readFile(latestPath(root), "utf8"));
 
-// A `latest.json` in the format of the currently pinned rewards DB: `jq --tab --sort-keys`
-// output, with no `updatedAt`.
+// A `latest.json` in the format of the currently pinned rewards DB: canonical JSON, with no
+// `updatedAt`.
 const PINNED_LATEST = `{
 	"epoch": 0,
 	"merkleRoot": "${MERKLE_ROOT}",
@@ -166,5 +167,30 @@ describe("merkledb index", () => {
 			merkleRoot: zeroHash,
 			unpaidAmount: parseSafe("1.5"),
 		});
+	});
+
+	it("writes canonical JSON files", async () => {
+		const root = await createRewardsDirectory(PINNED_LATEST);
+		const db = new MerkleDb({ root });
+		const [validator, delegator] = [namedAddress("validator"), namedAddress("delegator")];
+
+		// Two paid entries with proofs, one of them KYC-approved, so that every field is written.
+		await db.distribute(
+			nextPeriod,
+			{
+				[validator]: { amount: parseSafe("300000"), sentinelAmount: parseSafe("1") },
+				[delegator]: { amount: parseSafe("10"), sentinelAmount: 0n },
+			},
+			parseSafe("2.5"),
+			{ sanctions: [], kycThreshold: parseSafe("7500"), kycApprovals: [] },
+		);
+		await db.kyc(nextPeriod, [validator], []);
+
+		const files = await Array.fromAsync(fs.glob("**/*.json", { cwd: root }));
+		expect(files).toHaveLength(3);
+		for (const file of files) {
+			const bytes = await fs.readFile(path.join(root, file), "utf8");
+			expect(bytes).toBe(canonicalJson(JSON.parse(bytes)));
+		}
 	});
 });
