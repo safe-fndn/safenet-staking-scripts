@@ -48,7 +48,7 @@ const createBetaRewardsDirectory = async (): Promise<string> => {
 		{ fromTimestamp: BETA_REWARDS_UNTIL - TWO_WEEKS, toTimestamp: BETA_REWARDS_UNTIL },
 		{ [namedAddress("beta")]: { amount: BETA_TOKEN_TOTAL, sentinelAmount: 0n } },
 		0n,
-		{ sanctions: [] },
+		{ sanctions: [], kycApprovals: [] },
 	);
 	return root;
 };
@@ -107,7 +107,7 @@ describe("merkledb sentinel total", () => {
 				period(n),
 				{ [validator]: { amount: validatorPayout, sentinelAmount: 0n } },
 				0n,
-				{ sanctions: [] },
+				{ sanctions: [], kycApprovals: [] },
 			);
 			const mixedUpdate = await mixed.distribute(
 				period(n),
@@ -116,7 +116,7 @@ describe("merkledb sentinel total", () => {
 					[sentinel]: { amount: sentinelPayout, sentinelAmount: sentinelPayout },
 				},
 				0n,
-				{ sanctions: [] },
+				{ sanctions: [], kycApprovals: [] },
 			);
 
 			// The transfer to the cumulative Merkle drop funds both programs, so it *is* larger.
@@ -155,7 +155,7 @@ describe("merkledb sentinel total", () => {
 				period(n),
 				{ [both]: { amount: parseSafe("40000"), sentinelAmount: parseSafe("15000") } },
 				0n,
-				{ sanctions: [] },
+				{ sanctions: [], kycApprovals: [] },
 			);
 		}
 
@@ -180,7 +180,7 @@ describe("merkledb sentinel total", () => {
 			period(0),
 			{ [sentinel]: { amount: parseSafe("15000"), sentinelAmount: parseSafe("15000") } },
 			0n,
-			{ sanctions: [] },
+			{ sanctions: [], kycApprovals: [] },
 		);
 		expect(await db.index()).toMatchObject({ sentinelTokenTotal: parseSafe("15000") });
 
@@ -189,7 +189,7 @@ describe("merkledb sentinel total", () => {
 			period(1),
 			{ [namedAddress("validator")]: { amount: parseSafe("300000"), sentinelAmount: 0n } },
 			0n,
-			{ sanctions: [] },
+			{ sanctions: [], kycApprovals: [] },
 		);
 		expect(await db.index()).toMatchObject({
 			tokenTotal: parseSafe("315000"),
@@ -209,7 +209,7 @@ describe("merkledb sentinel total", () => {
 			period(0),
 			{ [sentinel]: { amount: sentinelPayout, sentinelAmount: sentinelPayout } },
 			0n,
-			{ sanctions: [] },
+			{ sanctions: [], kycApprovals: [] },
 		);
 		expect(update).not.toBeNull();
 

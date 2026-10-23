@@ -40,7 +40,7 @@ const distribute = (db: MerkleDb, fromTimestamp: bigint, toTimestamp: bigint) =>
 		{ fromTimestamp, toTimestamp } satisfies TimestampRange,
 		{ [namedAddress("validator")]: { amount: parseSafe("1000"), sentinelAmount: 0n } },
 		0n,
-		{ sanctions: [] },
+		{ sanctions: [], kycApprovals: [] },
 	);
 
 afterEach(async () => {
