@@ -1438,6 +1438,27 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - Beta periods find no attestations unless `CONSENSUS_ADDRESS`/`CONSENSUS_START_BLOCK` are overridden.
   - A database indexed against another consensus address is refused ("event indexer connected to the wrong database") and needs a fresh `DATABASE_FILE`.
 
+### Phase 19b
+
+- `src/config/aegis.ts` adds `AEGIS_PARAMETERS`: the fixed values flattened into the parameter names of `Safenet.create` and `ExportConfiguration`.
+  - Most commands call `Safenet.create({ ...args, ...AEGIS_PARAMETERS })`.
+  - `cmd:export` and `cmd:verify` pass the same merged object to `Safenet.create` and to `exportPackage`/`verifyProposal`.
+  - `cmd:rewards`, `cmd:kyc` and `cmd:plan` read `AEGIS` fields directly.
+  - The base args schema keeps only `databaseFile`, the RPC URLs, the block page sizes and `tsv`.
+- A stale override in the environment or `.env` is silently ignored. A stale flag fails with Node's unknown-option error (`ERR_PARSE_ARGS_UNKNOWN_OPTION`) before any RPC call.
+- `DEFAULT_SANCTIONS_ADDRESS_REPO` is removed, and `sanctionsAddressRepo` is required in `SanctionsData`, `Safenet.create` and `ExportConfiguration`. `aegis.ts` is the only place in `src/` that names the repository. The tests use `example/sanctions-address-lists`, and the test of the default repository is removed.
+- 19b therefore also changes:
+  - `src/safenet.ts`, `src/distribution/export.ts` and `src/data/sanctions.ts`;
+  - the tests `src/data/sanctions.test.ts`, `tests/harness/scenario.ts`, `tests/verify.test.ts`, `tests/plan-cli.test.ts` and `tests/verify-cli.test.ts`.
+  
+  In `plan-cli`, the mock consensus blocks are numbered from the Aegis start block, and the "start" failure case shifts timestamps instead of overriding the start block.
+- The workflows drop the `CONSENSUS_*` and `SENTINEL_ORACLE_*` repository variables.
+- The README and `AGENTS.md`:
+  - drop the fixed values from the configuration text, and describe `src/config/aegis.ts`;
+  - fix the stale "`--transactions` requires `CUMULATIVE_MERKLE_DROP_ADDRESS`" wording;
+  - say Aegis instead of Beta in the README intro, and mention `src/config/` in `AGENTS.md`'s Project Structure.
+- The `Dockerfile` and `bin/entrypoint.sh` are unchanged.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

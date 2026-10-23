@@ -2,12 +2,10 @@ import path from "node:path";
 import util, { type ParseArgsOptionsConfig } from "node:util";
 import debug from "debug";
 import { configDotenv } from "dotenv";
-import { type Client, createClient, getAddress, http, type Prettify } from "viem";
+import { type Client, createClient, http, type Prettify } from "viem";
 import { z } from "zod";
-import { AEGIS } from "../config/aegis.js";
 import { type MerkleDb, nextRewardsStart } from "../merkledb/index.js";
 import { dateToTimestamp, type TimestampRange } from "../utils/ranges.js";
-import { zGitHubRepository } from "./gh.js";
 import {
 	AEGIS_REWARDS_START,
 	AEGIS_VALIDATOR_REWARDS,
@@ -18,39 +16,13 @@ import {
 	SENTINEL_REWARDS_YEAR,
 } from "./sep.js";
 
-// The fixed Aegis values are defaults that the environment or a flag can still override.
+// The fixed Aegis values are not configuration, see `src/config/aegis.ts`.
 const SCHEMA = z.object({
 	databaseFile: z.string().min(1),
 	stakingRpcUrl: z.url(),
 	stakingBlockPageSize: z.coerce.bigint(),
-	stakingAddress: z
-		.string()
-		.transform((a) => getAddress(a))
-		.default(AEGIS.ethereum.staking.address),
-	stakingStartBlock: z.coerce.bigint().default(AEGIS.ethereum.staking.startBlock),
-	delegateRegistryAddress: z
-		.string()
-		.transform((a) => getAddress(a))
-		.default(AEGIS.ethereum.delegateRegistry.address),
-	delegateRegistryStartBlock: z.coerce.bigint().default(AEGIS.ethereum.delegateRegistry.startBlock),
-	sanctionsListAddress: z
-		.string()
-		.transform((a) => getAddress(a))
-		.default(AEGIS.ethereum.sanctionsList.address),
-	sanctionsListStartBlock: z.coerce.bigint().default(AEGIS.ethereum.sanctionsList.startBlock),
-	sanctionsAddressRepo: zGitHubRepository.default(AEGIS.sanctionsAddressRepo),
 	consensusRpcUrl: z.url(),
-	consensusAddress: z
-		.string()
-		.transform((a) => getAddress(a))
-		.default(AEGIS.gnosis.consensus.address),
-	consensusStartBlock: z.coerce.bigint().default(AEGIS.gnosis.consensus.startBlock),
 	consensusBlockPageSize: z.coerce.bigint(),
-	sentinelOracleAddress: z
-		.string()
-		.transform((a) => getAddress(a))
-		.default(AEGIS.gnosis.sentinelOracle.address),
-	sentinelOracleStartBlock: z.coerce.bigint().default(AEGIS.gnosis.sentinelOracle.startBlock),
 	tsv: z.boolean().optional(),
 });
 

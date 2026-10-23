@@ -7,7 +7,10 @@ import { SanctionsData, selectSnapshotRelease } from "./sanctions.js";
 const jsonResponse = (body: unknown): Response =>
 	new Response(JSON.stringify(body), { status: 200 });
 
-const createSanctionsData = (sanctionsAddressRepo?: GitHubRepository): SanctionsData =>
+/** The repository that tests fetch the lists from, unless they pass their own. */
+const REPO: GitHubRepository = "example/sanctions-address-lists";
+
+const createSanctionsData = (sanctionsAddressRepo = REPO): SanctionsData =>
 	new SanctionsData({ db: new Sqlite3(":memory:"), sanctionsAddressRepo });
 
 /** The URLs of every `<source>.json` asset in a repository's `latest` release, sorted. */
@@ -116,16 +119,6 @@ describe("SanctionsData", () => {
 		expect(attempts).toBeGreaterThanOrEqual(2);
 	});
 
-	it("fetches the lists from the latest release of the default repository", async () => {
-		const fetch = vi.fn(async (_input: string | URL | Request) => jsonResponse([]));
-		vi.stubGlobal("fetch", fetch);
-
-		await createSanctionsData().sanctionedAccounts({ toTimestamp: 0n });
-		expect(fetch.mock.calls.map(([url]) => String(url)).sort()).toEqual(
-			latestAssetUrls("safe-fndn/sanctions-address-lists"),
-		);
-	});
-
 	it("fetches the lists from the latest release of a configured repository", async () => {
 		const valid = getAddress("0x0000000000000000000000000000000000000008");
 		const urls = latestAssetUrls("example/lists");
@@ -154,7 +147,7 @@ const timestamp = (date: string): bigint => BigInt(Date.parse(date) / 1000);
 const stubReleases = (
 	releases: string[],
 	assets: Record<string, Record<string, string>>,
-	repo = "safe-fndn/sanctions-address-lists",
+	repo: string = REPO,
 ) => {
 	const fetch = vi.fn(async (input: string | URL | Request) => {
 		const url = String(input);
@@ -272,10 +265,8 @@ describe("SanctionsData.pinnedSanctionedAccounts", () => {
 		});
 		// Only the release listing and the pinned snapshot's assets are fetched.
 		expect(urls()).toEqual([
-			"https://api.github.com/repos/safe-fndn/sanctions-address-lists/releases?per_page=100&page=1",
-			...latestAssetUrls("safe-fndn/sanctions-address-lists").map((url) =>
-				url.replace("/latest/", "/data-2026-10-26/"),
-			),
+			`https://api.github.com/repos/${REPO}/releases?per_page=100&page=1`,
+			...latestAssetUrls(REPO).map((url) => url.replace("/latest/", "/data-2026-10-26/")),
 		]);
 	});
 

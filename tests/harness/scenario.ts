@@ -414,6 +414,7 @@ export const createTestParameters = (scenario: Scenario) => {
 		stakingAddress: namedAddress("Staking"),
 		delegateRegistryAddress: namedAddress("DelegateRegistry"),
 		sanctionsListAddress: namedAddress("SanctionsList"),
+		sanctionsAddressRepo: "example/sanctions-address-lists",
 		consensusClient: createMockClient(consensusChain),
 		consensusBlockPageSize: 5n,
 		consensusAddress: namedAddress("Consensus"),

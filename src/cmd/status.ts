@@ -3,7 +3,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getAddress } from "viem";
 import { getBlock, getChainId } from "viem/actions";
 import { z } from "zod";
 import { AEGIS } from "../config/aegis.js";
@@ -20,11 +19,6 @@ main(
 	{
 		previousCar: z.string().min(1).optional(),
 		ipfsGatewayUrl: z.url().optional(),
-		cumulativeMerkleDropAddress: z
-			.string()
-			.transform((v) => getAddress(v))
-			.default(AEGIS.ethereum.cumulativeMerkleDrop),
-		rewardsEnsName: z.string().min(1).default(AEGIS.ethereum.rewardsEnsName),
 	},
 	async (args) => {
 		const withBackoff = backoff();
@@ -37,7 +31,10 @@ main(
 		try {
 			const previous = await resolvePreviousRewardsDb(
 				args.stakingClient,
-				{ ensName: args.rewardsEnsName, cumulativeMerkleDrop: args.cumulativeMerkleDropAddress },
+				{
+					ensName: AEGIS.ethereum.rewardsEnsName,
+					cumulativeMerkleDrop: AEGIS.ethereum.cumulativeMerkleDrop,
+				},
 				args,
 				join(temporary, "previous"),
 				{ withBackoff },
@@ -47,7 +44,7 @@ main(
 			try {
 				const boundary = await blockAtTimestamp(
 					args.consensusClient,
-					{ timestamp: period.toTimestamp, fromBlock: args.consensusStartBlock },
+					{ timestamp: period.toTimestamp, fromBlock: AEGIS.gnosis.consensus.startBlock },
 					withBackoff,
 				);
 				if (boundary === null) {

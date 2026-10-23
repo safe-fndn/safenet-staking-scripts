@@ -2,12 +2,12 @@
  * The fixed configuration of the Safenet Aegis deployment.
  *
  * These are the contracts that Aegis rewards are computed from and distributed through. Unlike the
- * RPC URLs or the database file, they are not expected to change, so the commands default to them.
- * Library functions such as `Safenet.create` still take them as parameters.
+ * RPC URLs or the database file, they are not expected to change, so they are not configuration:
+ * the commands always use them. Library functions such as `Safenet.create` still take them as
+ * parameters, so that tests can pass their own.
  */
 
 import type { Address } from "viem";
-import { DEFAULT_SANCTIONS_ADDRESS_REPO } from "../data/sanctions.js";
 import type { GitHubRepository } from "../utils/gh.js";
 
 /** A contract whose events are indexed, from its deployment block. */
@@ -67,5 +67,26 @@ export const AEGIS: AegisConfiguration = {
 			startBlock: 48635850n,
 		},
 	},
-	sanctionsAddressRepo: DEFAULT_SANCTIONS_ADDRESS_REPO,
+	sanctionsAddressRepo: "safe-fndn/sanctions-address-lists",
+};
+
+/**
+ * The fixed Aegis values as the parameters of `Safenet.create` and `ExportConfiguration`, which
+ * the commands spread over their parsed arguments.
+ */
+export const AEGIS_PARAMETERS = {
+	stakingAddress: AEGIS.ethereum.staking.address,
+	stakingStartBlock: AEGIS.ethereum.staking.startBlock,
+	delegateRegistryAddress: AEGIS.ethereum.delegateRegistry.address,
+	delegateRegistryStartBlock: AEGIS.ethereum.delegateRegistry.startBlock,
+	sanctionsListAddress: AEGIS.ethereum.sanctionsList.address,
+	sanctionsListStartBlock: AEGIS.ethereum.sanctionsList.startBlock,
+	sanctionsAddressRepo: AEGIS.sanctionsAddressRepo,
+	consensusAddress: AEGIS.gnosis.consensus.address,
+	consensusStartBlock: AEGIS.gnosis.consensus.startBlock,
+	sentinelOracleAddress: AEGIS.gnosis.sentinelOracle.address,
+	sentinelOracleStartBlock: AEGIS.gnosis.sentinelOracle.startBlock,
+	cumulativeMerkleDropAddress: AEGIS.ethereum.cumulativeMerkleDrop,
+	realityModuleAddress: AEGIS.ethereum.realityModule,
+	rewardsEnsName: AEGIS.ethereum.rewardsEnsName,
 };
