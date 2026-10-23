@@ -1358,6 +1358,14 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 - A `fromBlock` beyond the snapshot returns empty results without issuing an inverted log query.
 - The module log search is unpaginated, so a provider's block-range limit can reject a long search. RPC failures are retried and then thrown; they never produce an empty successful result.
 
+### Phase 16b
+
+- No shared export API changes were needed; `src/distribution/export.ts` is unchanged.
+- `verifyProposal(safenet, config, options?)` returns `{ distribution, onchain, outcome }`. `distribution` is `Omit<Export, "dir">`, because the temporary package directory is removed before returning; all in-memory export data remains available. The outcome is `"none yet"`, `"matching"` or `"different"`, with any different question taking precedence while retaining both question lists.
+- Optional `withBackoff` applies to the Ethereum settlement-boundary and proposal lookups. The boundary search starts at genesis, independently of the staking indexer's start block. A settlement before Ethereum genesis throws explicitly.
+- Tests mock `exportPackage` to check orchestration, summary preservation and cleanup, and use the actual `findProposal` against raw viem logs. The existing export tests cover real re-derivation. Cleanup is checked on success and export, boundary or proposal lookup failure.
+- CID mismatch handling remains in Phase 16c with the CLI flag.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
