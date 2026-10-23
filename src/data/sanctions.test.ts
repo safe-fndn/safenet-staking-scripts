@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import Sqlite3 from "better-sqlite3";
 import { getAddress } from "viem";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GitHubRepository } from "../utils/gh.js";
-import { SanctionsData } from "./sanctions.js";
+import { SanctionsData, selectSnapshotRelease } from "./sanctions.js";
 
 const jsonResponse = (body: unknown): Response =>
 	new Response(JSON.stringify(body), { status: 200 });
@@ -141,5 +142,223 @@ describe("SanctionsData", () => {
 		const data = createSanctionsData("example/lists");
 		expect(await data.sanctionedAccounts({ toTimestamp: 0n })).toEqual([valid]);
 		expect(fetch.mock.calls.map(([url]) => String(url)).sort()).toEqual(urls);
+	});
+});
+
+const timestamp = (date: string): bigint => BigInt(Date.parse(date) / 1000);
+
+const sha256 = (body: string): string => createHash("sha256").update(body).digest("hex");
+
+/**
+ * Fakes a repository's GitHub release listing (a single page) and release
+ * asset downloads, serving the given raw `<source>.json` bodies per release.
+ * Any other URL is rejected.
+ */
+const stubReleases = (
+	releases: string[],
+	assets: Record<string, Record<string, string>>,
+	repo = "safe-fndn/sanctions-address-lists",
+) => {
+	const fetch = vi.fn(async (input: string | URL | Request) => {
+		const url = String(input);
+		if (url === `https://api.github.com/repos/${repo}/releases?per_page=100&page=1`) {
+			return jsonResponse(releases.map((tag_name) => ({ tag_name, name: tag_name })));
+		}
+		for (const [release, files] of Object.entries(assets)) {
+			for (const [source, body] of Object.entries(files)) {
+				if (url === `https://github.com/${repo}/releases/download/${release}/${source}.json`) {
+					return new Response(body, { status: 200 });
+				}
+			}
+		}
+		throw new Error(`unexpected url ${url}`);
+	});
+	vi.stubGlobal("fetch", fetch);
+	return () => fetch.mock.calls.map(([url]) => String(url)).sort();
+};
+
+const EMPTY_LISTS = {
+	un: "[]\n",
+	eu: "[]\n",
+	uk: "[]\n",
+	"ch-seco": "[]\n",
+	"us-ofac": "[]\n",
+};
+
+// `sha256sum` of `[]\n`.
+const EMPTY_LIST_SHA256 = "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570";
+
+describe("selectSnapshotRelease", () => {
+	const releases = ["latest", "data-2026-10-27", "data-2026-10-26", "data-2026-10-20"];
+
+	it("selects the newest snapshot whose day ended at or before the period end", () => {
+		// The first Aegis period ends at Tuesday 2026-10-27 00:00 UTC, which is
+		// exactly when the 2026-10-26 snapshot can no longer change.
+		expect(
+			selectSnapshotRelease(releases, { toTimestamp: timestamp("2026-10-27T00:00:00Z") }),
+		).toBe("data-2026-10-26");
+		expect(
+			selectSnapshotRelease(releases, { toTimestamp: timestamp("2026-10-26T23:59:59Z") }),
+		).toBe("data-2026-10-20");
+		expect(
+			selectSnapshotRelease(releases, { toTimestamp: timestamp("2026-10-27T00:00:01Z") }),
+		).toBe("data-2026-10-26");
+		expect(
+			selectSnapshotRelease(releases, { toTimestamp: timestamp("2026-10-28T00:00:00Z") }),
+		).toBe("data-2026-10-27");
+	});
+
+	it("does not depend on the release order", () => {
+		expect(
+			selectSnapshotRelease([...releases].reverse(), {
+				toTimestamp: timestamp("2026-11-10T00:00:00Z"),
+			}),
+		).toBe("data-2026-10-27");
+	});
+
+	it("never selects latest", () => {
+		expect(
+			selectSnapshotRelease(["latest"], { toTimestamp: timestamp("2100-01-01T00:00:00Z") }),
+		).toBeNull();
+	});
+
+	it("ignores releases that are not valid snapshot dates", () => {
+		expect(
+			selectSnapshotRelease(
+				[
+					"data-2026-02-30",
+					"data-2026-13-01",
+					"data-2026-00-10",
+					"data-2026-1-01",
+					"data-2026-01-01x",
+					"xdata-2026-01-01",
+				],
+				{ toTimestamp: timestamp("2027-01-01T00:00:00Z") },
+			),
+		).toBeNull();
+		// A leap day is a real date.
+		expect(
+			selectSnapshotRelease(["data-2028-02-29"], {
+				toTimestamp: timestamp("2028-03-01T00:00:00Z"),
+			}),
+		).toBe("data-2028-02-29");
+	});
+
+	it("returns null when no snapshot ended by the period end", () => {
+		expect(
+			selectSnapshotRelease(releases, { toTimestamp: timestamp("2026-10-20T23:59:59Z") }),
+		).toBeNull();
+	});
+});
+
+describe("SanctionsData.pinnedSanctionedAccounts", () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	const period = { toTimestamp: timestamp("2026-10-27T00:00:00Z") };
+
+	it("fetches the lists from the period's snapshot and records their hashes", async () => {
+		const onchain = getAddress("0x0000000000000000000000000000000000000011");
+		const pinned = getAddress("0x0000000000000000000000000000000000000012");
+		const later = getAddress("0x0000000000000000000000000000000000000013");
+		const ofac = `[\n  "${pinned.toLowerCase()}"\n]\n`;
+		const urls = stubReleases(["latest", "data-2026-10-27", "data-2026-10-26"], {
+			latest: { ...EMPTY_LISTS, "us-ofac": JSON.stringify([later]) },
+			"data-2026-10-26": { ...EMPTY_LISTS, "us-ofac": ofac },
+			"data-2026-10-27": { ...EMPTY_LISTS, "us-ofac": JSON.stringify([later]) },
+		});
+
+		const data = createSanctionsData();
+		data.registerSanction({ blockTimestamp: 10n, account: onchain, sanctioned: true });
+
+		expect(await data.pinnedSanctionedAccounts(period)).toEqual({
+			accounts: [onchain, pinned],
+			offchain: {
+				release: "data-2026-10-26",
+				// `sha256sum` of each raw asset, as served.
+				sha256: {
+					un: EMPTY_LIST_SHA256,
+					eu: EMPTY_LIST_SHA256,
+					uk: EMPTY_LIST_SHA256,
+					"ch-seco": EMPTY_LIST_SHA256,
+					"us-ofac": "f6090d4e93c8dddb16524786fdd71903ad740592dc17fa7e9b54673d987b7dc7",
+				},
+			},
+		});
+		// Only the release listing and the pinned snapshot's assets are fetched.
+		expect(urls()).toEqual([
+			"https://api.github.com/repos/safe-fndn/sanctions-address-lists/releases?per_page=100&page=1",
+			...latestAssetUrls("safe-fndn/sanctions-address-lists").map((url) =>
+				url.replace("/latest/", "/data-2026-10-26/"),
+			),
+		]);
+	});
+
+	it("uses a configured repository for the listing and the snapshot assets", async () => {
+		const pinned = getAddress("0x0000000000000000000000000000000000000014");
+		const urls = stubReleases(
+			["data-2026-10-26"],
+			{ "data-2026-10-26": { ...EMPTY_LISTS, un: JSON.stringify([pinned]) } },
+			"example/lists",
+		);
+
+		const result = await createSanctionsData("example/lists").pinnedSanctionedAccounts(period);
+		expect(result.accounts).toEqual([pinned]);
+		expect(result.offchain.release).toBe("data-2026-10-26");
+		expect(urls()).toEqual([
+			"https://api.github.com/repos/example/lists/releases?per_page=100&page=1",
+			...latestAssetUrls("example/lists").map((url) =>
+				url.replace("/latest/", "/data-2026-10-26/"),
+			),
+		]);
+	});
+
+	it("fails when no snapshot ended by the period end", async () => {
+		stubReleases(["latest", "data-2026-10-27"], {
+			latest: EMPTY_LISTS,
+			"data-2026-10-27": EMPTY_LISTS,
+		});
+
+		await expect(createSanctionsData().pinnedSanctionedAccounts(period)).rejects.toThrow(
+			`no sanctions address lists snapshot ended by ${period.toTimestamp}`,
+		);
+	});
+
+	it("accepts a matching expected snapshot", async () => {
+		stubReleases(["data-2026-10-26"], { "data-2026-10-26": EMPTY_LISTS });
+
+		const data = createSanctionsData();
+		const { offchain } = await data.pinnedSanctionedAccounts(period);
+		await expect(data.pinnedSanctionedAccounts(period, offchain)).resolves.toEqual({
+			accounts: [],
+			offchain,
+		});
+	});
+
+	it("detects a hash mismatch without retrying", async () => {
+		const urls = stubReleases(["data-2026-10-26"], { "data-2026-10-26": EMPTY_LISTS });
+
+		const data = createSanctionsData();
+		const { offchain } = await data.pinnedSanctionedAccounts(period);
+		const expected = { ...offchain, sha256: { ...offchain.sha256, uk: sha256("[]") } };
+		await expect(data.pinnedSanctionedAccounts(period, expected)).rejects.toThrow(
+			`sanctions address list uk in data-2026-10-26 has SHA-256 ${EMPTY_LIST_SHA256}, expected ${sha256("[]")}`,
+		);
+		// One listing and five assets per call.
+		expect(urls()).toHaveLength(12);
+	});
+
+	it("detects a release mismatch before fetching any asset", async () => {
+		const urls = stubReleases(["data-2026-10-26"], { "data-2026-10-26": EMPTY_LISTS });
+
+		const data = createSanctionsData();
+		const { offchain } = await data.pinnedSanctionedAccounts(period);
+		await expect(
+			data.pinnedSanctionedAccounts(period, { ...offchain, release: "data-2026-10-20" }),
+		).rejects.toThrow(
+			"sanctions address lists snapshot data-2026-10-26 does not match expected data-2026-10-20",
+		);
+		expect(urls()).toHaveLength(7);
 	});
 });
