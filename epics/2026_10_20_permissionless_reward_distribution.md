@@ -17,12 +17,12 @@ The deliverables map onto the phases as follows:
 
 | Deliverable | Phases |
 | --- | --- |
-| Deterministic export and independent verification | 1–9, 12, 14–17 |
+| Deterministic export and independent verification | 1–9, 12, 14a, 15, 16 |
 | Deterministic transaction-bundle generation | 11, 13 |
-| IPFS bundle and release publication | 10, 19 |
-| Daily indexing and cadence-aligned distribution runs | 18, 19 |
+| IPFS bundle and release publication | 10, 15, 18 |
+| Daily indexing and cadence-aligned distribution runs | 17, 18 |
 | Sanctions screening (already done in #79) | 9 (pinning) |
-| Operator documentation for the permissionless flow | 20 |
+| Operator documentation for the permissionless flow | 19 |
 
 The work breaks down into:
 
@@ -30,32 +30,32 @@ The work breaks down into:
 2. **Allow the Beta → Aegis gap.** A one-off exception to the contiguous-period check for the week between the two programs.
 3. **Move transaction bundles out of the rewards directory.** The rewards DB no longer contains `transactions/`.
 4. **Root `MerkleDb` at a rewards directory** (refactor). The rewards DB is now a standalone IPFS directory.
-5. **Block-at-timestamp lookup.** Find the consensus block that a period's settlement is measured from, plus the per-chain boundary blocks recorded in the manifest.
+5. **Block-at-timestamp lookup.** Find the consensus block that a period's settlement is measured from.
 6. **Settlement window for sentinel reveals** and
 7. **Settlement window for transaction attestations.** Make every reward query a pure function of chain history up to a fixed settlement point (48 consensus blocks after the period ends), so the result no longer depends on how far a database happens to be indexed.
 8. **KYC file.** Add `data/kyc.json`, holding the KYC threshold and the KYC-approved accounts. SEF edits it manually, and it is seeded with the end-of-Beta threshold and approvals.
 9. **Pinned sanctions snapshots.** Use the dated `data-YYYY-MM-DD` releases of `sanctions-address-lists` instead of the moving `latest` release.
 10. **IPFS packing.** Deterministic UnixFS/CAR packing and verified unpacking, in pure JS.
-11. **Governance Safe transactions.** The three calls the Governance Safe executes, their Zodiac transaction hashes, and the Reality.eth question ID.
+11. **Governance Safe transactions.** The batched call the Governance Safe executes, its Zodiac transaction hash, and the Reality.eth question ID.
 12. **Previous rewards DB resolution.** ENS `contenthash` → CID → verified CAR → directory, cross-checked against the onchain Merkle root.
 13. **Action bundles.** Safe Transaction Builder JSON files for proposing, answering **Yes** and executing.
-14. **Package manifest and assembly.**
-15. **`cmd:export`.**
-16. **`cmd:verify`** (offline, byte-for-byte).
-17. **Onchain consistency checks.**
-18. **Daily indexing Action.**
-19. **Distribution Action.**
-20. **Operator runbook.**
-21. **Cleanup.** Remove this specification file.
+14. **Canonical JSON** (14a).
+15. **Export pipeline, release assets and `cmd:export`.**
+16. **`cmd:verify`:** re-derive the distribution and check the onchain proposal.
+17. **Daily indexing Action.**
+18. **Distribution Action.**
+19. **Operator runbook.**
+20. **Cleanup.** Remove this specification file.
 
-Phases 1, 2, 3, 5, 8, 9, 10 and 18 are independent of each other and can be developed in parallel. Phase 1 fixes a parse failure against the currently pinned rewards DB and should land first. See [Implementation Phases](#implementation-phases) for the full dependency graph.
+Phases 1–14a are implemented. Of the remaining phases, 15a, 15b, 15c, 15d, 16a and 17a are independent of each other and can be developed in parallel. See [Implementation Phases](#implementation-phases) for the full dependency graph.
 
 **Out of scope:**
 
-- CLI commands that _send_ the propose, answer/challenge and execute transactions, or that inspect proposal and bond state (struck from the deliverables). Instead, every release ships Safe Transaction Builder bundles for the three actions. Any Safe can load them, an EOA can decode them, and the runbook covers challenges and timing checks.
+- CLI commands that _send_ the propose, answer/challenge and execute transactions, or that inspect bond and answer state (struck from the deliverables). `cmd:verify` only checks that a matching proposal exists. Instead, every release ships Safe Transaction Builder bundles for the three actions. Any Safe can load them, an EOA can decode them, and the runbook covers challenges and timing checks.
 - **IPFS pinning.** The epic produces the CAR and CID and mirrors them as release assets. Pinning is a separate community action, and CC is expected to pin.
 - The Safe, oracle, modules, question template, ENS name, funding and ownership transfers come from the governance setup.
 - The reward methodology itself comes from the separate _Update validator rewards scripts_ task, except for the Aegis validator budget constants, which Phase 2a sets. Sentinel rewards are already implemented (`Safenet.sentinelRewards`). See [Program parameters](#program-parameters).
+- **Historic or post-execution verification.** `cmd:verify` only verifies the distribution on top of the currently ENS-pinned rewards DB. A way to name an older previous rewards DB can be added later if needed.
 - **Database migrations.** Aegis changed the database schema, and indexing restarts from a new database at the Aegis consensus deployment block.
 
 ---
@@ -64,22 +64,44 @@ Phases 1, 2, 3, 5, 8, 9, 10 and 18 are independent of each other and can be deve
 
 ### A distribution is a function of (pinned rewards DB, chain history, versioned inputs)
 
-Distributions are **cumulative**: every rewards DB contains the full proof set for every account, and rewards DB _N_ is derived from rewards DB _N − 1_ plus the chain history of period _N_. The existing `MerkleDb` already does exactly this over a directory. The export command reuses it unchanged, against a temporary copy of the previous rewards DB, then lays out the result as the new package. No new accounting code is written.
+Distributions are **cumulative**: every rewards DB contains the full proof set for every account, and rewards DB _N_ is derived from rewards DB _N − 1_ plus the chain history of period _N_. The existing `MerkleDb` already does exactly this over a directory. The export command reuses it unchanged, against a working copy of the previous rewards DB, and the result is the new package. No new accounting code is written.
 
 ```
 ENS contenthash ─► CID ─► verified CAR ─► previous rewards DB ─┐
 chain history ≤ settlement ────────────────────────────────────┼──► Safenet.rewards + sentinelRewards ──► MerkleDb.distribute ──► package dir
-data/kyc.json (@ generator commit) ────────────────────────────┤                                                                 │
+src/distribution/kyc.json ─────────────────────────────────────┤                                                                 │
 sanctions (data-YYYY-MM-DD) ───────────────────────────────────┘                                         IPFS pack (fixed params) ◄┘
                                                                                                                       │
                                                                                                 CID = proposalId = next ENS contenthash
                                                                                                                       │
-                                                                                      Governance Safe transactions + action bundles
+                                                                                      Governance Safe transaction + action bundles
 ```
+
+There is no manifest. Every input is either onchain, a constant, or versioned in this repository, so verification is local re-derivation against onchain data only. `cmd:verify` fetches the previous rewards DB, builds the new Merkle DB through the same export pipeline, re-derives the Governance Safe transaction, and checks that the Reality Module holds a proposal with exactly that transaction. The transaction's `setContenthash` call embeds the package CID and its `setMerkleRoot` call the Merkle root, so a match implies that the package is byte-identical. `cmd:verify` reads no release asset. It prints a summary of the re-derived distribution (amounts, the stake versus commission split, forfeited sentinel grants, new KYC approvals).
+
+The export has no reward overrides. The validator budget is always the Aegis default measured against the previous rewards DB (Phase 2a), the sentinel grant is always prorated over the period, and `minPayout` is always 0, so every export can be verified.
 
 The previous rewards DB is never chosen by the operator. The export reads the `contenthash` of `rewards.safenet-gov.eth` and fetches that CID, verifying every block against it. It then requires the fetched `latest.json` Merkle root to equal `CumulativeMerkleDrop.merkleRoot()`. The two canonical references must agree. If they don't (for example, between the `setMerkleRoot` and `setContenthash` executions of a proposal), the export refuses to run. So the chain of rewards DBs always extends the DAO-controlled state.
 
-Today the ENS record points to `bafybeiczeo7uiupwte7dfa3yaus6dogwauxbookpvcgmxebbga5jtp7afq`, and its `latest.json` root is `0x6689…fdef`, matching the drop. That rewards DB has no manifest, so the package reader accepts a previous rewards DB without one.
+Today the ENS record points to `bafybeiczeo7uiupwte7dfa3yaus6dogwauxbookpvcgmxebbga5jtp7afq`, and its `latest.json` root is `0x6689…fdef`, matching the drop. Every package has the same layout as that rewards DB.
+
+`cmd:verify` resolves the previous rewards DB the same way: the ENS `contenthash` and the drop's root at the latest block, which covers verifying a pending proposal. The period it verifies is the two weeks after that rewards DB's `rewardsUntil` (with the Beta → Aegis exception). Historic or post-execution verification is out of scope for now.
+
+### Verification checks the proposal onchain
+
+The Reality Module stores only transaction **hashes** until execution: `addProposal(proposalId, txHashes)` builds the question `proposalId ␟ txHashes` and stores `questionIds[keccak256(question)]`. So `cmd:verify`:
+
+1. re-derives the package CID and the batched Governance Safe transaction, and its Zodiac hash with nonce 0;
+2. finds every question for the CID: the module's `ProposalQuestionCreated(questionId, proposalId)` events whose indexed `proposalId` topic is `keccak256(cid)`, from the last Ethereum block at or before `settlementTimestamp` (no proposal for the package can be older) to the latest block;
+3. classifies each question by its text, read from the oracle's `LogNewQuestion` event for that question ID: **matching** if it equals `buildQuestion(cid, [hash])`, **different** otherwise. A re-asked question (nonce > 0) of the same proposal is still matching.
+
+The outcome:
+
+- **No question for the CID:** "no proposal yet". It prints the derived CID, the transaction hash and the summary, and exits 0.
+- **Only matching questions:** verification passes. It prints the current one (`module.questionIds(keccak256(question))`), so answerers can check that it is the question they answer, and `executedProposalTransactions(keccak256(question), hash)`, so it also says whether the proposal has executed.
+- **Any different question:** verification fails (non-zero exit), whether or not a matching one also exists, so the team has to react. It still prints the matching question, if there is one, and lists the different ones, which answerers should answer **No**.
+
+The verifier passes no proposal or question argument: the re-derivation alone names the CID and the question. The governance configuration matters only through the module address and the ENS resolver, which the transaction targets; the bond, template and timeouts are not compared.
 
 ### Settlement window: 48 consensus blocks
 
@@ -110,21 +132,21 @@ Two "late" facts need a timestamp: `sentinel_reveals.block_timestamp`, and `sign
 
 "Bundle" means two different things in this flow, so this plan keeps them apart:
 
-- **The rewards bundle** (the "rewards DB", or "the package" in the rest of this plan) is the IPFS bundle of the Merkle DB contents after the distribution, plus the manifest and allocations. It is a UnixFS directory whose root is the **CID**, and it contains `manifest.json`, `allocations.json`, `latest.json` and the full cumulative `proofs/` tree, including the Merkle root. It holds everything needed to verify and to claim. It is mirrored as a CAR file in the GitHub release and pinned by CC or anyone else.
+- **The rewards bundle** (the "rewards DB", or "the package" in the rest of this plan) is the IPFS bundle of the Merkle DB contents after the distribution. It is a UnixFS directory whose root is the **CID**, and it contains only `latest.json` (with the Merkle root) and the full cumulative `proofs/` tree, exactly the layout of the currently pinned rewards DB. It holds everything needed to claim, and, together with the previous rewards DB, everything needed to verify. It is mirrored as a CAR file in the GitHub release and pinned by CC or anyone else.
 - **The transaction bundles** are the Governance Safe transactions that the Zodiac proposal executes, and the three Safe Transaction Builder bundles for proposing, answering and executing. They are _about_ the rewards bundle: each one references its CID and Merkle root. They are never written into the rewards directory.
 - **The release** is the GitHub Release that carries both, plus the CID, the Merkle root and checksums.
 
-One CID is used in three places. It is the IPFS root of the rewards bundle. It is the Zodiac `proposalId`, so the Reality.eth question is about that dataset. And the Governance Safe writes it into the `contenthash` of `rewards.safenet-gov.eth` when the proposal executes, so the ENS record keeps pointing to the latest rewards DB, alongside the onchain Merkle root. The transaction bundles contain the CID (in `setContenthash`, `addProposal` and so on), so they must stay outside the rewards bundle. They are deterministic functions of the CID, the Merkle root, the funding amount and the onchain governance configuration, and `cmd:verify` re-derives them.
+One CID is used in three places. It is the IPFS root of the rewards bundle. It is the Zodiac `proposalId`, so the Reality.eth question is about that dataset. And the Governance Safe writes it into the `contenthash` of `rewards.safenet-gov.eth` when the proposal executes, so the ENS record keeps pointing to the latest rewards DB, alongside the onchain Merkle root. The transaction bundles contain the CID (in `setContenthash`, `addProposal` and so on), so they must stay outside the rewards bundle. They are deterministic functions of the CID, the Merkle root, the funding amount, the settlement timestamp and the onchain governance configuration. `cmd:verify` re-derives the Governance Safe transaction and checks it against the module.
 
-### Governance Safe transactions, executed one by one
+### One batched Governance Safe transaction
 
-Zodiac executes proposal transactions one at a time (`executeProposalWithIndex`), and transaction _i_ can only execute after _i − 1_ has. The list is ordered so that every intermediate state is safe:
+The proposal is a single Zodiac transaction (Phase 11b): a `delegatecall` (`operation = 1`) from the Governance Safe to the canonical `MultiSendCallOnly`, which runs three calls in this order, each with `operation = 0`:
 
 1. `SAFE.transfer(cumulativeMerkleDrop, additionalAmount)`. Funding comes first, so the drop always holds enough tokens for its root.
 2. `CumulativeMerkleDrop.setMerkleRoot(root)`.
 3. `PublicResolver.setContenthash(namehash("rewards.safenet-gov.eth"), 0xe301 ‖ CID)` (ENSIP-7).
 
-Transactions are encoded as raw `data` with `operation = 0`, because the Zodiac transaction hash commits to the exact calldata.
+The update is atomic, so the onchain root and the ENS `contenthash` never disagree because a proposal executed only partly. Calls are encoded as raw `data`, because the Zodiac transaction hash commits to the exact calldata. `proposal.json` records the batched transaction and its three decoded calls, so answerers can review each call.
 
 ### Action bundles instead of send-transaction tooling
 
@@ -132,17 +154,16 @@ Each release contains three Safe Transaction Builder bundles that **any** Safe c
 
 | Bundle | Transactions |
 | --- | --- |
-| `propose.json` | `RealityModule.addProposal(CID, txHashes)` |
+| `propose.json` | `RealityModule.addProposal(CID, [txHash])` |
 | `answer.json` | `SAFE.approve(oracle, minimumBond)`, `oracle.submitAnswerERC20(questionId, bytes32(1), 0, minimumBond)` |
-| `execute.json` | `RealityModule.executeProposalWithIndex(CID, txHashes, to, value, data, 0, i)` for `i = 0, 1, 2` |
+| `execute.json` | `RealityModule.executeProposalWithIndex(CID, [txHash], MULTI_SEND_CALL_ONLY, 0, data, 1, 0)` |
 
-- `answer.json` posts the initial **Yes** answer with the module's minimum bond. `max_previous = 0` makes it revert if anyone has already answered, rather than silently escalating. Challenges and counter-answers depend on live bond state, so the runbook covers them (at least double the current bond, and the timeout restarts).
-- `execute.json` batches all three executions. The Transaction Builder runs them as one MultiSend from the executor's Safe, so the Governance Safe's state changes atomically from the executor's point of view.
-- `questionId` is computed locally with nonce `0`, the same way the module derives it. The inputs are the template ID, opening time `0`, question text `CID ␟ txHashes`, arbitrator, timeout, minimum bond, oracle and module. The value is checked against the module's `getQuestionId` view. The bundle is only valid for the first time the question is asked. If a proposal is marked invalid and re-asked, nonce `0` no longer applies and the runbook explains how to proceed.
+- `answer.json` posts the initial **Yes** answer with the module's minimum bond. It reverts if anyone has already answered, because the oracle requires at least double the current bond (`max_previous = 0` is not checked; see the Phase 13 deviations). Challenges and counter-answers depend on live bond state, so the runbook covers them (at least double the current bond, and the timeout restarts).
+- `questionId` is computed locally with nonce `0`, the same way the module derives it. The inputs are the template ID, opening time `0`, question text `CID ␟ txHash`, arbitrator, timeout, minimum bond, oracle and module. The value is checked against the module's `getQuestionId` view. The bundle is only valid for the first time the question is asked. If a proposal is marked invalid and re-asked, nonce `0` no longer applies and the runbook explains how to proceed.
 
 ### Configuration comes from the module, not from env
 
-Only the module address, the ENS name and the IPFS gateway are configuration. Everything else the governance setup records is read back from chain at export time, recorded in the manifest, and re-read by `cmd:verify`:
+Only the module address, the ENS name and the IPFS gateway are configuration. Everything else the governance setup records is read back from chain at export time, all at one block. `cmd:verify` reads it the same way, but only the module address and the ENS resolver affect what it checks:
 
 | Value | Source |
 | --- | --- |
@@ -153,7 +174,7 @@ Only the module address, the ENS name and the IPFS gateway are configuration. Ev
 | Bond token | `oracle.token()` |
 | ENS resolver, previous rewards DB | ENS registry `resolver(namehash(name))`, resolver `contenthash(node)` |
 
-This follows "consume the verified active configuration" literally: if the governance setup changes the bond or the template, the next export picks it up and the manifest shows the change.
+This follows "consume the verified active configuration" literally: if the governance setup changes the bond or the template, the next export picks it up.
 
 ### KYC threshold and approvals are versioned with the code
 
@@ -162,19 +183,19 @@ KYC has two inputs:
 - **The threshold:** the payout amount at or above which a recipient's payout is withheld in `kycAmount` until they are approved.
 - **The approvals:** the `"kyc": true` field on an account's entry in `proofs/`, next to `cumulativeAmount` and `kycAmount`.
 
-Both come from `data/kyc.json` in this repository, which SEF edits manually through reviewed PRs (the repository is in the SEF org). The export uses the file's threshold for `distribute`, and applies the flag to every listed account before it, so any withheld `kycAmount` is released in the same tree rebuild as the period's payouts. Because the file is versioned alongside the code that produces the bundle, `generator.commit` pins it. There is no flag, workflow input or external lookup for either value, and `cmd:verify` sees the same file simply by checking out that commit.
+Both come from `data/kyc.json` in this repository, which SEF edits manually through reviewed PRs (the repository is in the SEF org). The export uses the file's threshold for `distribute`, and applies the flag to every listed account before it, so any withheld `kycAmount` is released in the same tree rebuild as the period's payouts. There is no flag, workflow input or external lookup for either value. A verifier uses its own checkout's file, so verification only succeeds with the same file the export used; the file is coordinated through this repository.
 
-Flags are sticky: removing an address from the file does not revoke an approval. The export refuses to run if any account flagged in the previous rewards DB is missing from `data/kyc.json`, so the file is always the complete list. To help answerers, the manifest records `kyc.newlyApproved`, the listed accounts that were not yet flagged in the previous rewards DB.
+Flags are sticky: removing an address from the file does not revoke an approval. The export refuses to run if any account flagged in the previous rewards DB is missing from `data/kyc.json`, so the file is always the complete list. To help answerers, `cmd:verify` lists the newly approved accounts, which `distribute` reports.
 
 ### Deterministic IPFS in JavaScript
 
-The CID is computed in-process with `ipfs-unixfs-importer` and written as a CARv1 with `@ipld/car`, so a verifier needs nothing beyond `npm ci`. The import parameters are fixed constants and recorded in the manifest: CIDv1 base32, `sha2-256`, raw leaves, fixed-size 256 KiB chunker, balanced layout, no directory sharding, no `mtime`/`mode` metadata, no wrapping directory. These are Kubo's `ipfs add -r --cid-version=1` defaults. The currently pinned rewards DB was produced that way: its `latest.json` is a raw leaf whose hash equals the file's SHA-256. As a self-check, the export re-packs the unpacked previous rewards DB and warns if the CID differs.
+The CID is computed in-process with `ipfs-unixfs-importer` and written as a CARv1 with `@ipld/car`, so a verifier needs nothing beyond `npm ci`. The import parameters are fixed constants: CIDv1 base32, `sha2-256`, raw leaves, fixed-size 256 KiB chunker, balanced layout, no directory sharding, no `mtime`/`mode` metadata, no wrapping directory. These are Kubo's `ipfs add -r --cid-version=1` defaults. The currently pinned rewards DB was produced that way: its `latest.json` is a raw leaf whose hash equals the file's SHA-256. As a self-check, the export re-packs the unpacked previous rewards DB and warns if the CID differs.
 
 Fetching uses an IPFS trustless gateway (`?format=car`), configurable through `IPFS_GATEWAY_URL` and defaulting to a local node's gateway (`http://127.0.0.1:8080`, as served by Kubo). A CAR is verified block by block against the requested CID, so the gateway, a release asset or a local file can each be the source, and none of them needs to be trusted.
 
 ### Canonical JSON matches the pinned rewards DB
 
-The currently pinned rewards DB uses tab indentation, recursively sorted keys and a trailing newline (`jq --tab --sort-keys`). Package files and `data/kyc.json` use the same canonical form, with `bigint`s as decimal strings. Address arrays (`data/kyc.json` `accounts`, `allocations.json`, `manifest.kyc.newlyApproved`) are sorted by the 20 address bytes, which is the same as a case-insensitive sort of the hex string. That is what the existing `sortByAddress` in `src/utils/sort.ts` already does, and it is the order the Merkle tree leaves already use.
+The currently pinned rewards DB uses tab indentation, recursively sorted keys and a trailing newline (`jq --tab --sort-keys`). Package files, JSON release assets and `data/kyc.json` use the same canonical form, with `bigint`s as decimal strings. Address arrays (`data/kyc.json` `accounts`) are sorted by the 20 address bytes, which is the same as a case-insensitive sort of the hex string. That is what the existing `sortByAddress` in `src/utils/sort.ts` already does, and it is the order the Merkle tree leaves already use.
 
 ### Release assets, not git, for data availability
 
@@ -185,13 +206,16 @@ Packages and index snapshots are published as **GitHub Release assets** of this 
 - **Cut late events off at `toTimestamp`** instead of using a settlement window. This is simpler, but it silently drops the reveals and attestations that straddle the boundary, which reverses a decision of the sentinel rewards epic. Rejected.
 - **Per-item deadlines** (request or proposal block + 48). More precise, but they need a block number on every row and change the semantics for items well inside the period. Rejected in favour of one cutoff per period.
 - **A settlement window in seconds** (e.g. 48 × 5 s). Gnosis block times are not exact, so it would drift from the block-based reasoning above. Rejected.
-- **Require verifiers to index exactly to recorded boundary blocks.** This only works with a fresh database, while the daily snapshot is indexed past the boundary. The boundary and settlement blocks are still recorded for auditability. Rejected as the mechanism.
-- **Let the operator pick the previous rewards DB** (a `--previous` path, or the newest matching release). This adds a trust decision that the ENS record already makes, and lets an export silently build on the wrong state. It is kept only as a local _source_ for the CID the ENS record names, never as a choice of which CID. Rejected.
-- **KYC threshold and approvals as CLI or workflow inputs** (today's `--kycThreshold`). These would have to be recorded in the manifest and supplied again to every verifier, and nothing would keep them in sync with the code. Rejected in favour of `data/kyc.json`.
+- **Require verifiers to index exactly to recorded boundary blocks.** This only works with a fresh database, while the daily snapshot is indexed past the boundary. Rejected.
+- **Let the operator pick the previous rewards DB** (a `--previous` path, or the newest matching release). This adds a trust decision that the ENS record already makes, and lets an export silently build on the wrong state. For the export, `--previousCar` is kept only as a local _source_ for the CID the ENS record names, never as a choice of which CID. `cmd:verify` resolves the previous CID from chain the same way. Rejected.
+- **KYC threshold and approvals as CLI or workflow inputs** (today's `--kycThreshold`). Every verifier would have to supply them again, and nothing would keep them in sync with the code. Rejected in favour of `data/kyc.json`.
 - **Compute the CID with the Kubo CLI.** This adds a non-npm toolchain to every verifier, and the output would depend on the Kubo version. Kept only as a cross-check in a test. Rejected.
-- **One `MultiSendCallOnly` delegatecall as the single proposal transaction.** Atomic, but it needs a module delegatecall on the Governance Safe and hides the individual calls from answerers. The executor-side batching in `execute.json` gets most of the benefit. Rejected.
+- **Three separate Zodiac transactions**, executed one by one. Splitting only works around block gas limits, which three calls are nowhere near, and a partial execution leaves the onchain root and the ENS `contenthash` disagreeing. Rejected in favour of one `MultiSendCallOnly` delegatecall (Phase 11b).
 - **Raw calldata files for propose/answer/execute.** Replaced by Transaction Builder bundles, which any Safe can load directly.
 - **Persist the SQLite index with `actions/cache`.** Caches are evicted after 7 days, are scoped to a branch, and cannot be downloaded publicly. Rejected in favour of release assets.
+- **A manifest and per-recipient allocations in the package**, recording the inputs (governance configuration, parameters, sanctions hashes, generator commit, boundary blocks) next to `latest.json`. Everything they record is either onchain, a constant, versioned in this repository, or derivable from the diff with the previous rewards DB, and a byte-for-byte re-derivation checks all of it. They would also change the layout consumers know from the Beta rewards DB. Rejected in the redux.
+- **Verify the release files byte for byte** (the CAR, `cid.txt`, `proposal.json`, the action bundles and `SHA256SUMS`). The onchain proposal is what executes, and a matching `setContenthash` CID already implies an identical package. The bundles also depend on governance values that the answer does not. Rejected in the redux.
+- **Reward overrides on `cmd:export`** (`--totalRewards`, `--sentinelRewards`, `--minPayout`). An overridden export could only be verified by supplying the same overrides again. Rejected in the redux.
 - **Re-index from genesis in every verification.** Too slow and RPC-expensive for every run. Offered as an opt-in `workflow_dispatch` input of the distribution Action instead.
 
 ---
@@ -204,32 +228,39 @@ None of these users needs SEF approval or write access to the repository. The on
 
 ```
 daily     restore index snapshot ─► cmd:index ─► cmd:index --validate ─► rotate snapshot assets
-cadence   restore snapshot ─► cmd:index ─► cmd:export ─┬─► (fresh runner) cmd:verify ─► gh release create rewards-<toTimestamp>
-                                                       └─► release-asset artifact ──────┘
+cadence   restore snapshot ─► cmd:index ─► cmd:export ─┬─► (fresh runner) cmd:export, compare SHA256SUMS ─► gh release create rewards-<toTimestamp>
+                                                       └─► release-asset artifact ──────────────────────┘
 ```
 
 ### Independent verifier
 
 ```sh
-gh release download rewards-1793404800 -R safe-fndn/safenet-staking-scripts -D ./rel
-git checkout "$(jq -r .generator.commit ./rel/manifest.json)" && npm ci
-npm run cmd:verify -- --package ./rel/rewards-1793404800.car
+git checkout main && npm ci   # or any checkout with the same src/distribution/kyc.json
+npm run cmd:verify            # the next distribution on top of the ENS-pinned rewards DB
 ```
 
 ```
 Previous CID:       bafybeiczeo7… (rewards.safenet-gov.eth, root 0x6689… == merkleRoot())
+Period:             2026-10-13 – 2026-10-27, settled at Gnosis block 43,112,907
+Sanctions lists:    data-2026-10-26
 Package CID:        bafybei…
-Merkle root:        0x3f1c…  (matches)
-Files:              412 / 412 identical
+Merkle root:        0x3f1c…
+Distribution:       284,615.38 SAFE (validators 192,307.69, sentinels 92,307.69)
+  validators        stake rewards 185,412.05, commission 6,895.64, unpaid 0.00
+  sentinels         6 / 6 paid, 0.00 forfeited
 New KYC approvals:  0
-Transactions:       3 / 3 identical, Zodiac hashes match module
-Question ID:        0x8e2a…  (matches module.getQuestionId)
-Action bundles:     propose, answer, execute identical
-Safe SAFE balance:  1,234,567.89 ≥ 172,603.12 required
+Transaction hash:   0x9b0e…
+Proposal:           question 0x8e2a…, not executed
 OK
 ```
 
-Any mismatch prints a per-file diff and exits non-zero.
+If nothing has been proposed for the CID yet, it prints `Proposal: none yet` and exits 0. If any question for the CID proposes a different transaction, it prints the matching question (if any), then lists the others and exits non-zero:
+
+```
+Proposal:           question 0x8e2a…, not executed
+Other questions:    0x51c7… proposes a different transaction for this CID: answer No
+FAILED
+```
 
 ### Proposer, answerer, executor (documented, no new tooling)
 
@@ -237,7 +268,6 @@ Any mismatch prints a per-file diff and exits non-zero.
 2. Load `propose.json` into the Transaction Builder of any Safe and execute it. This costs gas and any question fee, but no bond.
 3. Load `answer.json` and execute it to answer **Yes** with the minimum bond. A challenger answers with at least twice the current bond, following the runbook.
 4. Once the answer is final, the cooldown has elapsed and the answer has not expired yet, load `execute.json` and execute it.
-5. Run `cmd:verify --postExecution` to confirm that the onchain root and the ENS `contenthash` now point to the package.
 
 ### Page Layout
 
@@ -254,142 +284,39 @@ This epic does not change the reward methodology. It packages whatever the rewar
 - **Validators:** ~5,000,000 SAFE over 12 months starting **Tuesday 2026-10-13**, distributed **every 2 weeks**. This matches the existing Tuesday-to-Tuesday `rewardsPeriod()` grid (2026-04-07 + 27 weeks).
 - **Sentinels:** ~2,400,000 SAFE as grants to 6 genesis Sentinels (400,000 SAFE each per year). As the DAO proposal allows, the sentinel rewards period is collapsed into the two-week rewards period. Sentinel rewards are computed and distributed on the **same two-week period** as validator rewards, prorated by the period's duration (`sentinelRewardsAmount`).
 
-There is therefore a single rewards period. Both programs are computed over the same `[fromTimestamp, toTimestamp]` and merged into one distribution, so the manifest has one `period` and every command takes one `--rewardPeriodStart`/`--rewardPeriodEnd` pair. This is how `cmd:rewards` already works.
+There is therefore a single rewards period. Both programs are computed over the same `[fromTimestamp, toTimestamp]` and merged into one distribution, so every command takes one `--rewardPeriodStart`/`--rewardPeriodEnd` pair. This is how `cmd:rewards` already works.
 
 **The Beta → Aegis gap.** The pinned rewards DB ends at `rewardsUntil = 2026-10-06`, and Aegis starts on 2026-10-13. `MerkleDb.distribute` rejects periods that are not contiguous, so it gets one hard-coded exception. It accepts `fromTimestamp = 2026-10-13` when `rewardsUntil = 2026-10-06`, and no other gap. No rewards are paid for the week in between.
+
+**Amounts.** `cmd:export` has no overrides. The validator budget is `totalRewardsAmount` against the previous rewards DB (the Phase 2a Aegis catch-up), the per-sentinel grant is `sentinelRewardsAmount` prorated over the period, and `minPayout` is 0. Sanctioned and KYC-withheld payouts stay in `tokenTotal`, so the transfer to the drop funds them, as `MerkleDb` does today.
 
 ### Package layout (the CID root)
 
 ```
-manifest.json
-allocations.json
 latest.json
 proofs/<b0>/<b1>/<b2>/<b3>/<0xaddress>.json   # unchanged MerkleDb layout, cumulative
 ```
 
-`latest.json` and `proofs/` keep exactly the layout of the currently pinned rewards DB. `latest.json` has no `updatedAt` (Phase 1), and there is no `transactions/` directory (Phase 3). `manifest.json` and `allocations.json` are new, and consumers that only read `latest.json` and `proofs/` are unaffected.
+This is exactly the layout of the currently pinned rewards DB: `latest.json` has no `updatedAt` (Phase 1), there is no `transactions/` directory (Phase 3), and there is no other file. The export copies the previous rewards DB into a working directory and refuses anything outside this layout, such as a `.lock`, `transactions/` or a misplaced proof, rather than ignoring it.
 
 ### Release assets (outside the CID)
 
 | Asset | Contents |
 | --- | --- |
 | `rewards-<t>.car` | CARv1 of the package, root = package CID |
-| `cid.txt` | Package CID (CIDv1 base32) |
-| `merkle-root.txt` | Merkle root |
-| `proposal.json` | `proposalId`, `questionId`, and the 3 Governance Safe transactions (`to`, `value`, `data`, `operation`, Zodiac `hash`) |
+| `cid.txt` | Package CID (CIDv1 base32), one line |
+| `merkle-root.txt` | Merkle root (lowercase `0x` hex), one line |
+| `proposal.json` | `proposalId`, `questionId`, the batched transaction (`to`, `value`, `data`, `operation`, Zodiac `hash`) and its three calls |
 | `propose.json` | Transaction Builder bundle: `addProposal` |
 | `answer.json` | Transaction Builder bundle: `approve` + `submitAnswerERC20` (Yes) |
-| `execute.json` | Transaction Builder bundle: 3 × `executeProposalWithIndex` |
-| `manifest.json` | Copy of the package manifest, for convenience |
-| `SHA256SUMS` | Checksums of all of the above |
+| `execute.json` | Transaction Builder bundle: one `executeProposalWithIndex` |
+| `SHA256SUMS` | `sha256sum` lines for all of the above, sorted by name |
+
+`<t>` is the period's `toTimestamp`. JSON assets are canonical JSON. Every asset is a deterministic function of the package, the governance configuration and the settlement timestamp. They serve proposers, answerers and pinning; `cmd:verify` does not read them.
 
 Transaction Builder bundles use `chainId: "1"`, `createdAt: settlementTimestamp × 1000`, raw `data`, and no `createdFromSafeAddress`, because any Safe may load them.
 
-Zodiac transaction hashes use EIP-712 with domain `EIP712Domain(uint256 chainId,address verifyingContract)` = `{ 1, module }` and struct `Transaction(address to,uint256 value,bytes data,uint8 operation,uint256 nonce)`, where `nonce` is the transaction index. They are computed locally with viem's `hashTypedData` and cross-checked against `module.getTransactionHash`.
-
-### Manifest (`src/distribution/manifest.ts`, zod schema)
-
-```jsonc
-{
-  "allocations": { "forfeited": "…", "unpaid": "…" },
-  "chains": {
-    "consensus": {
-      "boundaryBlock": "…",
-      "chainId": 100,
-      "contracts": { "consensus": "0x…", "sentinelOracle": "0x…" },
-      "settlementBlock": "…",
-    },
-    "staking": {
-      "boundaryBlock": "…",
-      "chainId": 1,
-      "contracts": {
-        "delegateRegistry": "0x…",
-        "sanctionsList": "0x…",
-        "staking": "0x…",
-      },
-    },
-  },
-  "distribution": {
-    "additionalAmount": "…",
-    "cumulativeMerkleDrop": "0x…",
-    "merkleRoot": "0x…",
-    "safeToken": "0x…",
-    "tokenTotal": "…",
-  },
-  "generator": {
-    "commit": "<sha>",
-    "repository": "https://github.com/safe-fndn/safenet-staking-scripts",
-  },
-  "governance": {
-    "answerExpiration": "…",
-    "arbitrator": "0x…",
-    "avatar": "0x…",
-    "bondToken": "0x…",
-    "ensName": "rewards.safenet-gov.eth",
-    "ensResolver": "0x…",
-    "minimumBond": "…",
-    "module": "0x…",
-    "oracle": "0x…",
-    "questionCooldown": "…",
-    "questionTimeout": "…",
-    "templateId": "…",
-  },
-  "ipfs": {
-    "car": 1,
-    "chunker": "size-262144",
-    "cidVersion": 1,
-    "hash": "sha2-256",
-    "layout": "balanced",
-    "rawLeaves": true,
-  },
-  "kyc": { "newlyApproved": ["0x…"], "threshold": "…" },
-  "parameters": {
-    "minPayout": "…",
-    "sentinelRewards": "…",
-    "totalRewards": "…",
-  },
-  "period": {
-    "fromTimestamp": "…",
-    "settlementTimestamp": "…",
-    "toTimestamp": "…",
-  },
-  "previous": { "cid": "bafy…", "merkleRoot": "0x…", "rewardsUntil": "…" },
-  "sanctions": {
-    "offchain": {
-      "release": "data-2026-10-26",
-      "repository": "safe-fndn/sanctions-address-lists",
-      "sha256": {
-        "ch-seco": "…",
-        "eu": "…",
-        "uk": "…",
-        "un": "…",
-        "us-ofac": "…",
-      },
-    },
-  },
-  "version": 1,
-}
-```
-
-- `generator.commit` comes from `GIT_COMMIT` when set (Docker, Actions) and from `git rev-parse HEAD` otherwise. Export refuses to run on a dirty tree. `cmd:verify` warns when `HEAD` differs from the recorded commit, because matching bytes (including `data/kyc.json`) are only guaranteed for the same commit and lockfile.
-- `previous` is the ENS-pinned rewards DB the package was built on. `cmd:verify` re-derives from exactly this CID. Before execution it also checks that the CID is still what the ENS record names, and after execution that it is the predecessor.
-- `parameters` records the effective values, whether defaulted or overridden. `cmd:verify` calls out any override explicitly. `kyc.threshold` is copied from `data/kyc.json` for readability; it cannot be overridden.
-
-### `allocations.json`
-
-This period's payout per recipient, sorted by address bytes (`sortByAddress`):
-
-```jsonc
-[
-  {
-    "account": "0x…",
-    "commission": "…",
-    "sentinelRewards": "…",
-    "stakeRewards": "…",
-    "status": "paid" | "kyc-withheld" | "sanctioned",
-  },
-]
-```
+Zodiac transaction hashes use EIP-712 with domain `EIP712Domain(uint256 chainId,address verifyingContract)` = `{ 1, module }` and struct `Transaction(address to,uint256 value,bytes data,uint8 operation,uint256 nonce)`, with `nonce` 0 for the one batched transaction. They are computed locally with viem's `hashTypedData` and cross-checked against `module.getTransactionHash`.
 
 ### `data/kyc.json`
 
@@ -421,23 +348,32 @@ It is parsed with a zod schema that rejects duplicates, unsorted accounts and ma
 
 ### Sanctions
 
-`sanctions-address-lists` publishes dated, immutable snapshot releases (`data-YYYY-MM-DD`) alongside the moving `latest`. The export uses the **newest `data-*` release published at or before `toTimestamp`**. Like the onchain oracle, which is evaluated at `toTimestamp`, this makes the offchain lists a function of the period too. The existing `SANCTIONS_ADDRESS_LISTS_URL` mechanism is pointed at `…/releases/download/<tag>`, and the SHA-256 of each list is recorded. `cmd:verify` re-resolves the tag with the same rule and checks the hashes. Following the resolved decision below, the GitHub release history is trusted exactly as much as this repository's own git history.
+`sanctions-address-lists` publishes dated snapshot releases (`data-YYYY-MM-DD`) alongside the moving `latest`. The export uses the **newest `data-*` release whose UTC day ended at or before `toTimestamp`**. Like the onchain oracle, which is evaluated at `toTimestamp`, this makes the offchain lists a function of the period too. `cmd:verify` re-resolves the release from the period end with the same rule. No hashes are recorded: the upstream repository uses GitHub immutable releases, so a release's assets cannot change once published. Both commands print the release they used. Following the resolved decision below, the GitHub release history is trusted exactly as much as this repository's own git history.
 
 ### New commands and flags
 
 | Command | Purpose |
 | --- | --- |
 | `cmd:export` | Build a package and release assets for an explicit period on top of the ENS-pinned rewards DB |
-| `cmd:verify` | Re-derive a package from its manifest and compare; optional onchain checks |
+| `cmd:verify` | Re-derive the distribution on top of the previous rewards DB and check that the Reality Module holds a proposal with exactly its Governance Safe transaction |
+| `cmd:plan` | Print the next period after the ENS-pinned rewards DB, and whether it has settled, for the distribution Action |
 
 `cmd:export` takes the following flags:
 
-- `--rewardPeriodStart` and `--rewardPeriodEnd`, both required, with no implicit "last Tuesday". This one period covers both validator and sentinel rewards, and there is no separate sentinel period option.
+- `--rewardPeriodStart` and `--rewardPeriodEnd`, both required, with no implicit "last Tuesday". This one period covers both validator and sentinel rewards, and there is no separate sentinel period option. The start must follow the previous rewards DB's `rewardsUntil`.
 - `--previousCar <file>`, optional. It is a local source for the ENS-named CID; without it, the CAR is fetched from `IPFS_GATEWAY_URL`.
-- `--out <dir>`.
-- The existing `--totalRewards`/`--sentinelRewards`/`--minPayout` overrides. There is no `--kycThreshold`, because the threshold comes from `data/kyc.json`.
+- `--out <dir>`, required, missing or empty. It receives the release assets only.
 
-`cmd:verify` takes `--package <car|dir>` (required), `--previousCar`, and `--postExecution`. The last flag expects the onchain root and the ENS `contenthash` to equal _this_ package rather than the previous one.
+There is no `--totalRewards`, `--sentinelRewards`, `--minPayout` or `--kycThreshold` (see [Program parameters](#program-parameters)).
+
+`cmd:verify` takes:
+
+- `--previousCar <file>`, optional, a local source for the ENS-named previous CID.
+- `--cid <cid>`, optional: fail unless the derived package CID equals it. The distribution Action uses it to tie `cmd:verify` to its export artifact.
+
+The previous rewards DB is always the ENS-pinned one at the latest block, cross-checked against the drop's root, as in the export.
+
+There is no period flag: the period is the two weeks after the previous rewards DB's `rewardsUntil`. There is no release, proposal or question argument. It exits non-zero when any question for the CID proposes a different transaction (even next to a matching one), or when `--cid` doesn't match (see [Verification checks the proposal onchain](#verification-checks-the-proposal-onchain)).
 
 `cmd:rewards` and `cmd:kyc` take `--transactions <dir>` for their Safe transaction bundle, instead of writing it into the rewards directory.
 
@@ -449,9 +385,9 @@ It is parsed with a zod schema that rejects duplicates, unsorted accounts and ma
 | --- | --- | --- |
 | `REALITY_MODULE_ADDRESS` | Zodiac Reality Module on the Governance Safe | `0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC` |
 | `REWARDS_ENS_NAME` | ENS name whose `contenthash` pins the rewards DB | `rewards.safenet-gov.eth` |
-| `IPFS_GATEWAY_URL` | Trustless gateway that previous rewards DB CARs are fetched from (verified, so untrusted) | `http://127.0.0.1:8080` (local Kubo) |
+| `IPFS_GATEWAY_URL` | Trustless gateway that rewards DB CARs are fetched from (verified, so untrusted) | `http://127.0.0.1:8080` (local Kubo) |
 
-`CUMULATIVE_MERKLE_DROP_ADDRESS` is reused. Everything else comes from the module or ENS (see above). `SETTLEMENT_BLOCKS` and the IPFS import parameters are constants, not configuration, because changing them changes the output.
+These are arguments of the commands that read them (`cmd:export`, `cmd:verify`, `cmd:plan`), not of the base schema in `src/utils/args.ts`. `CUMULATIVE_MERKLE_DROP_ADDRESS` is reused. Everything else comes from the module or ENS (see above). `SETTLEMENT_BLOCKS` and the IPFS import parameters are constants, not configuration, because changing them changes the output. Nothing records the commit that built a release.
 
 ### GitHub Actions
 
@@ -466,10 +402,12 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 
 `.github/workflows/distribution.yml` runs on a weekly schedule and on `workflow_dispatch` (with optional explicit period and opt-in "verify from genesis" inputs):
 
-- **plan** job: read the ENS-pinned CID and its `rewardsUntil`. Compute the next period as `[rewardsUntil, rewardsUntil + 2 weeks]`, with the one-off Beta → Aegis exception (`[2026-10-13, 2026-10-27]`). Exit cleanly if that period has not settled yet or already has a release. A release that already exists means a proposal is in flight. This makes the weekly schedule idempotent against the two-week cadence.
-- **export** job: restore the snapshot, then run `cmd:index` and `cmd:export`. The previous CAR comes from the release whose `cid.txt` matches, if there is one. Otherwise it comes from the `IPFS_GATEWAY_URL` repository variable, which must point at a reachable trustless gateway; the runner has no local node. This applies at least to the first run, whose previous rewards DB (`bafybeiczeo7…`) predates the releases. Upload the release assets as a workflow artifact.
-- **verify** job: on a separate runner, run a fresh `npm ci`, restore the snapshot, and run `cmd:verify` against the artifact.
-- **release** job: `gh release create rewards-<toTimestamp>` with the assets, and notes giving the CID, root, amount and new KYC approvals, the Safe Transaction Builder instructions, and the non-canonical disclaimer. No environment protection, no required reviewers.
+- **plan** job: `cmd:plan` reads the ENS-pinned CID and its `rewardsUntil`, and computes the next period as `[rewardsUntil, rewardsUntil + 2 weeks]`, with the one-off Beta → Aegis exception (`[2026-10-13, 2026-10-27]`). Exit cleanly if that period has not settled yet or already has a release. A release that already exists means a proposal is in flight. This makes the weekly schedule idempotent against the two-week cadence.
+- **export** job: restore the snapshot, then run `cmd:index` and `cmd:export`, from source after `npm ci`. The output depends only on the checkout, so running the published Docker image instead gives the same bytes. The previous CAR comes from the release whose `cid.txt` matches, if there is one. Otherwise it comes from the `IPFS_GATEWAY_URL` repository variable, which must point at a reachable trustless gateway; the runner has no local node. This applies at least to the first run, whose previous rewards DB (`bafybeiczeo7…`) predates the releases. Upload the release assets as a workflow artifact.
+- **verify** job: on a separate runner, run a fresh `npm ci`, restore the snapshot, and run `cmd:verify --cid "$(cat cid.txt)"` with the artifact's `cid.txt`. Nothing has been proposed yet, so it reports "no proposal yet" and passes when the independently derived CID matches.
+- **release** job: `gh release create rewards-<toTimestamp>` with the assets, and notes giving the CID, root, amount, sanctions release and new KYC approvals (from the `cmd:export` summary), the commit the workflow ran on (informational only), the Safe Transaction Builder instructions, and the non-canonical disclaimer. No environment protection, no required reviewers.
+
+Steps that resolve a sanctions snapshot set `env: GITHUB_TOKEN: ${{ github.token }}` (Phase 9e).
 
 ### Test cases
 
@@ -484,35 +422,55 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
   - a listed account's withheld amount is released in the same rebuild as the period's distribution.
   - listing an already-approved account, or an account with no entry, is harmless.
   - an account flagged in the previous DB but missing from the file is refused.
-- Sanctions: the snapshot-tag selection rule at the period boundary, and hash mismatch detection.
+- Sanctions: the snapshot-tag selection rule at the period boundary.
 - IPFS:
   - the fixture directory CID equals a Kubo-computed constant.
   - input order does not change the CID.
   - a CAR round-trips to identical files.
   - a CAR with a tampered block, or a different root, is rejected.
-- Previous resolution: an ENS `contenthash` decodes to the expected CID. A root mismatch between `latest.json` and `merkleRoot()` is refused.
+- Previous resolution: an ENS `contenthash` decodes to the expected CID. A root mismatch between `latest.json` and `merkleRoot()` is refused. A previous rewards DB with any file outside `latest.json` and `proofs/` is refused.
 - Transactions: the Zodiac hash and question ID for a fixed proposal equal vectors read from the deployed module. The `contenthash` encoding round-trips the current record `0xe30101701220…`.
-- Export/verify: an export from a harness scenario verifies. Flipping one byte in any file, the CID, a transaction or an action bundle fails verification with a precise diff.
+- Export: two exports of a harness scenario are byte-identical.
+- Verify, against module and oracle fakes:
+  - a matching proposal passes and is reported executed or not;
+  - a re-asked matching question is still matching;
+  - no proposal reports "none yet" and exits 0;
+  - a different question fails, both alone and next to a matching one, and the output names the matching and the different question IDs;
+  - `--cid` with another CID fails, and a verifier with a different `kyc.json` derives another CID.
 
 ---
 
 ## Implementation Phases
 
+Phases 1–14a are implemented:
+
 ```
 1 (drop updatedAt) ───────────┐
-3 (tx bundles out) ─► 4 ──────┼─► 14a ─► … ─► 14d ─────────┐
-8 (KYC file) ─────────────────┤                            │
-9a ─► 9b ─► 9c (sanctions) ───┘                            │
-2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
-5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
-10a (pack) ┬─► 11a ─► … ─► 11e ─► 13a ─► … ─► 13d ─────────┤                                ▲
-           └─► 10b (unpack) ─► 12a ─► 12b (previous) ──────┘                                │
-18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
+3 (tx bundles out) ─► 4 ──────┼─► 14a (canonical JSON)
+8 (KYC file) ─────────────────┤
+9a ─► 9b ─► 9c (sanctions) ───┘
+2 (Beta → Aegis gap) ─► 2a (Aegis budget)
+5 (block lookup) ─► 6 ─► 7
+10a (pack) ┬─► 11a ─► … ─► 11e ─► 13a ─► … ─► 13d
+           └─► 10b (unpack) ─► 12a ─► 12b (previous)
 ```
 
-Phase 13b also depends on Phase 3 for the pure `transactionBundle()`. Phases 9d (docs) and 9e (GitHub token) follow 9c. The **Depends on** lines below are authoritative.
+Phase 13b also depends on Phase 3 for the pure `transactionBundle()`. Phases 9d (docs) and 9e (GitHub token) follow 9c.
 
-Phases 1, 2, 3, 5, 8, 9a, 10a and 18 can all be developed in parallel.
+The remaining phases build on them:
+
+```
+15a (sanctions cleanup) ──────────┐
+15c (payouts) ────────────────────┤
+15b (governance) ┬─► 15e (inputs) ┴─► 15f (package) ┬─► 15g (assets) ─► 15h (cmd:export) ┬─► 18a (cmd:plan) ───┐
+15d (layout) ────┘                                  │                                   │                     │
+16a (proposal lookup) ──────────────────────────────┴─► 16b (re-derivation) ────────────┴─► 16c (cmd:verify) ─┤
+17a (index --validate) ─► 17b (index.yml) ────────────────────────────────────────────────────────────────────┴─► 18b ─► 18c ─► 19 ─► 20
+```
+
+The **Depends on** lines below are authoritative.
+
+Phases 15a, 15b, 15c, 15d, 16a and 17a can all be developed in parallel.
 
 ### Phase 1 — Drop `updatedAt` from the Merkle DB index
 
@@ -722,100 +680,147 @@ Moves the mainnet governance test vectors out of `transactions.test.ts` into a t
 
 `executeBundle`, a single `executeProposalWithIndex` for the batched transaction, plus `actionBundles`, which returns all three bundles keyed by asset stem. Adds the `executeProposalWithIndex` ABI entry.
 
-### Phase 14 — Package manifest and assembly
-
-Split into 14a–14d before implementation, following the review feedback on Phases 9–13, to keep each PR small. Each sub-phase is its own commit, branch and PR, and Phase 14 has no commit of its own.
-
 ### Phase 14a — Canonical JSON
 
 **Depends on:** Phases 1, 4 **Files:** `src/utils/json.ts`, `src/utils/json.test.ts`, `tests/fixtures/canonical/**` **Estimate:** ~80 LOC, 2 files + fixtures
 
 Canonical JSON: recursively sorted keys, tab indentation, a trailing newline, and `bigint`s as decimal strings. It reproduces the currently pinned `latest.json` and `proofs/` byte for byte. `writeJsonFile` writes canonical JSON, so `MerkleDb` and every other JSON output become canonical.
 
-### Phase 14b — Manifest schema
+Phases 14b (manifest schema), 14c (`allocations.json`) and 14d (package assembly) were dropped in the redux, and Phase 14 has no other sub-phase. See [Redux (after 14a)](#redux-after-14a).
 
-**Depends on:** 14a, Phases 9c, 10a, 11d, 12a **Files:** `src/distribution/manifest.ts`, `src/distribution/manifest.test.ts` **Estimate:** ~120 LOC, 2 files
+### Phase 15 — Export
 
-The zod schema and type of `manifest.json`, including `sanctions.offchain.repository` (see the Phase 9d deviations). It reuses the types from earlier phases for the `ipfs`, `governance`, `sanctions.offchain` and `previous` blocks.
+Split into 15a–15h before implementation, to keep each PR small. Each sub-phase is its own commit, branch and PR, and Phase 15 has no commit of its own. Each sub-phase adds only the ABI entries its own code uses.
 
-### Phase 14c — `allocations.json`
+### Phase 15a — Sanctions and manifest leftovers
 
-**Depends on:** 14a, Phase 8 **Files:** `src/distribution/allocations.ts`, `src/distribution/allocations.test.ts` **Estimate:** ~100 LOC, 2 files
+**Files:** `src/data/sanctions.ts`, `src/data/sanctions.test.ts`, `src/safenet.ts`, `src/distribution/previous.ts`, `src/distribution/previous.test.ts`, `src/distribution/ipfs.ts`, `src/distribution/ipfs.test.ts`, `src/distribution/transactions.ts`, `README.md`, `AGENTS.md` **Estimate:** ~80 LOC, mostly removals, 10 files
 
-The schema of `allocations.json`, and building it from a period's rewards and the `MerkleDb` update: each recipient's payout with a status, sorted by address bytes.
+A cleanup with no new behaviour. `pinnedSanctionedAccounts(period)` drops the `expected` argument and the per-source SHA-256, and returns `{ accounts, release }`. Doc comments, test names and docs that describe the manifest go, as does the `previous.test.ts` case that accepts a package with `manifest.json` and `allocations.json`.
 
-### Phase 14d — Package assembly
+### Phase 15b — Governance configuration
 
-**Depends on:** 14b, 14c, Phase 12a **Files:** `src/distribution/package.ts`, `src/distribution/package.test.ts` **Estimate:** ~100 LOC, 2 files
+**Depends on:** Phases 11d, 12b **Files:** `src/abi.ts`, `src/distribution/governance.ts`, `src/distribution/governance.test.ts`, `src/distribution/previous.ts`, `src/distribution/previous.test.ts` **Estimate:** ~120 LOC, 5 files
 
-Writes `allocations.json` and the manifest next to a `MerkleDb` output, and copies a previous rewards DB, with or without a manifest, into a working directory without its manifest or allocations.
+`governanceConfiguration(client, { module, ensName, blockNumber? })` reads the module's config getters, `oracle.token()` and the ENS resolver at one block, and refuses a module whose `avatar` and `target` differ or a name with no resolver. `resolvePreviousRewardsDb` gains an optional `blockNumber`, so both read the same state. Reference: `permissionless/15a`.
 
-### Phase 15 — `cmd:export`
+### Phase 15c — Shared payout flattening
 
-**Depends on:** Phases 2, 7, 12b, 13d, 14d **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
+**Files:** `src/safenet.ts`, `src/cmd/rewards.ts`, `tests/harness/scenario.ts`, `tests/sentinel-rewards.test.ts` **Estimate:** ~50 LOC, 4 files
 
-Wires the pieces together:
+A refactor with no behaviour change. The flattening from `RewardSplit` to `Payout` moves out of `cmd:rewards` into a shared `distributionPayouts`, and the harness gains `createTestParameters`, so the export can reuse both. Reference: `permissionless/15c`, without the `allocations.test.ts` change.
 
-1. read the governance configuration from the module.
-2. resolve the previous rewards DB.
-3. run `rewards` and `sentinelRewards`.
-4. run `distribute` with sanctions and the threshold and approvals from `data/kyc.json`.
-5. assemble the package and pack it.
-6. build the transactions and bundles.
-7. write the release assets and `SHA256SUMS`.
+### Phase 15d — Rewards DB layout
 
-### Phase 16 — `cmd:verify` (offline)
+**Depends on:** Phase 12a **Files:** `src/distribution/package.ts`, `src/distribution/package.test.ts` **Estimate:** ~80 LOC, 2 files
 
-**Depends on:** Phase 15 **Files:** `src/cmd/verify.ts`, `src/distribution/compare.ts`, `package.json`, `README.md`, `tests/export-verify.test.ts` **Estimate:** ~230 LOC, 5 files
+`copyRewardsDb(from, dir)` copies a rewards DB into a missing or empty working directory. It checks the whole layout first: `latest.json` and `proofs/<b0>/<b1>/<b2>/<b3>/0x<address>.json` only, with each byte directory matching the address, and anything else, such as a `.lock`, `transactions/` or a `manifest.json`, is refused with the target untouched. Reference: `copyRewardsDb` in `permissionless/14d`, without the manifest and allocations handling and without `writePackageFiles`.
 
-Re-exports from the manifest (including `previous.cid`) into a temporary directory and compares every file, the CID and every derived asset, printing a per-file diff. It refuses a manifest whose `sanctions.offchain.repository` differs from the configured `SANCTIONS_ADDRESS_REPO`, with an error naming both.
+### Phase 15e — Export inputs
 
-### Phase 17 — Onchain consistency checks
+**Depends on:** 15b, 15d, Phase 2a **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~120 LOC, 2 files
 
-**Depends on:** Phase 16 **Files:** `src/abi.ts`, `src/distribution/onchain.ts`, `src/cmd/verify.ts`, `README.md` **Estimate:** ~150 LOC, 4 files
+`exportInputs(config, period, dir)`, the first half of the pipeline: check that the staking chain is chain 1, read one block number, read the governance configuration and resolve the previous rewards DB at that block, assert that both report the same ENS resolver, check that the period follows the previous `rewardsUntil`, copy the previous rewards DB into `dir`, and compute the default amounts against it. There are no overrides. Reference: `permissionless/15d`, without the overrides.
 
-Checks that:
+### Phase 15f — Export package
 
-- the governance configuration is unchanged since export.
-- the Zodiac hashes and question ID match the module views.
-- the Governance Safe's SAFE balance covers the transfer. This is a warning only.
-- before execution, `previous.cid` is still the ENS-pinned CID.
-- with `--postExecution`, the onchain root and `contenthash` equal this package.
+**Depends on:** 15a, 15c, 15e, Phases 7, 9c, 13d **Files:** `src/distribution/export.ts`, `tests/export.test.ts` **Estimate:** ~130 LOC, 2 files
 
-### Phase 18 — Daily indexing Action
+`exportPackage(safenet, config, period, dir)`, the second half: the settlement, `rewards` with `minPayout` 0, `sentinelRewards`, the pinned sanctions, `distribute` with `kyc()`, `packDirectory`, `proposal()` and `actionBundles()`. It returns everything in memory, including the reward splits and the forfeited sentinel grants that `cmd:verify` prints, and has no CLI. Reference: `permissionless/15e`, without the manifest, the allocations and the generator.
 
-**Files:** `.github/workflows/index.yml`, `src/cmd/index.ts`, `README.md` **Estimate:** ~150 LOC, 3 files
+### Phase 15g — Release assets
 
-Adds `cmd:index --validate` and the snapshot workflow described above. Independent of every other phase.
+**Depends on:** 15f **Files:** `src/distribution/release.ts`, `src/distribution/release.test.ts` **Estimate:** ~80 LOC, 2 files
 
-### Phase 19 — Distribution Action
+The pure `releaseAssets(export)`, which returns every asset as bytes keyed by name, plus `sha256Sums`, `carAssetName` and `writeReleaseAssets(dir, assets)`. Reference: `permissionless/15f`, without `manifest.json`.
 
-**Depends on:** Phases 17, 18 **Files:** `.github/workflows/distribution.yml`, `README.md` **Estimate:** ~180 LOC, 2 files
+### Phase 15h — `cmd:export`
 
-The plan, export, verify and release jobs.
+**Depends on:** 15g **Files:** `src/cmd/export.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~100 LOC, 5 files
 
-### Phase 20 — Operator runbook
+The command, with its arguments inline in the command file like the other commands: the required period, `--previousCar`, `--out`, `REALITY_MODULE_ADDRESS`, `REWARDS_ENS_NAME`, `CUMULATIVE_MERKLE_DROP_ADDRESS` and `IPFS_GATEWAY_URL`, which moves out of the base schema in `src/utils/args.ts`. The package is built in a temporary directory, and only the release assets land in `--out`. Reference: `permissionless/15g`, without the overrides and the generator.
 
-**Depends on:** Phase 19 **Files:** `docs/permissionless-distribution.md`, `README.md` **Estimate:** docs only
+### Phase 16 — `cmd:verify`
+
+Split into 16a–16c before implementation, to keep each PR small. Each sub-phase is its own commit, branch and PR, and Phase 16 has no commit of its own.
+
+### Phase 16a — Proposal lookup
+
+**Depends on:** Phase 11e **Files:** `src/abi.ts`, `src/distribution/onchain.ts`, `src/distribution/onchain.test.ts` **Estimate:** ~120 LOC, 3 files
+
+`findProposal(client, { module, oracle, fromBlock }, proposal)` searches the module's `ProposalQuestionCreated` logs for the CID from `fromBlock` and classifies each question by its `LogNewQuestion` text. It returns the matching questions (with the current `questionIds` value and `executedProposalTransactions`) and the different ones. Adds those ABI entries.
+
+### Phase 16b — Re-derivation
+
+**Depends on:** 16a, 15f **Files:** `src/distribution/export.ts`, `src/distribution/verify.ts`, `tests/verify.test.ts` **Estimate:** ~100 LOC, 3 files
+
+`exportInputs` gets an optional period, which defaults to the two weeks after the previous `rewardsUntil`. `verifyProposal` runs `exportPackage` into a temporary directory, then `findProposal` from the Ethereum block at the settlement. It returns both, with the outcome: none yet, matching, or different (with the matching question, if any).
+
+### Phase 16c — `cmd:verify`
+
+**Depends on:** 16b, 15h **Files:** `src/cmd/verify.ts`, `package.json`, `README.md` **Estimate:** ~90 LOC, 3 files
+
+The command takes `--previousCar`, `--cid` and the same configuration as `cmd:export`. It prints the summary from the User Flow, built from the `exportPackage` result. It exits non-zero when any question for the CID proposes a different transaction, even next to a matching one, or when `--cid` doesn't match.
+
+### Phase 17 — Daily indexing Action
+
+Split into 17a and 17b before implementation. Each sub-phase is its own commit, branch and PR, and Phase 17 has no commit of its own. Independent of every other phase.
+
+### Phase 17a — `cmd:index --validate`
+
+**Files:** `src/cmd/index.ts`, `README.md` **Estimate:** ~100 LOC, 2 files
+
+`PRAGMA integrity_check`, the per-indexer lag check against `--maxLag`, and the smoke query over the last complete period.
+
+### Phase 17b — Daily indexing workflow
+
+**Depends on:** 17a **Files:** `.github/workflows/index.yml`, `README.md` **Estimate:** ~80 LOC, 2 files
+
+The snapshot workflow described under [GitHub Actions](#github-actions).
+
+### Phase 18 — Distribution Action
+
+Split into 18a–18c before implementation. Each sub-phase is its own commit, branch and PR, and Phase 18 has no commit of its own.
+
+### Phase 18a — `cmd:plan`
+
+**Depends on:** 15h **Files:** `src/cmd/plan.ts`, `package.json`, `README.md` **Estimate:** ~80 LOC, 3 files
+
+A JS command that resolves the ENS-pinned rewards DB and prints, as JSON, its CID, the next period (`nextRewardsStart`, plus two weeks) and whether that period's settlement block exists, for the plan job.
+
+### Phase 18b — Plan, export and verify jobs
+
+**Depends on:** 18a, 17b, 16c **Files:** `.github/workflows/distribution.yml` **Estimate:** ~110 LOC, 1 file
+
+The plan, export and verify jobs. The verify job runs `cmd:verify --cid` with the artifact's `cid.txt` on a fresh runner. Releases are exported from source after `npm ci`. With no generator commit recorded, the published Docker image would produce the same bytes, so the choice does not matter.
+
+### Phase 18c — Release job
+
+**Depends on:** 18b **Files:** `.github/workflows/distribution.yml`, `README.md` **Estimate:** ~70 LOC, 2 files
+
+`gh release create rewards-<toTimestamp>` with the release assets (the CAR, `cid.txt`, `merkle-root.txt`, `proposal.json`, the three bundles and `SHA256SUMS`) and notes built from the `cmd:export` summary.
+
+### Phase 19 — Operator runbook
+
+**Depends on:** Phases 16c, 18c **Files:** `docs/permissionless-distribution.md`, `README.md` **Estimate:** docs only
 
 Covers how to:
 
-- reproduce and verify a package.
-- load the three bundles.
-- review new KYC approvals (`manifest.kyc.newlyApproved` and the `data/kyc.json` history).
-- challenge an answer: compute the next bond, approve, and `submitAnswerERC20` with `max_previous`.
+- export a release, from source or the Docker image, and verify the pending proposal with `cmd:verify`.
+- load the three bundles, and review the single delegatecall and its three calls in `proposal.json`.
+- review new KYC approvals (the `cmd:verify` summary and the `src/distribution/kyc.json` history).
+- challenge an answer: compute the next bond (at least double the current one), approve, and `submitAnswerERC20`. RealityETH only checks `max_previous` when it is greater than 0, so it is an optional front-running guard, not what makes a repeated answer revert (Phase 13 deviations).
 - read the module getters for finality, cooldown and expiration.
-- handle superseded proposals: answer **No** and let the answer expire.
-- deal with the SEF `RealityVetoModule`.
+- handle superseded proposals and questions that `cmd:verify` lists as different: answer **No** and let the answer expire.
+- deal with the SEF `RealityVetoModule`. A veto blocks the whole update, with no partial execution.
 - re-ask an invalidated question.
-- verify after execution.
 - for SEF, change the threshold or add approvals.
 
 Pinning is mentioned only as something anyone may do with the CAR. The runbook points at the governance setup's deployment record for addresses and parameters.
 
-### Phase 21 — Remove this specification
+### Phase 20 — Remove this specification
 
-**Depends on:** Phase 20 **Files:** `epics/2026_10_20_permissionless_reward_distribution.md` **Estimate:** deletion only
+**Depends on:** Phase 19 **Files:** `epics/2026_10_20_permissionless_reward_distribution.md` **Estimate:** deletion only
 
 ---
 
@@ -882,7 +887,7 @@ Changes that came up during implementation. Where they conflict with the rest of
 
 ### Phase 6
 
-- `Safenet.settlement({ toTimestamp })` is public and returns `{ boundaryBlock, settlementBlock, settlementTimestamp }`, so that Phase 15 can record the consensus boundary and settlement blocks in the manifest. `src/safenet.ts` exports `SETTLEMENT_BLOCKS` (`48n`) and `Settlement`.
+- `Safenet.settlement({ toTimestamp })` is public and returns `{ boundaryBlock, settlementBlock, settlementTimestamp }`, so that Phase 15 can record the consensus boundary and settlement blocks in the manifest (the manifest was dropped in the redux; the export still uses the settlement). `src/safenet.ts` exports `SETTLEMENT_BLOCKS` (`48n`) and `Settlement`.
 - The boundary is `blockAtTimestamp(consensusClient, { timestamp: toTimestamp, fromBlock: consensusStartBlock ?? 0n })`, using `Safenet`'s backoff. The start block is the consensus one, not the sentinel oracle's.
 - Error cases:
   - A period ending before the consensus start block throws `period end <t> is before the consensus start block`.
@@ -968,6 +973,7 @@ These entries describe the behaviour of Phase 9 as a whole. The 9a–9d entries 
 - **Hashing.** The SHA-256 is computed over the raw bytes of each `<source>.json` asset as served, before parsing, as lowercase hex with no `0x`, so `sha256sum` reproduces it. Hashes are keyed by source ID (`un`, `eu`, `uk`, `ch-seco`, `us-ofac`), matching `manifest.sanctions.offchain.sha256`. Upstream's `manifest.json` is neither fetched nor hashed.
 - **API.** `selectSnapshotRelease(releases, { toTimestamp })` is pure, and `SanctionsData.snapshotRelease(period)` resolves the tag.
   - `SanctionsData.pinnedSanctionedAccounts(period, expected?)` and `Safenet.pinnedSanctionedAccounts(period, expected?)` return `{ accounts, offchain: { release, sha256 } }`, where `offchain` is exactly the manifest's `sanctions.offchain` and `accounts` is the onchain sanctions at `toTimestamp` plus the snapshot lists.
+  - (The manifest was dropped in the redux, and Phase 15a removes `expected` and the hashes.)
   - With `expected`, a different resolved tag throws `sanctions address lists snapshot <resolved> does not match expected <release>`, and a different hash throws `sanctions address list <source> in <release> has SHA-256 <actual>, expected <expected>`.
   - Hash checks run outside the backoff and are not retried. Network and HTTP errors, including a 404 for a missing asset, are retried and then thrown.
 - **Indexing.** `Safenet.pinnedSanctionedAccounts` indexes only the sanctions indexer, up to `toTimestamp`, like `sanctionedAccounts`. The onchain sanctions query is bounded by `toTimestamp`.
@@ -1003,7 +1009,7 @@ These entries describe the behaviour of Phase 9 as a whole. The 9a–9d entries 
 - `README.md` matches the unsplit Phase 9 word for word. `AGENTS.md` differs only in its `SanctionsData` paragraph, which names the `src/utils/gh.ts` releases client (`releaseTags`, `releaseAsset`) instead of saying the URLs derive from the repository, and says the SHA-256 is over each source's raw asset.
 - `AGENTS.md` mentions `src/utils/gh.ts` only in the `SanctionsData` paragraph, not in the project structure notes.
 - `.env.sample` is also in 9d: its `SANCTIONS_ADDRESS_REPO` comment gets back the original's sentence about the dated snapshot releases.
-- **The manifest records the repository.** A release tag and its hashes only identify the lists within one repository, so `manifest.sanctions.offchain` gains `repository` (the configured `SANCTIONS_ADDRESS_REPO`, an `owner/name`).
+- **The manifest records the repository** (the manifest was dropped in the redux, so this entry no longer applies). A release tag and its hashes only identify the lists within one repository, so `manifest.sanctions.offchain` gains `repository` (the configured `SANCTIONS_ADDRESS_REPO`, an `owner/name`).
   - `pinnedSanctionedAccounts` and `OffchainSanctions` are unchanged. The export (Phases 14–15) takes the repository from the configuration, through a `SanctionsData` accessor if needed, and writes it next to `release` and `sha256`.
   - `cmd:verify` (Phase 16) refuses a manifest whose repository differs from the configured one, with an error naming both, instead of reporting a confusing tag or hash mismatch.
 
@@ -1158,7 +1164,7 @@ These entries describe the behaviour of Phase 12 as a whole. The 12a and 12b ent
   - `ENS name <name> has no contenthash`;
   - `decodeContenthash`'s own error for anything that isn't a package CID;
   - `rewards DB <cid> pinned by <name> has Merkle root <file>, but CumulativeMerkleDrop <addr> has Merkle root <onchain>`. The comparison ignores case.
-- `latest.json` is read through `new MerkleDb({ root: dir }).index()`. A missing file or `rewardsUntil` throws, and `rewardsUntil` is returned as seconds. `manifest.json`, `allocations.json` and any other files are left in `dir` untouched for Phase 14.
+- `latest.json` is read through `new MerkleDb({ root: dir }).index()`. A missing file or `rewardsUntil` throws, and `rewardsUntil` is returned as seconds. `manifest.json`, `allocations.json` and any other files are left in `dir` untouched for Phase 14 (the redux has no such files, and Phase 15d refuses them).
 - The re-pack self-check runs inside `fetchRewardsDb`, so before the root check. A mismatch calls the injectable `warn`, which defaults to `debug("safenet:previous")`. The test provokes it with a CAR of dag-pb file leaves (`rawLeaves: false`), which `unpackCar` accepts but `packDirectory` never produces.
 - `previous.test.ts` builds its fixtures with `MerkleDb.distribute` on top of a `latest.json` in the pinned Beta format, fakes the viem client with a `custom` transport (the Phase 5 pattern), and imports `namedAddress` and `parseSafe` from `tests/harness/utils.ts`.
 - Real-data check, not committed: with the pinned Beta rewards DB packed as `previousCar`, resolving against mainnet returns `bafybeiczeo7…tp7afq`, root `0x6689…fdef` (equal to the drop's), `rewardsUntil` 1791244800 and resolver `0xF291…AC15`, with no re-pack warning. The gateway path was not exercised for real.
@@ -1225,7 +1231,7 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 - Canonical JSON is `canonicalJson(value): string` in `src/utils/json.ts`, next to `writeJsonFile` and `jsonReplacer`, not in `src/distribution/canonical.ts`. That way `MerkleDb` can use it without `src/merkledb/` importing from `src/distribution/`. Its tests are in `src/utils/json.test.ts`.
 - Values are converted exactly as `JSON.stringify` with `jsonReplacer` converts them: `bigint` becomes a decimal string, `Date` an ISO string, and `undefined` fields are dropped. They are then printed with keys sorted recursively, tab indentation, `{}`/`[]` inline and a trailing newline. A top-level `undefined` throws.
 - Keys are sorted in JavaScript string order (UTF-16 code units, the default `Array.prototype.sort()`). Every key the package uses is ASCII, so the pinned files are unchanged. Integer-like keys get no special order, so `"10"` sorts before `"9"`. Strings are escaped the way `JSON.stringify` escapes them. The code doesn't mention `jq`, which was only how the old data repository formatted its files.
-- `writeJsonFile` writes canonical JSON instead of insertion-ordered JSON, so every JSON file the tool writes is canonical. That covers `MerkleDb`'s `latest.json` and proofs, `cmd:totals`, `cmd:participation` and the `--transactions` bundles. There is no separate canonical writer. Phases 14d and 15 write the manifest, allocations and release assets with `writeJsonFile`.
+- `writeJsonFile` writes canonical JSON instead of insertion-ordered JSON, so every JSON file the tool writes is canonical. That covers `MerkleDb`'s `latest.json` and proofs, `cmd:totals`, `cmd:participation` and the `--transactions` bundles. There is no separate canonical writer. Phases 14d and 15 write the manifest, allocations and release assets with `writeJsonFile` (the manifest and allocations were dropped in the redux).
   - The `--transactions` bundles now have sorted keys. Their content is unchanged, and the Safe Transaction Builder doesn't depend on key order.
   - `cmd:rewards --record` and `cmd:kyc` now write the rewards DB in the pinned format directly.
   - `network-info.json` and `validator-info.json` already had sorted keys, so they are unchanged.
@@ -1235,23 +1241,48 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 - `proposal()` no longer builds its keys in sorted order, which overrides the Phase 11e note saying it does. The `transactions` and `actions` tests serialize with `canonicalJson`.
 - 14a also changes `src/distribution/transactions.ts`, its test, `src/distribution/actions.test.ts` and `tests/merkledb-index.test.ts`.
 
+### Redux (after 14a)
+
+A first implementation continued past 14a with a manifest, allocations, reward overrides and a generator commit (14b–14d, 15a–15h and an uncommitted 16a). It was dropped, and the plan restarts at Phase 15 with new numbering. References to Phases 14b–21 in the entries above use the old numbering. The old code survives for reference only, on the local branches `permissionless/14b` … `permissionless/15h` and `permissionless/16a-original`.
+
+- **No manifest and no allocations.** The package is only `latest.json` and `proofs/`, exactly the layout of the pinned Beta rewards DB.
+- **`cmd:verify` checks the proposal against onchain data only.** It fetches the previous rewards DB, builds the new Merkle DB through the export pipeline, re-derives the batched Governance Safe transaction and its Zodiac hash (nonce 0), and classifies every question for the CID (`ProposalQuestionCreated` logs, question text from `LogNewQuestion`) as matching `buildQuestion(cid, [hash])` or different. It passes with only matching questions, and with "no proposal yet" (exit 0), which lets the distribution Action run it with `--cid` before anything is proposed. Any different question for the CID fails it, even next to a matching one, and it prints the matching question (if any) and the different ones for answerers to answer **No**. A matching `setContenthash` CID implies a byte-identical package, so it reads no release asset: no `SHA256SUMS`, CAR, file or bundle comparison, and no Merkle DB diff. It prints a summary of the re-derived distribution from the `exportPackage` result. There is no `--release`, `--postExecution` or proposal argument, and no balance or pointer checks.
+- **No reward overrides.** `cmd:export` has no `--totalRewards`, `--sentinelRewards` or `--minPayout`. It always uses the Phase 2a Aegis budget against the previous rewards DB, the prorated sentinel grant and `minPayout` = 0, so every export can be verified.
+- **KYC** comes from `src/distribution/kyc.json`, coordinated through this repository. A verifier uses its own checkout's file.
+- **Sanctions:** the snapshot is re-resolved from the period end with the existing rule. No hashes are recorded, because the upstream repository uses GitHub immutable releases. The `sanctions.offchain.repository` check went with the manifest.
+- **No generator commit or version machinery:** no `generator` block, no `src/version.d.ts`, no `GIT_COMMIT`, no dirty-tree check. The release notes may mention the commit informally.
+- **Previous rewards DB in `cmd:verify`:** always the ENS `contenthash` and the drop's root at the latest block, as in the export. The period is the two weeks after the previous `rewardsUntil`. Historic and post-execution verification are out of scope for now.
+- **The proposal is unchanged** from 11b–11e and 13a–13d: one MultiSend delegatecall (transfer → `setMerkleRoot` → `setContenthash`), `proposal.json`, and the `propose`/`answer`/`execute` bundles. The release assets are those plus the CAR, `cid.txt`, `merkle-root.txt` and `SHA256SUMS`; `manifest.json` and `allocations.json` are gone.
+- **Decisions from the first implementation that still apply:** sanctioned and KYC-withheld amounts stay funded (they count in `tokenTotal`), and `safeToken()` is read at `latest`.
+- **Salvaged into the new phases** (reference branches):
+  - governance configuration reading and `resolvePreviousRewardsDb`'s `blockNumber`: 15b (`permissionless/15a`);
+  - `distributionPayouts` and `createTestParameters`: 15c (`permissionless/15c`);
+  - the layout check and working-directory copy (`copyRewardsDb`), without manifest or allocations stripping: 15d (`permissionless/14d`);
+  - the export pipeline (`exportInputs`, `exportPackage`), without the manifest, allocations, overrides and generator: 15e and 15f (`permissionless/15d`, `permissionless/15e`);
+  - release assets (`releaseAssets`, `writeReleaseAssets`, `sha256Sums`, `carAssetName`), without `manifest.json`: 15g (`permissionless/15f`);
+  - `cmd:export`, without overrides and generator: 15h (`permissionless/15g`);
+- **Not salvaged:** the manifest schema (14b), `allocations.json` (14c), `writePackageFiles` (14d), the generator (15b, 15h), and the file comparison (`permissionless/16a-original`), because `cmd:verify` reads no release asset.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
 
 1. **Settlement is 48 consensus blocks**, following the `safenet-monitor` worst-case attestation reasoning (see Architecture Decision).
 2. **The previous rewards DB is the one pinned onchain.** It is the ENS `contenthash` of `rewards.safenet-gov.eth`, and it must agree with `CumulativeMerkleDrop.merkleRoot()`. There is no data repository dependency.
-3. **Proposal transactions run as three separate Zodiac transactions** in the order transfer → `setMerkleRoot` → `setContenthash`.
+3. ~~**Proposal transactions run as three separate Zodiac transactions**~~ Superseded by Phase 11b: **the proposal is one `MultiSendCallOnly` delegatecall** batching transfer → `setMerkleRoot` → `setContenthash`.
 4. **Safe Transaction Builder bundles for propose, answer and execute** replace dedicated send-transaction tooling.
 5. **Stale proposals are handled socially.** While proposal _N_ is in flight, the ENS record still names _N − 1_, so the plan job sees that _N_'s period already has a release and skips. If _N_ is rejected, its release is deleted (or the period re-exported manually) and the next run rebuilds it. A superseded proposal must be answered **No** and is bounded by the module's answer expiration. No guard contract is added.
-6. **GitHub history is trusted** for `sanctions-address-lists` snapshot releases to the same degree as for this repository's own history. Pinned tags plus hashes are sufficient.
-7. **The rewards DB format is the currently pinned one:** no `updatedAt` and no `transactions/`.
-8. **Validator and sentinel rewards share a single two-week rewards period.** The DAO proposal allows the sentinel rewards period to be collapsed into the two-week one. Sentinel grants are prorated over that period, so the manifest records one `period` and the CLI has no separate sentinel period option.
+6. **GitHub history is trusted** for `sanctions-address-lists` snapshot releases to the same degree as for this repository's own history. The snapshot tag, re-resolved from the period end, is sufficient. Hashes are no longer recorded (redux), because the upstream releases are immutable.
+7. **The rewards DB format is the currently pinned one:** `latest.json` and `proofs/` only, with no `updatedAt`, no `transactions/`, and (redux) no manifest or allocations.
+8. **Validator and sentinel rewards share a single two-week rewards period.** The DAO proposal allows the sentinel rewards period to be collapsed into the two-week one. Sentinel grants are prorated over that period, so the CLI has no separate sentinel period option.
 9. **The Beta → Aegis gap is a one-off, hard-coded exception** in `distribute`.
 10. **There is no database migration code.** Aegis changed the schema, and indexing restarts from a new database at the Aegis consensus deployment block.
-11. **The KYC threshold and approvals live in `data/kyc.json`** in this repository. SEF edits it manually, and it is pinned by `generator.commit`. It is seeded with a 7,500 SAFE threshold (below 1,000 USDC, with a buffer for price movement) and the 13 end-of-Beta approvals.
+11. **The KYC threshold and approvals live in `data/kyc.json`** in this repository. SEF edits it manually, and verifiers use their own checkout's file (no `generator.commit`, see the redux). It is seeded with a 7,500 SAFE threshold (below 1,000 USDC, with a buffer for price movement) and the 13 end-of-Beta approvals.
 12. **RPC providers are GitHub Actions secrets.**
 13. **Pinning is not part of this epic.** The IPFS gateway is configurable and defaults to a local node (`http://127.0.0.1:8080`).
+14. **Verification is re-derivation checked against the onchain proposal** (redux). There is no manifest, allocations or generator commit, and `cmd:verify` reads no release asset.
+15. **The export has no reward overrides** (redux). Amounts are always the Aegis budget, the prorated sentinel grant and `minPayout` = 0.
+16. **`cmd:verify` builds on the ENS-pinned rewards DB at the latest block** (redux), like the export, so it verifies the next distribution only. "No proposal yet" is not a failure.
 
 ### Open questions
 
@@ -1270,9 +1301,9 @@ None at the moment.
   The tooling reads all of these from chain rather than hard-coding them.
 
 - The Aegis consensus deployment (address and `CONSENSUS_START_BLOCK`) and the Aegis event ABIs are provided by the Aegis update work, not by this epic.
-- The owner handover of the Governance Safe and its SAFE funding are completed by their dedicated tasks before the first distribution executes. The export only warns about the balance.
+- The owner handover of the Governance Safe and its SAFE funding are completed by their dedicated tasks before the first distribution executes. Nothing checks the balance; an underfunded transfer makes the execution revert.
 - The Zodiac `proposalId` is the package CID as a CIDv1 base32 string, and routine distributions need no Snapshot vote.
-- Byte-for-byte reproducibility holds for the same commit, the same `package-lock.json` and Node.js 24. Verifiers check out the recorded commit.
+- Byte-for-byte reproducibility holds for the same `src/distribution/kyc.json`, the same reward code, the same `package-lock.json` and Node.js 24. Nothing records the commit; verifiers use a current checkout, and the release notes may name the commit informally.
 - Sanctions screening against the UN/EU/UK/SECO/OFAC lists is already applied at every tree rebuild (#79). This epic only pins its inputs.
 - The existing `cmd:rewards --record` and `cmd:kyc` flows stay available as an SEF fallback, gaining only the settlement window and the `--transactions` output directory.
 - Events at exactly `toTimestamp` are counted by the existing inclusive `≤` conditions. This epic does not change period-boundary semantics; it only makes them reproducible.
