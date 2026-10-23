@@ -114,6 +114,16 @@ export type Settlement = {
  */
 export const SETTLEMENT_BLOCKS = 48n;
 
+/**
+ * Thrown when a period's settlement block does not exist yet.
+ */
+export class SettlementBlockMissingError extends Error {
+	constructor(settlementBlock: bigint) {
+		super(`settlement block ${settlementBlock} does not exist yet`);
+		this.name = "SettlementBlockMissingError";
+	}
+}
+
 /** The total amount paid out to a recipient over all reward programs. */
 export const payoutAmount = ({ stakeRewards, commission, sentinelRewards }: RewardSplit): bigint =>
 	stakeRewards + commission + sentinelRewards;
@@ -448,7 +458,9 @@ export class Safenet {
 	 * events with `timestamp ≤ settlementTimestamp` is the same as counting
 	 * events up to and including the settlement block. This throws while the
 	 * settlement block does not exist yet, i.e. for roughly the first
-	 * `SETTLEMENT_BLOCKS` consensus blocks after the period ends.
+	 * `SETTLEMENT_BLOCKS` consensus blocks after the period ends: with a
+	 * `TimestampAfterLatestBlockError` before the period ends, and with a
+	 * `SettlementBlockMissingError` after.
 	 */
 	async settlement({ toTimestamp }: ToTimestamp): Promise<Settlement> {
 		const { client, startBlock } = this.#consensus;
@@ -466,7 +478,7 @@ export class Safenet {
 		const settlementBlock = boundary.number + SETTLEMENT_BLOCKS;
 		const latest = await this.#backoff(() => getBlock(client, { blockTag: "latest" }));
 		if (latest.number === null || latest.number < settlementBlock) {
-			throw new Error(`settlement block ${settlementBlock} does not exist yet`);
+			throw new SettlementBlockMissingError(settlementBlock);
 		}
 		const { timestamp } = await this.#backoff(() =>
 			getBlock(client, { blockNumber: settlementBlock }),
