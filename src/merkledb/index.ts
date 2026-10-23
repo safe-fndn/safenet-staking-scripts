@@ -16,6 +16,7 @@ import {
 	type ToTimestamp,
 	timestampToDate,
 } from "../utils/ranges.js";
+import { AEGIS_REWARDS_START, BETA_REWARDS_UNTIL } from "../utils/sep.js";
 import { sortByAddress } from "../utils/sort.js";
 import { MerkleTreeMap } from "./treemap.js";
 
@@ -95,6 +96,15 @@ const zDistributionData = z.strictObject({
 	proof: zHex.array().nullable(),
 });
 const zFileNotFoundError = z.object({ code: z.literal("ENOENT") });
+
+/**
+ * Returns the start of the rewards period that must follow one ending at `rewardsUntil`.
+ *
+ * As per the Safenet Aegis SEP, no rewards are paid for the week between the end of Beta and the
+ * start of Aegis, so this is the only gap allowed between two consecutive distributions.
+ */
+export const nextRewardsStart = (rewardsUntil: bigint): bigint =>
+	rewardsUntil === BETA_REWARDS_UNTIL ? AEGIS_REWARDS_START : rewardsUntil;
 
 export class MerkleDb {
 	#root: string;
@@ -287,7 +297,7 @@ export class MerkleDb {
 			// overlapping rewards periods.
 			const index = await this.#getIndex();
 			if (index.data.rewardsUntil !== undefined) {
-				const timestamp = dateToTimestamp(index.data.rewardsUntil);
+				const timestamp = nextRewardsStart(dateToTimestamp(index.data.rewardsUntil));
 				if (timestamp !== period.fromTimestamp || timestamp >= period.toTimestamp) {
 					// We are either missing rewards and have a "hole" in our
 					// rewards distribution, or there is something wrong with the
