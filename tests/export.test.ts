@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	type Address,
+	type Client,
 	createClient,
 	custom,
 	decodeFunctionData,
@@ -17,12 +18,20 @@ import {
 	ENS_RESOLVER_ABI,
 	REALITY_ETH_ERC20_ABI,
 	REALITY_MODULE_ABI,
+	STAKING_ABI,
 } from "../src/abi.js";
-import { exportInputs } from "../src/distribution/export.js";
+import {
+	type ExportConfiguration,
+	exportInputs,
+	exportPackage,
+} from "../src/distribution/export.js";
 import { packDirectory } from "../src/distribution/ipfs.js";
+import { kyc } from "../src/distribution/kyc.js";
 import { ENS_REGISTRY } from "../src/distribution/previous.js";
-import { encodeContenthash } from "../src/distribution/transactions.js";
+import { encodeContenthash, zProposal } from "../src/distribution/transactions.js";
 import { MerkleDb } from "../src/merkledb/index.js";
+import { Safenet, SETTLEMENT_BLOCKS } from "../src/safenet.js";
+import { canonicalJson } from "../src/utils/json.js";
 import {
 	AEGIS_REWARDS_START,
 	AEGIS_VALIDATOR_REWARDS,
@@ -32,8 +41,10 @@ import {
 	SENTINEL_REWARDS_PER_YEAR,
 	SENTINEL_REWARDS_YEAR,
 } from "../src/utils/sep.js";
-import { CONFIG, CUMULATIVE_MERKLE_DROP } from "./harness/governance.js";
-import { namedAddress, parseSafe } from "./harness/utils.js";
+import { CONFIG, CUMULATIVE_MERKLE_DROP, SAFE_TOKEN } from "./harness/governance.js";
+import { attestedTransaction, sentinelRequest } from "./harness/presets.js";
+import { createTestParameters, type Scenario } from "./harness/scenario.js";
+import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
 
 const TWO_WEEKS = 14n * 24n * 60n * 60n;
 const BLOCK_NUMBER = 26300000n;
@@ -71,7 +82,13 @@ afterEach(async () => {
  * it is then also distributed for the first Aegis period, paying that amount. It is packed into a
  * CAR file.
  */
-const previousRewardsDb = async ({ firstAegisPayout }: { firstAegisPayout?: bigint } = {}) => {
+const previousRewardsDb = async ({
+	firstAegisPayout,
+	kycApprovals = [],
+}: {
+	firstAegisPayout?: bigint;
+	kycApprovals?: Address[];
+} = {}) => {
 	const root = await temporary();
 	await writeFile(
 		join(root, "latest.json"),
@@ -81,7 +98,7 @@ const previousRewardsDb = async ({ firstAegisPayout }: { firstAegisPayout?: bigi
 		{ fromTimestamp: BETA_REWARDS_UNTIL - TWO_WEEKS, toTimestamp: BETA_REWARDS_UNTIL },
 		{ [namedAddress("carol")]: { amount: BETA_TOKEN_TOTAL, sentinelAmount: 0n } },
 		0n,
-		{ sanctions: [], kycApprovals: [] },
+		{ sanctions: [], kycApprovals },
 	);
 	if (update === null) {
 		throw new Error("fixture distribution was rejected");
@@ -110,6 +127,11 @@ type Chain = {
 	merkleRoot: Hex;
 	/** The resolvers the ENS registry returns, one per call, repeating the last one. */
 	resolvers?: Address[];
+	/**
+	 * A mock staking chain that every other request goes to, with the staking contract's
+	 * `SAFE_TOKEN()`, which `MockChain` does not model.
+	 */
+	inner?: Client;
 };
 
 /**
@@ -122,12 +144,16 @@ const fakeChain = ({
 	contenthash,
 	merkleRoot,
 	resolvers = [CONFIG.ensResolver],
+	inner,
 }: Chain) => {
 	const blockTags: string[] = [];
 	let resolverCalls = 0;
 	const client = createClient({
 		transport: custom({
 			async request({ method, params }) {
+				if (inner !== undefined && method !== "eth_call") {
+					return inner.request({ method, params } as never);
+				}
 				if (method === "eth_chainId") {
 					return toHex(chainId);
 				}
@@ -187,6 +213,19 @@ const fakeChain = ({
 						functionName: "merkleRoot",
 						result: merkleRoot,
 					});
+				}
+				if (inner !== undefined) {
+					if (call(namedAddress("Staking"))) {
+						const { functionName } = decodeFunctionData({ abi: STAKING_ABI, data });
+						if (functionName === "SAFE_TOKEN") {
+							return encodeFunctionResult({
+								abi: STAKING_ABI,
+								functionName: "SAFE_TOKEN",
+								result: SAFE_TOKEN,
+							});
+						}
+					}
+					return inner.request({ method, params } as never);
 				}
 				throw new Error(`unexpected call to ${to}`);
 			},
@@ -311,6 +350,234 @@ describe("exportInputs", () => {
 			(SENTINEL_REWARDS_PER_YEAR * TWO_WEEKS) / SENTINEL_REWARDS_YEAR,
 		);
 		expect(await readTree(dir)).toEqual(await readTree(previous.root));
+		expect(await readdir(exportTmpdir)).toEqual([]);
+	});
+});
+
+// The end-to-end tests export the first Aegis period, derived from a previous rewards DB that ends
+// with Beta. To span its two weeks in a few hundred blocks, consensus blocks are an hour apart and
+// staking blocks a day apart, and both chains start an hour before Aegis, at `T`:
+// - consensus slot k is block k + 1 at T + k hours, so the period starts with block 2, ends with
+//   block 338 (T + 337 h), and settles at block 338 + 48 = 386 (T + 385 h);
+// - staking slot k is block k + 1 at T + k days, and block 18 (T + 17 d) is past the settlement.
+const HOUR = 60n * 60n;
+const DAY = 24n * HOUR;
+const T = AEGIS_REWARDS_START - HOUR;
+const SETTLEMENT_TIMESTAMP = FIRST_AEGIS_PERIOD.toTimestamp + SETTLEMENT_BLOCKS * HOUR;
+
+// alice and bob each self-stake 1M SAFE and sign the period's only transaction, so each staker earns
+// half of the validator budget. sentinel1 and sentinel2 answer the period's only oracle request.
+const SCENARIO: Scenario = {
+	genesisTimestamp: T,
+	staking: {
+		blockTime: DAY,
+		slots: [
+			{
+				events: [
+					{ name: "ValidatorUpdated", validator: namedAddress("alice"), isRegistered: true },
+					{ name: "ValidatorUpdated", validator: namedAddress("bob"), isRegistered: true },
+					{
+						name: "StakeIncreased",
+						staker: namedAddress("aliceStaker"),
+						validator: namedAddress("alice"),
+						amount: parseSafe("1000000"),
+					},
+					{
+						name: "StakeIncreased",
+						staker: namedAddress("bobStaker"),
+						validator: namedAddress("bob"),
+						amount: parseSafe("1000000"),
+					},
+				],
+			},
+			// Past the settlement timestamp, as every indexer is updated to it.
+			...emptyBlocks(17, { assertTimestamp: T + 17n * DAY }),
+		],
+	},
+	consensus: {
+		blockTime: HOUR,
+		slots: [
+			{
+				events: [
+					{ name: "KeyGenConfirmed", participant: namedAddress("alice") },
+					{ name: "KeyGenConfirmed", participant: namedAddress("bob") },
+				],
+			},
+			...emptyBlocks(1, { assertTimestamp: FIRST_AEGIS_PERIOD.fromTimestamp }),
+			{
+				assertTimestamp: FIRST_AEGIS_PERIOD.fromTimestamp + HOUR,
+				events: [
+					...attestedTransaction({ epoch: 1n, seed: "1", participants: ["alice", "bob"] }),
+					...sentinelRequest({ seed: "1", reveals: ["sentinel1", "sentinel2"] }),
+				],
+			},
+			...emptyBlocks(335, { assertTimestamp: FIRST_AEGIS_PERIOD.toTimestamp }),
+			// Up to the period's settlement block.
+			...emptyBlocks(Number(SETTLEMENT_BLOCKS), { assertTimestamp: SETTLEMENT_TIMESTAMP }),
+		],
+	},
+};
+
+const SANCTIONS = { accounts: [namedAddress("bobStaker")], release: "data-2026-10-12" };
+
+/**
+ * Runs an export on top of a previous rewards DB into a new directory, with a
+ * fresh `Safenet` over `scenario`. The mock staking client is wrapped with the governance
+ * contracts. The pinned sanctions are stubbed, so that the tests make no GitHub requests.
+ */
+const runExport = async (previous: Previous, scenario = SCENARIO) => {
+	const parameters = createTestParameters(scenario);
+	const { client: stakingClient } = fakeChain({
+		contenthash: encodeContenthash(previous.cid),
+		merkleRoot: previous.merkleRoot,
+		inner: parameters.stakingClient,
+	});
+	const safenet = await Safenet.create({ ...parameters, stakingClient });
+	vi.spyOn(safenet, "pinnedSanctionedAccounts").mockResolvedValue(SANCTIONS);
+	const config: ExportConfiguration = {
+		...parameters,
+		stakingClient,
+		previousCar: previous.previousCar,
+		cumulativeMerkleDropAddress: CUMULATIVE_MERKLE_DROP,
+		realityModuleAddress: CONFIG.module,
+		rewardsEnsName: CONFIG.ensName,
+	};
+	const dir = join(await temporary(), "package");
+	return exportPackage(safenet, config, dir);
+};
+
+describe("exportPackage", () => {
+	it("builds a package on top of the previous rewards DB", async () => {
+		const previous = await previousRewardsDb();
+		const result = await runExport(previous);
+
+		// The package on disk is the one that was packed, and every file is canonical JSON.
+		const packed = await packDirectory(result.dir);
+		expect(packed.cid.equals(result.cid)).toBe(true);
+		expect(packed.car).toEqual(result.car);
+		const tree = await readTree(result.dir);
+		expect(Object.keys(tree)).toContain("latest.json");
+		for (const contents of Object.values(tree)) {
+			expect(canonicalJson(JSON.parse(contents))).toBe(contents);
+		}
+
+		// The validator budget is the Aegis share of two weeks, 5M / 26 ≈ 192,307.69 SAFE, as
+		// nothing of it has been paid yet, and each staker earns half of it. Each sentinel earns
+		// the prorated grant of 400,000 SAFE a year (52 weeks) for two weeks, ≈ 15,384.62 SAFE.
+		// The withheld and the sanctioned rewards count towards `tokenTotal`, so the transfer
+		// covers the whole budget and both grants.
+		const totalRewards = (AEGIS_VALIDATOR_REWARDS * TWO_WEEKS) / AEGIS_VALIDATOR_REWARDS_DURATION;
+		const sentinelRewards = (SENTINEL_REWARDS_PER_YEAR * TWO_WEEKS) / SENTINEL_REWARDS_YEAR;
+		const split = { stakeRewards: 0n, commission: 0n, sentinelRewards: 0n };
+		expect(result).toEqual({
+			stakingChainId: 1,
+			// The head of the mock staking chain, which serves the block number.
+			blockNumber: 18n,
+			governance: CONFIG,
+			previous: {
+				cid: previous.cid,
+				merkleRoot: previous.merkleRoot,
+				rewardsUntil: BETA_REWARDS_UNTIL,
+			},
+			period: FIRST_AEGIS_PERIOD,
+			totalRewards,
+			sentinelRewards,
+			settlement: {
+				boundaryBlock: 338n,
+				settlementBlock: 386n,
+				settlementTimestamp: SETTLEMENT_TIMESTAMP,
+			},
+			payouts: {
+				[namedAddress("aliceStaker")]: { ...split, stakeRewards: totalRewards / 2n },
+				[namedAddress("bobStaker")]: { ...split, stakeRewards: totalRewards / 2n },
+				[namedAddress("sentinel1")]: { ...split, sentinelRewards },
+				[namedAddress("sentinel2")]: { ...split, sentinelRewards },
+			},
+			unpaid: totalRewards % 2n,
+			forfeited: 0n,
+			sanctionsRelease: SANCTIONS.release,
+			additionalAmount: totalRewards - (totalRewards % 2n) + 2n * sentinelRewards,
+			merkleRoot: expect.stringMatching(/^0x[0-9a-f]{64}$/),
+			newlyApproved: kyc().accounts,
+			cid: packed.cid,
+			car: packed.car,
+			dir: result.dir,
+			proposal: expect.anything(),
+			bundles: expect.anything(),
+		});
+
+		// Every payout is at or above the 7,500 SAFE KYC threshold, and no recipient is approved, so
+		// all of them are withheld in `kycAmount` rather than claimable, and none is in the tree.
+		const entry = (account: string) => {
+			const [path] = Object.keys(tree).filter((path) =>
+				path.endsWith(`${account.toLowerCase()}.json`),
+			);
+			return JSON.parse(tree[path]);
+		};
+		for (const [account, amount] of [
+			["aliceStaker", totalRewards / 2n],
+			["sentinel1", sentinelRewards],
+			["sentinel2", sentinelRewards],
+		] as const) {
+			expect(entry(namedAddress(account)), account).toMatchObject({
+				cumulativeAmount: "0",
+				kycAmount: `${amount}`,
+				proof: null,
+			});
+		}
+
+		// The proposal is about the package, and its bundles are created at the settlement.
+		const proposal = zProposal.parse(JSON.parse(canonicalJson(result.proposal)));
+		expect(proposal.proposalId).toBe(result.cid.toString());
+		expect(Object.keys(result.bundles).sort()).toEqual(["answer", "execute", "propose"]);
+		for (const bundle of Object.values(result.bundles)) {
+			expect(bundle.createdAt).toBe(Number(SETTLEMENT_TIMESTAMP) * 1000);
+		}
+		expect(await readdir(exportTmpdir)).toEqual([]);
+	});
+
+	it("is deterministic", async () => {
+		const previous = await previousRewardsDb();
+		const first = await runExport(previous);
+		const second = await runExport(previous);
+
+		expect(second.dir).not.toBe(first.dir);
+		expect(second.cid.equals(first.cid)).toBe(true);
+		expect(second.car).toEqual(first.car);
+		expect(await readTree(second.dir)).toEqual(await readTree(first.dir));
+		expect(canonicalJson(second.proposal)).toBe(canonicalJson(first.proposal));
+		expect(canonicalJson(second.bundles)).toBe(canonicalJson(first.bundles));
+	});
+
+	it.each([
+		// The consensus chain stops at block 328, 10 blocks before the period ends with block 338.
+		["has not ended", 325, `timestamp ${FIRST_AEGIS_PERIOD.toTimestamp} is after the latest block`],
+		// The consensus chain stops at block 348, 38 blocks before the settlement block 386.
+		["has not settled", 345, "settlement block 386 does not exist yet"],
+	] as const)("refuses a period that %s", async (_, blocks, cause) => {
+		const previous = await previousRewardsDb();
+		const [keyGen, start, transactions] = SCENARIO.consensus.slots;
+		const scenario: Scenario = {
+			...SCENARIO,
+			consensus: {
+				...SCENARIO.consensus,
+				slots: [keyGen, start, transactions, ...emptyBlocks(blocks)],
+			},
+		};
+
+		await expect(runExport(previous, scenario)).rejects.toThrow(
+			`period 2026-10-13T00:00:00.000Z → 2026-10-27T00:00:00.000Z after rewards DB ` +
+				`${previous.cid} has not settled yet (${cause})`,
+		);
+		expect(await readdir(exportTmpdir)).toEqual([]);
+	});
+
+	it("refuses a previously approved account that is missing from the KYC file", async () => {
+		const previous = await previousRewardsDb({ kycApprovals: [namedAddress("dave")] });
+
+		await expect(runExport(previous)).rejects.toThrow(
+			`KYC-approved account ${namedAddress("dave")} is missing from the approvals`,
+		);
 		expect(await readdir(exportTmpdir)).toEqual([]);
 	});
 });

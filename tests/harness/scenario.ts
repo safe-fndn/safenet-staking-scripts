@@ -129,6 +129,11 @@ export type Scenario = {
 	 * which is the only way for a `Revealed` to reference an unknown request.
 	 */
 	sentinelOracleStartBlock?: bigint;
+	/**
+	 * The timestamp both chains start at, `0` by default. Scenarios that need real dates, such as
+	 * a period on top of a rewards DB that ends with Beta, start the chains just before them.
+	 */
+	genesisTimestamp?: bigint;
 };
 
 const encodeStakingEvent = (event: StakingChainEvent): LogSpec => {
@@ -372,13 +377,14 @@ const encodeConsensusEvent = (event: ConsensusChainEvent): LogSpec => {
 };
 
 const encodeChain = <E>(
-	{ chainId, blockTime }: Pick<ChainSpec, "chainId" | "blockTime">,
+	{ chainId, blockTime, genesisTimestamp }: Omit<ChainSpec, "slots">,
 	spec: TypedChainSpec<E>,
 	encodeEvent: (event: E) => LogSpec,
 ): MockChain =>
 	new MockChain({
 		chainId,
 		blockTime,
+		genesisTimestamp,
 		...spec,
 		slots: spec.slots.map((slot) =>
 			slot !== null ? { logs: slot.events?.map(encodeEvent) } : null,
@@ -391,12 +397,12 @@ const encodeChain = <E>(
  */
 export const createTestParameters = (scenario: Scenario) => {
 	const stakingChain = encodeChain(
-		{ chainId: 1, blockTime: 12n },
+		{ chainId: 1, blockTime: 12n, genesisTimestamp: scenario.genesisTimestamp },
 		scenario.staking,
 		encodeStakingEvent,
 	);
 	const consensusChain = encodeChain(
-		{ chainId: 100, blockTime: 5n },
+		{ chainId: 100, blockTime: 5n, genesisTimestamp: scenario.genesisTimestamp },
 		scenario.consensus,
 		encodeConsensusEvent,
 	);
