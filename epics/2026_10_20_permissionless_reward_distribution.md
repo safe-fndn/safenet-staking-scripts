@@ -506,7 +506,7 @@ Both workflows read `STAKING_RPC_URL` and `CONSENSUS_RPC_URL` from repository se
 2 (Beta → Aegis gap) ─► 2a (Aegis budget) ─────────────────┤
 5 (block lookup) ─► 6 ─► 7 ────────────────────────────────┼─► 15 (export) ─► 16 ─► 17 ─► 19 ─► 20 ─► 21
 10a (pack) ┬─► 11a ─► … ─► 11e ─► 13 (action bundles) ─────┤                                ▲
-           └─► 10b (unpack) ─► 12 (previous resolution) ───┘                                │
+           └─► 10b (unpack) ─► 12a ─► 12b (previous) ──────┘                                │
 18 (daily index Action) ────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -641,7 +641,7 @@ Adds `ipfs-unixfs-exporter`. Implements `unpackCar(car, expectedCid, dir)`, whic
 
 Split into 11a–11e during review, so that each PR adds one group of `src/distribution/transactions.ts` functions. These are pure functions with no RPC. Each sub-phase adds only the ABI entries its own code uses. The read-side and proposal ABIs move to the phases that first use them:
 
-- Phase 12: the ENS registry's `resolver`, the resolver's `contenthash`, and the Cumulative Merkle Drop's `merkleRoot`.
+- Phase 12b: the ENS registry's `resolver`, the resolver's `contenthash`, and the Cumulative Merkle Drop's `merkleRoot`.
 - Phase 13: the Reality Module's `addProposal` and `executeProposalWithIndex`, `RealityETH_ERC20.submitAnswerERC20`, and ERC-20 `approve`.
 - Phase 15: the Reality Module's config getters, and `RealityETH_ERC20.token`.
 - Phase 17: the Reality Module's `getTransactionHash`, `buildQuestion` and `getQuestionId` views, and ERC-20 `balanceOf`.
@@ -680,16 +680,19 @@ Each sub-phase is its own commit, branch and PR, and Phase 11 has no commit of i
 
 ### Phase 12 — Previous rewards DB resolution
 
-**Depends on:** Phases 10b, 11a (CAR verification, `contenthash` decoding) **Files:** `src/abi.ts`, `src/distribution/previous.ts`, `src/distribution/previous.test.ts`, `src/utils/args.ts`, `.env.sample` **Estimate:** ~180 LOC, 5 files
+Split into 12a and 12b during review to keep each PR small. Each sub-phase is its own commit, branch and PR. Phase 12 has no commit of its own.
 
-Resolves the previous rewards DB as follows:
+### Phase 12a — Rewards DB fetching
 
-- reads `contenthash` for `REWARDS_ENS_NAME` and decodes the CID.
-- obtains the CAR from `--previousCar` or `IPFS_GATEWAY_URL` (`?format=car`, default `http://127.0.0.1:8080`), and unpacks it with verification.
-- requires `latest.json.merkleRoot == merkleRoot()`.
-- re-packs the result and warns if the CID differs.
+**Depends on:** Phase 10b (CAR verification) **Files:** `src/distribution/previous.ts`, `src/distribution/previous.test.ts`, `src/utils/args.ts`, `.env.sample` **Estimate:** ~120 LOC, 4 files
 
-Adds `IPFS_GATEWAY_URL`.
+Fetches a rewards DB by CID, without reading the chain. The CAR comes from `--previousCar` or `IPFS_GATEWAY_URL` (`?format=car`, default `http://127.0.0.1:8080`) and is unpacked with verification. The result is re-packed, with a warning if the CID differs, and `latest.json` is read. Adds `IPFS_GATEWAY_URL`.
+
+### Phase 12b — Previous rewards DB resolution
+
+**Depends on:** 12a, Phase 11a (`contenthash` decoding) **Files:** `src/abi.ts`, `src/distribution/previous.ts`, `src/distribution/previous.test.ts` **Estimate:** ~110 LOC, 3 files
+
+Reads the `contenthash` for `REWARDS_ENS_NAME` and decodes the CID, fetches it with 12a, and requires `latest.json.merkleRoot == merkleRoot()`. Adds the ENS registry `resolver`, resolver `contenthash` and drop `merkleRoot` ABI entries.
 
 ### Phase 13 — Action bundles
 
@@ -710,7 +713,7 @@ Covers:
 
 ### Phase 15 — `cmd:export`
 
-**Depends on:** Phases 2, 7, 12, 13, 14 **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
+**Depends on:** Phases 2, 7, 12b, 13, 14 **Files:** `src/abi.ts`, `src/cmd/export.ts`, `src/distribution/governance.ts`, `package.json`, `src/utils/args.ts`, `.env.sample`, `README.md` **Estimate:** ~250 LOC, 7 files
 
 Wires the pieces together:
 
@@ -1097,6 +1100,35 @@ These entries describe the behaviour of Phase 11 as a whole. The 11a–11e entri
 
 - `proposal.json` is `{ calls: [3 × { data, operation: 0, to, value }], proposalId, questionId, transaction: { data, hash, operation: 1, to, value } }`, with every key sorted. `transaction` is `multiSend(calls)` plus its Zodiac hash with nonce 0, and `questionId` is derived from `buildQuestion(proposalId, [hash])`.
 - `zProposal` pins `transaction.to` to `MULTI_SEND_CALL_ONLY` and `transaction.operation` to 1, and each call's `operation` to 0. `transaction.value` is shape-only like every other value, and Phase 16 re-derives it. The `ProposalTransaction` type keeps `operation: 0 | 1`, and only the schema narrows it.
+
+### Phase 12
+
+These entries describe the behaviour of Phase 12 as a whole. The 12a and 12b entries below say how it was split and take precedence where they differ.
+
+- `src/distribution/previous.ts` exports:
+  - `resolvePreviousRewardsDb(client, { ensName, cumulativeMerkleDrop }, { previousCar?, ipfsGatewayUrl? }, dir, { withBackoff?, warn? })`, which returns `{ cid, merkleRoot, rewardsUntil, dir, ensResolver }`. The first three are the manifest's `previous` block, and `ensResolver` feeds `governance.ensResolver`, so Phase 15 doesn't need a second ENS read that could disagree;
+  - `fetchRewardsDb(cid, source, dir, options)`, which fetches, verifies and unpacks a rewards DB by CID without reading the chain, for Phase 16;
+  - `ensContenthash(client, { ensName, blockNumber? })`, which returns `{ cid, ensResolver }`, for Phases 16 and 17;
+  - the lower-level `fetchCar` and `gatewayCarUrl`.
+- The ENS registry address is the constant `ENS_REGISTRY` in `previous.ts`, next to `ensContenthash`, its only reader. Like `MULTI_SEND_CALL_ONLY`, it is a canonical deployment and not configuration.
+- `IPFS_GATEWAY_URL` is an optional `ipfsGatewayUrl` in the base args schema, and `previous.ts` applies the default (`DEFAULT_IPFS_GATEWAY_URL`) the same way as `DEFAULT_SANCTIONS_ADDRESS_REPO`. Phase 15 may move it into the `cmd:export`/`cmd:verify` args. `REWARDS_ENS_NAME`, `REALITY_MODULE_ADDRESS` and `--previousCar` are parameters here, and Phase 15 adds them to the args.
+- The gateway request is `<gateway>/ipfs/<cid>?format=car` with `Accept: application/vnd.ipld.car; version=1`, and one trailing `/` on the gateway is stripped. `order`, `dups` and `dag-scope` are left to the gateway's defaults, because unpacking accepts any block order and duplicates. Non-OK responses and network errors are retried with the backoff, then thrown as `failed to fetch '<url>': <status> <statusText>`. No auth header is ever sent.
+- `resolvePreviousRewardsDb` reads one block number and reads the registry `resolver`, the resolver's `contenthash` and the drop's `merkleRoot` at that block, so both canonical references come from the same state.
+- Errors:
+  - `ENS name <name> has no resolver`;
+  - `ENS name <name> has no contenthash`;
+  - `decodeContenthash`'s own error for anything that isn't a package CID;
+  - `rewards DB <cid> pinned by <name> has Merkle root <file>, but CumulativeMerkleDrop <addr> has Merkle root <onchain>`. The comparison ignores case.
+- `latest.json` is read through `new MerkleDb({ root: dir }).index()`. A missing file or `rewardsUntil` throws, and `rewardsUntil` is returned as seconds. `manifest.json`, `allocations.json` and any other files are left in `dir` untouched for Phase 14.
+- The re-pack self-check runs inside `fetchRewardsDb`, so before the root check. A mismatch calls the injectable `warn`, which defaults to `debug("safenet:previous")`. The test provokes it with a CAR of dag-pb file leaves (`rawLeaves: false`), which `unpackCar` accepts but `packDirectory` never produces.
+- `previous.test.ts` builds its fixtures with `MerkleDb.distribute` on top of a `latest.json` in the pinned Beta format, fakes the viem client with a `custom` transport (the Phase 5 pattern), and imports `namedAddress` and `parseSafe` from `tests/harness/utils.ts`.
+- Real-data check, not committed: with the pinned Beta rewards DB packed as `previousCar`, resolving against mainnet returns `bafybeiczeo7…tp7afq`, root `0x6689…fdef` (equal to the drop's), `rewardsUntil` 1791244800 and resolver `0xF291…AC15`, with no re-pack warning. The gateway path was not exercised for real.
+
+### Phase 12a
+
+- 12a's code is the CID-based half of the unsplit Phase 12: `DEFAULT_IPFS_GATEWAY_URL`, `CAR_MEDIA_TYPE`, `RewardsDb`, `CarSource`, `Options`, `gatewayCarUrl`, `fetchCar` and `fetchRewardsDb`. Only the module header and two `Options` doc comments are narrowed to fetching.
+- Two tests are new: one for a missing `latest.json` and one for a missing `rewardsUntil`. The tests make no RPC calls.
+- The `.env.sample` comment for `IPFS_GATEWAY_URL` already mentions the ENS-pinned CID, which describes what the variable is for, even though the ENS read only arrives in 12b.
 
 ## Open Questions and Assumptions
 
