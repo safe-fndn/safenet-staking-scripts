@@ -4,6 +4,7 @@
 
 import { type Address, formatUnits, getAddress, parseUnits } from "viem";
 import { z } from "zod";
+import { AEGIS } from "../config/aegis.js";
 import { kyc as committedKyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { distributionPayouts, mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
@@ -55,19 +56,14 @@ main(
 		cumulativeMerkleDropAddress: z
 			.string()
 			.transform((v) => getAddress(v))
-			.optional(),
+			.default(AEGIS.ethereum.cumulativeMerkleDrop),
 		split: z.boolean().optional(),
 	},
 	async (args) => {
 		// Check up front, so that a misconfigured run fails before recording
 		// anything rather than after.
-		if (args.transactions !== undefined) {
-			if (args.record === undefined) {
-				throw new Error("--transactions requires --record");
-			}
-			if (args.cumulativeMerkleDropAddress === undefined) {
-				throw new Error("--transactions requires CUMULATIVE_MERKLE_DROP_ADDRESS");
-			}
+		if (args.transactions !== undefined && args.record === undefined) {
+			throw new Error("--transactions requires --record");
 		}
 
 		const kyc = committedKyc();
@@ -166,7 +162,7 @@ main(
 					console.log(`New KYC Approval:   ${account}`);
 				}
 
-				if (args.transactions !== undefined && args.cumulativeMerkleDropAddress !== undefined) {
+				if (args.transactions !== undefined) {
 					const safeTokenAddress = await safenet.safeToken();
 					const bundle = await writeTransactionBundle(
 						args.transactions,

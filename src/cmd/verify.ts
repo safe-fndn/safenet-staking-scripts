@@ -2,6 +2,7 @@
 
 import { getAddress } from "viem";
 import { z } from "zod";
+import { AEGIS } from "../config/aegis.js";
 import { verifyProposal } from "../distribution/verify.js";
 import { Safenet } from "../safenet.js";
 import { main } from "../utils/args.js";
@@ -14,9 +15,15 @@ main(
 		previousCar: z.string().min(1).optional(),
 		cid: z.string().min(1).optional(),
 		ipfsGatewayUrl: z.url().optional(),
-		cumulativeMerkleDropAddress: z.string().transform((v) => getAddress(v)),
-		realityModuleAddress: z.string().transform((v) => getAddress(v)),
-		rewardsEnsName: z.string().min(1),
+		cumulativeMerkleDropAddress: z
+			.string()
+			.transform((v) => getAddress(v))
+			.default(AEGIS.ethereum.cumulativeMerkleDrop),
+		realityModuleAddress: z
+			.string()
+			.transform((v) => getAddress(v))
+			.default(AEGIS.ethereum.realityModule),
+		rewardsEnsName: z.string().min(1).default(AEGIS.ethereum.rewardsEnsName),
 	},
 	async (args) => {
 		const safenet = await Safenet.create(args);
