@@ -6,15 +6,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MerkleDb } from "../src/merkledb/index.js";
 import { totalRewardsAmount } from "../src/utils/args.js";
 import { writeJsonFile } from "../src/utils/json.js";
+import { AEGIS_REWARDS_START, BETA_REWARDS_UNTIL, BETA_TOKEN_TOTAL } from "../src/utils/sep.js";
 import { namedAddress, parseSafe } from "./harness/utils.js";
 
 const TWO_WEEKS = BigInt(60 * 60 * 24 * 7 * 2);
-const REWARDS_START = BigInt(Date.UTC(2026, 3, 7) / 1000);
 
-// The `n`-th two week rewards period of the program, counting from zero.
+// The `n`-th two week rewards period of the Aegis program, counting from zero.
 const period = (n: number) => ({
-	fromTimestamp: REWARDS_START + BigInt(n) * TWO_WEEKS,
-	toTimestamp: REWARDS_START + BigInt(n + 1) * TWO_WEEKS,
+	fromTimestamp: AEGIS_REWARDS_START + BigInt(n) * TWO_WEEKS,
+	toTimestamp: AEGIS_REWARDS_START + BigInt(n + 1) * TWO_WEEKS,
 });
 
 const records = [] as string[];
@@ -31,9 +31,26 @@ const createRecord = async (index?: Record<string, unknown>): Promise<string> =>
 		epoch: 0,
 		merkleRoot: zeroHash,
 		tokenTotal: 0n,
-		rewardsUntil: new Date(Number(REWARDS_START) * 1000),
+		rewardsUntil: new Date(Number(AEGIS_REWARDS_START) * 1000),
 		...index,
 	});
+	return record;
+};
+
+/**
+ * Creates a temporary record directory with the Beta token total distributed in its last period,
+ * so that it is caught up to the end of Beta exactly like the pinned rewards DB.
+ */
+const createBetaRecord = async (): Promise<string> => {
+	const record = await createRecord({
+		rewardsUntil: new Date(Number(BETA_REWARDS_UNTIL - TWO_WEEKS) * 1000),
+	});
+	await new MerkleDb({ record }).distribute(
+		{ fromTimestamp: BETA_REWARDS_UNTIL - TWO_WEEKS, toTimestamp: BETA_REWARDS_UNTIL },
+		{ [namedAddress("beta")]: { amount: BETA_TOKEN_TOTAL, sentinelAmount: 0n } },
+		0n,
+		{ sanctions: [] },
+	);
 	return record;
 };
 
@@ -86,12 +103,12 @@ describe("merkledb sentinel total", () => {
 
 		// Both records distribute the exact same validator payouts; the mixed one additionally
 		// pays a sentinel out of the same distribution.
-		const validatorPayout = parseSafe("300000");
+		const validatorPayout = parseSafe("150000");
 		const sentinelPayout = parseSafe("15000");
 
-		const baselineRecord = await createRecord();
+		const baselineRecord = await createBetaRecord();
 		const baseline = new MerkleDb({ record: baselineRecord });
-		const mixedRecord = await createRecord();
+		const mixedRecord = await createBetaRecord();
 		const mixed = new MerkleDb({ record: mixedRecord });
 
 		for (const n of [0, 1]) {
@@ -119,19 +136,19 @@ describe("merkledb sentinel total", () => {
 		// After two periods, the mixed record has distributed 30,000 SAFE more in total, all of
 		// it sentinel spend.
 		expect(await baseline.index()).toMatchObject({
-			tokenTotal: 2n * validatorPayout,
+			tokenTotal: BETA_TOKEN_TOTAL + 2n * validatorPayout,
 			sentinelTokenTotal: 0n,
 		});
 		expect(await mixed.index()).toMatchObject({
-			tokenTotal: 2n * (validatorPayout + sentinelPayout),
+			tokenTotal: BETA_TOKEN_TOTAL + 2n * (validatorPayout + sentinelPayout),
 			sentinelTokenTotal: 2n * sentinelPayout,
 		});
 
-		// 4.5M SAFE over 26 weeks, so 6 of those weeks are worth
-		// 1,038,461.538461538461538461 SAFE, of which 600,000 SAFE has already been paid out to
-		// validators over the two periods above. The 30,000 SAFE of sentinel spend does not
-		// reduce the budget.
-		expect(await budget(baselineRecord, 2)).toBe(parseSafe("438461.538461538461538461"));
+		// 5M SAFE over 52 weeks, so the first 6 weeks of Aegis are worth
+		// 576,923.076923076923076923 SAFE, of which 300,000 SAFE has already been paid out to
+		// validators over the two periods above. Neither the Beta token total nor the 30,000 SAFE
+		// of sentinel spend reduce the budget.
+		expect(await budget(baselineRecord, 2)).toBe(parseSafe("276923.076923076923076923"));
 		expect(await budget(mixedRecord, 2)).toBe(await budget(baselineRecord, 2));
 	});
 
