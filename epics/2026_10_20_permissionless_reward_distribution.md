@@ -1327,6 +1327,28 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - the test fixture is built from the governance vectors (`proposal(UPDATE, CONFIG)`, `actionBundles` at `toTimestamp + 240`), so `merkle-root.txt` is the proposal's own root;
   - the `writeJsonFile` byte-identity check uses `proposal.json`.
 
+### Phase 15h
+
+- Ported from `permissionless/15g` (e0c82e6), with these exceptions:
+  - there are no `--rewardPeriodStart`/`--rewardPeriodEnd`, because the period is derived from the previous rewards DB (Phase 15e);
+  - the command calls `exportPackage(safenet, args, <tmp>/package)`;
+  - there are no `--totalRewards`, `--sentinelRewards` or `--minPayout`;
+  - there is no `generator()` call or dirty-tree check, so the refusal of a non-empty `--out` is the only check before any RPC.
+- The summary is built from the 15f `Export`. It prints:
+  - the previous and package CIDs;
+  - the derived period with its settlement block;
+  - the Merkle root and the additional amount;
+  - the validator rewards paid out of the budget, and the unpaid amount;
+  - the sentinel total, with the per-sentinel grant and the forfeited amount;
+  - the sanctions release;
+  - the transaction hash and the question ID;
+  - new KYC approvals.
+- The README:
+  - describes the derived period, including the Beta → Aegis gap, and that running before the period has settled fails with an error naming it;
+  - says the same code, lockfile and `kyc.json` give byte-identical assets;
+  - drops the period flags, overrides, manifest, generator commit and Docker git note.
+- `args.ts` (with `ipfsGatewayUrl` moved out of the base schema), `package.json` and `.env.sample` are identical to e0c82e6.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

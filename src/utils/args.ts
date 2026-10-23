@@ -28,7 +28,6 @@ const SCHEMA = z.object({
 	sanctionsListAddress: z.string().transform((a) => getAddress(a)),
 	sanctionsListStartBlock: z.coerce.bigint(),
 	sanctionsAddressRepo: zGitHubRepository.optional(),
-	ipfsGatewayUrl: z.url().optional(),
 	consensusRpcUrl: z.url(),
 	consensusAddress: z.string().transform((a) => getAddress(a)),
 	consensusStartBlock: z.coerce.bigint(),
