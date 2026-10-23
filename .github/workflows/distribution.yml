@@ -175,3 +175,59 @@ jobs:
           [[ "$cid" =~ ^b[a-z2-7]+$ ]]
           npm run cmd:verify -- --cid "$cid"
           echo "cid=$cid" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: [plan, export, verify]
+    if: needs.plan.outputs.shouldRun == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.export.outputs.artifactName }}
+          path: release-assets
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: distribution-summary-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Publish verified distribution
+        working-directory: release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PERIOD_END: ${{ needs.plan.outputs.periodEnd }}
+          VERIFIED_CID: ${{ needs.verify.outputs.cid }}
+        run: |
+          test -n "$VERIFIED_CID"
+          test "$VERIFIED_CID" = "$(cat cid.txt)"
+          test -f "rewards-$PERIOD_END.car"
+          {
+            printf 'Workflow commit (informational only): %s\n\n' "$GITHUB_SHA"
+            echo 'Export summary (amounts in SAFE; no New KYC Approval list means 0 new approvals):'
+            echo '```text'
+            cat ../export-summary.txt
+            echo '```'
+            cat <<'EOF'
+
+          Review proposal.json and independently run cmd:verify before answering.
+          In Safe Transaction Builder, using any Safe:
+          1. Load and execute propose.json; wait for the proposal transaction to be confirmed.
+          2. Check the module's current question mapping. Only for the original nonce-0 question
+             with no earlier answer, load and execute answer.json to post the initial Yes
+             with the minimum bond. Re-asked questions and earlier answers need manual handling.
+          3. Wait for Reality.eth to finalize Yes and for the module cooldown to elapse, then
+             load and execute execute.json before answer expiration. Check the live oracle
+             and module timing; challenges can restart the timeout.
+
+          This workflow publishes files only; it sends no onchain transactions.
+          These release assets are non-canonical mirrors. The canonical references are the
+          onchain Cumulative Merkle Drop root and rewards.safenet-gov.eth ENS contenthash.
+          EOF
+          } > "$RUNNER_TEMP/release-notes.md"
+          gh release create "rewards-$PERIOD_END" \
+            --target "$GITHUB_SHA" --title "Rewards $PERIOD_END" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            "rewards-$PERIOD_END.car" cid.txt merkle-root.txt proposal.json \
+            propose.json answer.json execute.json SHA256SUMS
