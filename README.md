@@ -37,7 +37,7 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `DATABASE_FILE`             | Path to the SQLite database file for cached events. Use `:memory:` to disable persistence.                            | `:memory:`                            |
 | `STAKING_RPC_URL`           | RPC endpoint for the staking chain (Ethereum mainnet).                                                                | `https://mainnet.gateway.tenderly.co` |
 | `STAKING_BLOCK_PAGE_SIZE`   | Number of blocks to fetch logs for in a single RPC call on the staking chain.                                         | `100`                                 |
-| `GITHUB_TOKEN`              | GitHub token for the release listing API (optional; avoids the 60/hour IP rate limit).                                | _(unset)_                             |
+| `GITHUB_TOKEN`              | GitHub token for the sanctions release listing API (optional; avoids the 60/hour IP rate limit).                      | _(unset)_                             |
 | `IPFS_GATEWAY_URL`          | Trustless gateway the previous rewards DB's CAR is fetched from (`cmd:export`, `cmd:verify`, `cmd:status`, optional). | `http://127.0.0.1:8080` (local Kubo)  |
 | `CONSENSUS_RPC_URL`         | RPC endpoint for the consensus chain (Gnosis Chain).                                                                  | `https://gnosis.gateway.tenderly.co`  |
 | `CONSENSUS_BLOCK_PAGE_SIZE` | Number of blocks to fetch logs for in a single RPC call on the consensus chain.                                       | `25`                                  |
@@ -96,7 +96,7 @@ npm run --silent cmd:status -- --previousCar=./previous.car
 
 The JSON shape for automation is `{ "previousCid": "bafy…", "period": { "fromTimestamp": "1791849600", "toTimestamp": "1793059200" }, "settled": false }`. Timestamps are decimal strings in Unix seconds. Stdout contains only JSON; use npm's `--silent` flag to suppress its script banner. Diagnostics go to stderr.
 
-`settled` means the consensus block exactly 48 blocks after the last block at or before the period end exists, matching `Safenet.settlement`. A period that has not ended or settled succeeds with `false`; RPC, configuration, missing previous DB and root verification errors fail. Export may still wait for Ethereum indexing to reach the settlement timestamp (up to one more Ethereum block). This command does not check whether a release already exists.
+`settled` means the consensus block exactly 48 blocks after the last block at or before the period end exists, matching `Safenet.settlement`. A period that has not ended or settled succeeds with `false`; RPC, configuration, missing previous DB and root verification errors fail. Export may still wait for Ethereum indexing to reach the settlement timestamp (up to one more Ethereum block).
 
 Configuration uses the existing base environment. Optional `--previousCar` and `--ipfsGatewayUrl` (env `PREVIOUS_CAR` and `IPFS_GATEWAY_URL`) work as in `cmd:export`; no period flags or reward overrides are needed. The fetched rewards DB is temporary and removed on success or failure; `DATABASE_FILE` is not opened.
 
@@ -104,22 +104,22 @@ Configuration uses the existing base environment. Optional `--previousCar` and `
 
 See the [operator runbook](docs/permissionless-distribution.md) for reviewing, proposing, answering, challenging and executing a distribution.
 
-Builds the reward distribution package for the next period on top of the rewards DB that the ENS `contenthash` of `rewards.safenet-gov.eth` pins, and writes its release assets. Anyone can run it, and the same code, lockfile and `src/distribution/kyc.json` always produce byte-identical assets for a period.
+Builds the reward distribution package for the next period on top of the rewards DB that the ENS `contenthash` of `rewards.safenet-gov.eth` pins, and writes its distribution files. Anyone can run it, and the same code, lockfile and `src/distribution/kyc.json` always produce byte-identical assets for a period.
 
 ```sh
-npm run cmd:export -- --out=./release
+npm run cmd:export -- --out=./distribution
 
 # Use a local CAR of the ENS-pinned rewards DB instead of fetching it from IPFS_GATEWAY_URL
-npm run cmd:export -- --out=./release --previousCar=./rewards-1791244800.car
+npm run cmd:export -- --out=./distribution --previousCar=./rewards-1791244800.car
 ```
 
 The period is never chosen by the operator: it is always the two weeks that start where the previous rewards DB ends (its `rewardsUntil`, except that the rewards DB ending with Beta on 2026-10-06 is followed by the first Aegis period starting on 2026-10-13), and it covers both validator and sentinel rewards. Running the command before that period has ended and settled (48 consensus blocks after its end) fails with an error naming the period and the previous rewards DB. The previous rewards DB is never chosen by the operator: the command reads the `contenthash` of `rewards.safenet-gov.eth` and fetches that CID, as a CAR from `--previousCar` or from `IPFS_GATEWAY_URL`, verifying every block against it, and refuses to run unless its Merkle root equals `CumulativeMerkleDrop.merkleRoot()`. The governance parameters (the Governance Safe, the Reality.eth oracle and bond token, the question template, arbitrator, minimum bond and timings, and the ENS resolver) is read from the Reality Module and ENS at the same block.
 
-`--previousCar` is only a local source for that CID: the command still verifies the file against the ENS-pinned CID and refuses any other CAR. To get one, export it from an IPFS node that has it pinned with `ipfs dag export <cid> > previous.car`, where `<cid>` is the CID the `contenthash` of `rewards.safenet-gov.eth` points to, or download the `rewards-<t>.car` asset of the previous distribution's release.
+`--previousCar` is only a local source for that CID: the command still verifies the file against the ENS-pinned CID and refuses any other CAR. To get one, export it from an IPFS node that has it pinned with `ipfs dag export <cid> > previous.car`, where `<cid>` is the CID the `contenthash` of `rewards.safenet-gov.eth` points to.
 
-The amounts cannot be overridden, so that every export can be verified: the validator budget is the Aegis default measured against the previous rewards DB (as for `cmd:rewards` without `--totalRewards`), the per-sentinel grant is prorated over the period, and there is no minimum payout. The KYC threshold and approvals always come from `src/distribution/kyc.json`, and the sanctions lists from the period's `data-YYYY-MM-DD` snapshot release. Like the other period queries, the command indexes both chains up to the period's settlement; with a persistent `DATABASE_FILE` that `cmd:index` keeps up to date, only the remainder is fetched.
+The amounts cannot be overridden, so that every export can be verified: the validator budget is the Aegis default measured against the previous rewards DB (as for `cmd:rewards` without `--totalRewards`), the per-sentinel grant is prorated over the period, and there is no minimum payout. The KYC threshold and approvals always come from `src/distribution/kyc.json`, and the sanctions lists from the period's `data-YYYY-MM-DD` snapshot release. Like the other period queries, the command indexes both chains up to the period's settlement; with a persistent `DATABASE_FILE` populated by running `cmd:index`, only the remainder is fetched.
 
-The package (`latest.json` and `proofs/`, the layout of the ENS-pinned rewards DB) is assembled in a temporary directory, packed into a CAR, and only the release assets are written to `--out`, which must be missing or empty:
+The package (`latest.json` and `proofs/`, the layout of the ENS-pinned rewards DB) is assembled in a temporary directory, packed into a CAR, and only the distribution files are written to `--out`, which must be missing or empty:
 
 | Asset                     | Contents                                                                        |
 | ------------------------- | ------------------------------------------------------------------------------- |
@@ -139,13 +139,13 @@ Re-derives the next distribution through the export pipeline and checks every on
 npm run cmd:verify
 
 # Require the independently derived CID to equal the export artifact's CID
-npm run cmd:verify -- --cid="$(cat ./release/cid.txt)"
+npm run cmd:verify -- --cid="$(cat ./distribution/cid.txt)"
 
 # Use a local CAR as the source of the ENS-pinned previous rewards DB
 npm run cmd:verify -- --previousCar=./previous.car
 ```
 
-The previous rewards DB is resolved from ENS at the latest block and checked against the drop's root. The period is the two weeks after that DB, including the Beta → Aegis gap described above, and must have ended and settled. Use the same reward code, lockfile and `src/distribution/kyc.json` as the export. Verification rebuilds the package temporarily and reads no release assets; `--cid` lets automation tie an independent run to an export artifact.
+The previous rewards DB is resolved from ENS at the latest block and checked against the drop's root. The period is the two weeks after that DB, including the Beta → Aegis gap described above, and must have ended and settled. Use the same reward code, lockfile and `src/distribution/kyc.json` as the export. Verification rebuilds the package temporarily and reads no exported files; `--cid` lets automation tie an independent run to an export artifact.
 
 The summary prints the previous and package CIDs, period and consensus settlement block, Merkle root, additional funding amount, total rewards, validator stake rewards and commission, unpaid validator budget, sentinel total and per-sentinel grant, forfeited grants, sanctions snapshot, and the count and addresses of newly approved KYC accounts. Reward totals are earned amounts before sanctions and KYC filters; additional funding comes from the Merkle DB update. Every token amount is printed exactly in SAFE, with up to 18 decimal places.
 
@@ -156,7 +156,7 @@ It also prints the derived transaction hash and the Ethereum block used for prop
 - With any different question, including alongside matching questions, it names every conflicting question with `answer No`, prints `FAILED`, and exits nonzero.
 - A CID mismatch prints a clear expected/derived CID error and `FAILED`, and exits nonzero. RPC or rebuild errors also exit nonzero.
 
-There are no period, release, proposal, question, post-execution or reward override flags. After a proposal executes and advances ENS, this command verifies the distribution following the newly pinned DB; historic and post-execution verification are outside its scope.
+There are no period, proposal, question, post-execution or reward override flags. After a proposal executes and advances ENS, this command verifies the distribution following the newly pinned DB; historic and post-execution verification are outside its scope.
 
 ### `cmd:rewards`
 
