@@ -4,6 +4,7 @@
 
 import path from "node:path";
 import { z } from "zod";
+import { AEGIS_PARAMETERS } from "../config/aegis.js";
 import { Safenet } from "../safenet.js";
 import { main } from "../utils/args.js";
 import { formatSafeToken } from "../utils/format.js";
@@ -17,7 +18,7 @@ main(
 		record: z.string().optional(),
 	},
 	async (args) => {
-		const safenet = await Safenet.create(args);
+		const safenet = await Safenet.create({ ...args, ...AEGIS_PARAMETERS });
 
 		const { stake, transactions } = await safenet.totals();
 		const presenter = createPresenter<TotalsItem>(

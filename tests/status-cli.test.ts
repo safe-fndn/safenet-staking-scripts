@@ -54,7 +54,10 @@ const originalArgv = process.argv;
 let originalExitCode: typeof process.exitCode;
 const TWO_WEEKS = 1209600n;
 const RESOLVER = namedAddress("resolver");
-const DROP = namedAddress("drop");
+const DROP = AEGIS.ethereum.cumulativeMerkleDrop;
+// Consensus blocks are numbered by their height above the block before the Aegis consensus
+// deployment, so that height 1 is the consensus start block.
+const BEFORE_START = AEGIS.gnosis.consensus.startBlock - 1n;
 let fixture: string;
 let cid: string;
 let end: bigint;
@@ -83,23 +86,11 @@ beforeEach(async () => {
 		DATABASE_FILE: "/must-not-open.db",
 		STAKING_RPC_URL: "https://staking.invalid",
 		STAKING_BLOCK_PAGE_SIZE: "100",
-		STAKING_ADDRESS: namedAddress("staking"),
-		STAKING_START_BLOCK: "1",
-		DELEGATE_REGISTRY_ADDRESS: namedAddress("delegates"),
-		SANCTIONS_LIST_ADDRESS: namedAddress("sanctions"),
-		SANCTIONS_LIST_START_BLOCK: "1",
 		CONSENSUS_RPC_URL: "https://consensus.invalid",
-		CONSENSUS_ADDRESS: namedAddress("consensus"),
-		CONSENSUS_START_BLOCK: "1",
 		CONSENSUS_BLOCK_PAGE_SIZE: "25",
-		SENTINEL_ORACLE_ADDRESS: namedAddress("oracle"),
-		SENTINEL_ORACLE_START_BLOCK: "1",
-		CUMULATIVE_MERKLE_DROP_ADDRESS: DROP,
-		REWARDS_ENS_NAME: "rewards.safenet-gov.eth",
 	};
 	for (const [key, value] of Object.entries(environment)) vi.stubEnv(key, value);
-	for (const key of ["PREVIOUS_CAR", "IPFS_GATEWAY_URL", "REALITY_MODULE_ADDRESS", "DEBUG"])
-		vi.stubEnv(key, undefined);
+	for (const key of ["PREVIOUS_CAR", "IPFS_GATEWAY_URL", "DEBUG"]) vi.stubEnv(key, undefined);
 	fixture = await mkdtemp(join(tmpdir(), "safenet-status-test-"));
 	end = AEGIS_REWARDS_START + TWO_WEEKS;
 	head = 148n;
@@ -136,7 +127,7 @@ beforeEach(async () => {
 							functionName: "contenthash",
 							result: encodeContenthash((await packDirectory(fixture)).cid),
 						});
-					if ([DROP, AEGIS.ethereum.cumulativeMerkleDrop].includes(getAddress(to)))
+					if (getAddress(to) === DROP)
 						return encodeFunctionResult({
 							abi: CUMULATIVE_MERKLE_DROP_ABI,
 							functionName: "merkleRoot",
@@ -156,11 +147,12 @@ beforeEach(async () => {
 					if (fail === method) throw new Error("RPC failed");
 					if (method !== "eth_getBlockByNumber") throw new Error(`unexpected ${method}`);
 					const [tag] = params as [string];
-					const number = tag === "latest" ? head : BigInt(tag);
-					if (fail === "settlement" && tag !== "latest" && number === 148n)
+					const number = tag === "latest" ? BEFORE_START + head : BigInt(tag);
+					const height = number - BEFORE_START;
+					if (fail === "settlement" && tag !== "latest" && height === 148n)
 						throw new Error("settlement RPC failed");
-					if (number > head) return null;
-					return { number: toHex(number), timestamp: toHex(end + (number - 100n) * 5n + offset) };
+					if (height > head) return null;
+					return { number: toHex(number), timestamp: toHex(end + (height - 100n) * 5n + offset) };
 				},
 			},
 			{ retryCount: 0 },
@@ -289,7 +281,8 @@ describe("cmd:status", () => {
 		fail = failure;
 		if (failure === "root") root = `0x${"11".repeat(32)}`;
 		if (failure === "resolver") resolver = zeroAddress;
-		if (failure === "start") vi.stubEnv("CONSENSUS_START_BLOCK", "101");
+		// The consensus start block is after the period end.
+		if (failure === "start") offset = 500n;
 		if (failure === "chain") chainId = 100;
 		expect(
 			await run(
@@ -300,9 +293,7 @@ describe("cmd:status", () => {
 		expect(process.exitCode).toBe(1);
 	});
 
-	it("defaults to the Aegis ENS name and Cumulative Merkle Drop", async () => {
-		vi.stubEnv("REWARDS_ENS_NAME", undefined);
-		vi.stubEnv("CUMULATIVE_MERKLE_DROP_ADDRESS", undefined);
+	it("uses the Aegis ENS name and Cumulative Merkle Drop", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async () => new Response(Uint8Array.from((await packDirectory(fixture)).car))),
@@ -313,8 +304,7 @@ describe("cmd:status", () => {
 			functionName: "resolver",
 			args: [namehash(AEGIS.ethereum.rewardsEnsName)],
 		});
-		expect(calls.map(({ to }) => getAddress(to))).toContain(AEGIS.ethereum.cumulativeMerkleDrop);
-		expect(calls.map(({ to }) => getAddress(to))).not.toContain(DROP);
+		expect(calls.map(({ to }) => getAddress(to))).toContain(DROP);
 	});
 
 	it.each([
