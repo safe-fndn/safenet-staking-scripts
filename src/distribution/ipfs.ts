@@ -25,9 +25,9 @@ import * as raw from "multiformats/codecs/raw";
 import { sha256 } from "multiformats/hashes/sha2";
 
 /**
- * The UnixFS import parameters, in the shape of the manifest's `ipfs` block.
+ * The UnixFS import and CAR parameters, in Kubo's terms.
  */
-export const IPFS_PARAMETERS = {
+const IPFS_PARAMETERS = {
 	car: 1,
 	chunker: "size-262144",
 	cidVersion: 1,
@@ -35,8 +35,6 @@ export const IPFS_PARAMETERS = {
 	layout: "balanced",
 	rawLeaves: true,
 } as const;
-
-export type IpfsParameters = typeof IPFS_PARAMETERS;
 
 /** Fixed-size chunks of 256 KiB (Kubo's `size-262144`). */
 export const CHUNK_SIZE = 262_144;
