@@ -39,6 +39,7 @@ export const SENTINEL_ORACLE_ABI = parseAbi([
 ]);
 
 export const ERC20_ABI = parseAbi([
+	"function approve(address spender, uint256 amount) external returns (bool success)",
 	"function transfer(address to, uint256 amount) external returns (bool success)",
 ]);
 
@@ -60,4 +61,8 @@ export const MULTI_SEND_ABI = parseAbi(["function multiSend(bytes transactions) 
 
 export const REALITY_MODULE_ABI = parseAbi([
 	"function addProposal(string proposalId, bytes32[] txHashes) external",
+]);
+
+export const REALITY_ETH_ERC20_ABI = parseAbi([
+	"function submitAnswerERC20(bytes32 questionId, bytes32 answer, uint256 maxPrevious, uint256 tokens) external",
 ]);
