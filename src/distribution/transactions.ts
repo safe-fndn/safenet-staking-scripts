@@ -2,11 +2,12 @@
  * The Governance Safe transaction of a distribution.
  *
  * Everything here is a pure function of the distribution (the package CID, its Merkle root and the
- * funding amount) and of the ENS name and resolver, so that the export and `cmd:verify` derive
- * identical transactions. The distribution's calls are batched into a single `MultiSendCallOnly`
- * delegatecall. The package CID is pinned onchain as the ENSIP-7 `contenthash` of the
- * rewards ENS name. The Zodiac transaction hash follows `RealityModule.sol` of
- * `gnosisguild/zodiac-module-reality` exactly, and the tests check it against the deployed module.
+ * funding amount) and of the governance configuration read from the module, so that the export
+ * and `cmd:verify` derive identical transactions, hashes and question IDs. The distribution's calls
+ * are batched into a single `MultiSendCallOnly` delegatecall. The package CID is pinned onchain as
+ * the ENSIP-7 `contenthash` of the rewards ENS name. The Zodiac transaction hash and the
+ * Reality.eth question follow `RealityModule.sol` of `gnosisguild/zodiac-module-reality` exactly,
+ * and the tests check them against the deployed module.
  */
 
 import { CID } from "multiformats/cid";
@@ -18,6 +19,7 @@ import {
 	type Hex,
 	hashTypedData,
 	hexToBytes,
+	keccak256,
 	namehash,
 	size,
 	toHex,
@@ -36,6 +38,37 @@ export const GOVERNANCE_CHAIN_ID = 1;
  * Zodiac transaction.
  */
 export const MULTI_SEND_CALL_ONLY: Address = "0x9641d764fc13c8B624c04430C7356C1C7C8102e2";
+
+/**
+ * The governance configuration that the export reads from the Reality Module, its oracle and ENS,
+ * in the shape of the manifest's `governance` block.
+ */
+export type GovernanceConfiguration = {
+	/** How long in seconds a final Yes answer stays executable, `module.answerExpiration()`. */
+	answerExpiration: number;
+	/** The question arbitrator, `module.questionArbitrator()`. */
+	arbitrator: Address;
+	/** The Governance Safe, `module.avatar()`. */
+	avatar: Address;
+	/** The token Reality.eth bonds are paid in, `oracle.token()`. */
+	bondToken: Address;
+	/** The ENS name whose `contenthash` pins the rewards DB. */
+	ensName: string;
+	/** The resolver of `ensName`, `registry.resolver(namehash(ensName))`. */
+	ensResolver: Address;
+	/** The minimum answer bond, `module.minimumBond()`. */
+	minimumBond: bigint;
+	/** The Zodiac Reality Module. */
+	module: Address;
+	/** The Reality.eth oracle, `module.oracle()`. */
+	oracle: Address;
+	/** The cooldown in seconds after an answer is final, `module.questionCooldown()`. */
+	questionCooldown: number;
+	/** The Reality.eth question timeout in seconds, `module.questionTimeout()`. */
+	questionTimeout: number;
+	/** The Reality.eth question template, `module.template()`. */
+	templateId: bigint;
+};
 
 /**
  * What a distribution changes onchain, in the terms of the manifest's `distribution` block and
@@ -128,7 +161,7 @@ export const decodeContenthash = (contenthash: Hex): CID => {
  */
 export const governanceCalls = (
 	update: DistributionUpdate,
-	config: { ensName: string; ensResolver: Address },
+	config: Pick<GovernanceConfiguration, "ensName" | "ensResolver">,
 ): [GovernanceCall, GovernanceCall, GovernanceCall] => [
 	{
 		to: update.safeToken,
@@ -192,7 +225,7 @@ export const multiSend = (calls: readonly GovernanceCall[]): GovernanceTransacti
  */
 export const governanceTransaction = (
 	update: DistributionUpdate,
-	config: { ensName: string; ensResolver: Address },
+	config: Pick<GovernanceConfiguration, "ensName" | "ensResolver">,
 ): GovernanceTransaction => multiSend(governanceCalls(update, config));
 
 /**
@@ -221,3 +254,45 @@ export const transactionHash = (
 		primaryType: "Transaction",
 		message: { ...transaction, nonce },
 	});
+
+/**
+ * The question text, `RealityModule.buildQuestion(proposalId, txHashes)`: the proposal ID, the
+ * Unicode "symbol for unit separator" (`U+241F`, UTF-8 `0xe2 0x90 0x9f`), and the lowercase hex of
+ * `keccak256(abi.encodePacked(txHashes))` with no `0x`.
+ */
+export const buildQuestion = (proposalId: string, txHashes: readonly Hex[]): string =>
+	`${proposalId}␟${keccak256(concat([...txHashes])).slice(2)}`;
+
+/**
+ * The Reality.eth question ID, `RealityModule.getQuestionId(question, nonce)`, which is the ID
+ * `RealityETH_ERC20.askQuestionWithMinBondERC20` gives the question that `addProposalWithNonce`
+ * asks: the content hash over the template, an opening time of `0` and the question text, then
+ * the hash over the content hash, the arbitrator, the timeout, the minimum bond, the oracle, the
+ * module as the asker and the nonce.
+ */
+export const questionId = (
+	question: string,
+	config: Pick<
+		GovernanceConfiguration,
+		"arbitrator" | "minimumBond" | "module" | "oracle" | "questionTimeout" | "templateId"
+	>,
+	nonce = 0n,
+): Hex => {
+	const contentHash = keccak256(
+		encodePacked(["uint256", "uint32", "string"], [config.templateId, 0, question]),
+	);
+	return keccak256(
+		encodePacked(
+			["bytes32", "address", "uint32", "uint256", "address", "address", "uint256"],
+			[
+				contentHash,
+				config.arbitrator,
+				config.questionTimeout,
+				config.minimumBond,
+				config.oracle,
+				config.module,
+				nonce,
+			],
+		),
+	);
+};
