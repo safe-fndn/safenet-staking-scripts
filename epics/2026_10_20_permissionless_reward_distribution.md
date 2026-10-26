@@ -1459,6 +1459,21 @@ A first implementation continued past 14a with a manifest, allocations, reward o
   - say Aegis instead of Beta in the README intro, and mention `src/config/` in `AGENTS.md`'s Project Structure.
 - The `Dockerfile` and `bin/entrypoint.sh` are unchanged.
 
+### Phase 19c
+
+- `docs/permissionless-distribution.md` is kept brief. It links to the README's command reference and to `AGENTS.md#distribution-inputs` rather than repeating them. The README's release-notes paragraph links to the runbook's Propose, Answer and Execute section.
+- "Answer No and let the answer expire" is refined:
+  - A final No never executes.
+  - Only a final Yes is bounded by `answerExpiration()`, measured from finalization. It can be cleared afterwards with `markProposalWithExpiredAnswerAsInvalid`.
+  - A superseded Yes must be vetoed or left to expire.
+- A question finalized No, an expired Yes, or an `INVALIDATED` mapping can't be re-asked, because `addProposalWithNonce` requires an oracle result of `INVALIDATED`. The same CID and transaction therefore can't be proposed again, and a rejected period needs a changed export.
+- `execute.json` keeps working after a re-ask, because it uses the module's current question mapping. Only `answer.json` is tied to nonce 0.
+- The RealityVetoModule was read from its bytecode and getters, read-only, because its source wasn't available. It exposes `VETOER()` (`0xB6b5…2FaE`), `SAFE()`, `REALITY_MODULE()` and `vetoProposal(bytes32)`, and calls the module's `markProposalAsInvalidByHash`. The runbook names these, and the user confirmed that `vetoProposal` takes the question hash. The governance setup's deployment record is an internal page, so the runbook doesn't reference it: the commands read every address and parameter from the module and ENS.
+- The Phase 11b and 13 entries above say "the runbook (Phase 20)". Under the current numbering, the runbook is Phase 19c.
+- The runbook and the README describe only the RPC URLs, `IPFS_GATEWAY_URL` and `DATABASE_FILE` as configuration, plus the workflow's RPC secrets and its `IPFS_GATEWAY_URL` variable. The Aegis contracts are named as fixed in `src/config/aegis.ts`.
+- The README's `cmd:export` paragraph names `rewards.safenet-gov.eth` and the Reality Module instead of `REWARDS_ENS_NAME` and `REALITY_MODULE_ADDRESS`, which 19b had missed. It calls the values read from chain "governance parameters".
+- The data repository was renamed from `safenet-beta-data` to `safenet-data`, so the `--record` descriptions in `README.md` and `AGENTS.md` say `safenet-data`. The cache comment in `distribution.yml` says a miss indexes from the Aegis deployment blocks in `src/config/aegis.ts`, not from "configured" blocks. 19c therefore also changes `AGENTS.md` and `.github/workflows/distribution.yml`.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
