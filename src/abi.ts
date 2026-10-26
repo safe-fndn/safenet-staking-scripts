@@ -60,6 +60,9 @@ export const ENS_RESOLVER_ABI = parseAbi([
 export const MULTI_SEND_ABI = parseAbi(["function multiSend(bytes transactions) external payable"]);
 
 export const REALITY_MODULE_ABI = parseAbi([
+	"event ProposalQuestionCreated(bytes32 indexed questionId, string indexed proposalId)",
+	"function questionIds(bytes32 questionHash) external view returns (bytes32 questionId)",
+	"function executedProposalTransactions(bytes32 questionHash, bytes32 txHash) external view returns (bool executed)",
 	"function avatar() external view returns (address avatar)",
 	"function target() external view returns (address target)",
 	"function oracle() external view returns (address oracle)",
@@ -74,6 +77,7 @@ export const REALITY_MODULE_ABI = parseAbi([
 ]);
 
 export const REALITY_ETH_ERC20_ABI = parseAbi([
+	"event LogNewQuestion(bytes32 indexed question_id, address indexed user, uint256 template_id, string question, bytes32 indexed content_hash, address arbitrator, uint32 timeout, uint32 opening_ts, uint256 nonce, uint256 created)",
 	"function token() external view returns (address token)",
 	"function submitAnswerERC20(bytes32 questionId, bytes32 answer, uint256 maxPrevious, uint256 tokens) external",
 ]);
