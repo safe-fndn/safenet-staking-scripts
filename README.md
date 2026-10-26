@@ -84,7 +84,9 @@ npm run cmd:participation -- --record=./path/to/record
 
 The optional `--category` flag takes `validator`, `sentinel` or `all` (the default) and acts as a pure row filter, so the table shape and TSV header stay the same regardless of its value. Rows are grouped by category and sorted by address within each group.
 
-Sentinel reveals are attributed to the period of the request they answer rather than the period they happened in, so a reveal landing after the period boundary still counts towards its request, as long as it lands no later than the period's settlement block. The settlement block is 48 consensus blocks (about 4 minutes on Gnosis Chain) after the last consensus block at or before the end of the period, and reveals after it are never counted, however far the database is indexed. Sentinel participation and sentinel rewards for a period are therefore only available once its settlement block exists, and the commands fail until then. Both chains are indexed up to the settlement block's timestamp, so they also fail until the staking chain has caught up to it, which takes at most one more Ethereum block. Unlike validators, there is no on-chain registry of sentinels, so only sentinels that revealed at least once appear in the output.
+Work that completes a period can land after its end, so it is counted up to the period's settlement block: 48 consensus blocks (about 4 minutes on Gnosis Chain) after the last consensus block at or before the end of the period. Events after the settlement block are never counted, however far the database is indexed, so the result for a period does not depend on when it is computed. Participation and rewards for a period are therefore only available once its settlement block exists, and the commands fail until then. Both chains are indexed up to the settlement block's timestamp, so they also fail until the staking chain has caught up to it, which takes at most one more Ethereum block.
+
+A validator signature counts towards the period its signing ceremony completed in, and only if the ceremony's transaction attestation lands no later than the settlement block. Sentinel reveals are attributed to the period of the request they answer rather than the period they happened in, so a reveal landing after the period boundary still counts towards its request, as long as it lands no later than the settlement block. Unlike validators, there is no on-chain registry of sentinels, so only sentinels that revealed at least once appear in the output.
 
 The `--record` flag expects the root of the `safenet-beta-data` repository and writes validator rates to `<record>/assets/validator-info.json` and sentinel rates to `<record>/assets/sentinel-info.json`, updating the `participation_rate_14d` field for any participant already in the file. Participants not yet present are inserted automatically with an empty `label`. Both files are always updated, regardless of `--category`.
 
@@ -94,7 +96,7 @@ Computes and prints SAFE token reward payouts for each recipient over a reward p
 
 Validators with less than 75% participation generate no rewards for themselves or their delegators. Validators below the 3.5M SAFE minimum self-stake threshold forfeit their commission on delegated stake, but still receive rewards on their own self-stake. Individual payouts below the `--minPayout` threshold (0 SAFE, i.e. no minimum, by default) are carried forward as unpaid. See the [full rewards specification](https://docs.safefoundation.org/safenet/staking/rewards) for details.
 
-Sentinel eligibility is binary: every sentinel that revealed for at least 70% of the sentinel oracle requests created in the period receives the full per-sentinel grant, and every sentinel below the threshold receives nothing. Grants that are not awarded this way are reported as `Forfeited` and — unlike the validator `Unpaid` amount, which is rounding dust carried into the next period — are never spent. The `--minPayout` threshold does not apply to sentinel grants. As with `cmd:participation`, sentinel participation only counts reveals up to the period's settlement block, so the command fails until that block exists.
+Sentinel eligibility is binary: every sentinel that revealed for at least 70% of the sentinel oracle requests created in the period receives the full per-sentinel grant, and every sentinel below the threshold receives nothing. Grants that are not awarded this way are reported as `Forfeited` and — unlike the validator `Unpaid` amount, which is rounding dust carried into the next period — are never spent. The `--minPayout` threshold does not apply to sentinel grants. As with `cmd:participation`, validator and sentinel participation only count work up to the period's settlement block, so the command fails until that block exists.
 
 ```sh
 npm run cmd:rewards
@@ -142,7 +144,7 @@ The `--record` flag is required and must point at the root of the `safenet-beta-
 
 ### `cmd:validators`
 
-Prints each validator's self-stake and total delegated stake (time-weighted averages) over a reward period.
+Prints each validator's self-stake and total delegated stake (time-weighted averages) over a reward period. Like `cmd:participation`, it indexes up to the period's settlement block and fails until that block exists.
 
 ```sh
 npm run cmd:validators
@@ -153,7 +155,7 @@ npm run cmd:validators -- --rewardPeriodStart=1700000000 --rewardPeriodEnd=17012
 
 ### `cmd:stake`
 
-Prints the average staked amount per staker/validator pair over a reward period.
+Prints the average staked amount per staker/validator pair over a reward period. Like `cmd:participation`, it indexes up to the period's settlement block and fails until that block exists.
 
 ```sh
 npm run cmd:stake
