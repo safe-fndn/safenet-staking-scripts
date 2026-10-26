@@ -1279,6 +1279,10 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 
 - Ported unchanged from `permissionless/15a`: `governance.ts`, `governance.test.ts`, the `src/abi.ts` entries (the nine module getters and `RealityETH_ERC20.token()`), and `resolvePreviousRewardsDb`'s optional `blockNumber` with its test. `previous.ts` and `previous.test.ts` differ from the reference only by the 15a cleanup.
 
+### Phase 15c
+
+- Ported unchanged from `permissionless/15c` (0d48a01), except the `src/distribution/allocations.test.ts` change, which is skipped because that file doesn't exist in the redux.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
