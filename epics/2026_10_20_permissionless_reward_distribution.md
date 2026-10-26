@@ -1283,6 +1283,16 @@ A first implementation continued past 14a with a manifest, allocations, reward o
 
 - Ported unchanged from `permissionless/15c` (0d48a01), except the `src/distribution/allocations.test.ts` change, which is skipped because that file doesn't exist in the redux.
 
+### Phase 15d
+
+- Ported from `permissionless/14d` without the manifest and allocations handling, `writePackageFiles`, `MANIFEST_FILE`, `ALLOCATIONS_FILE` and `tests/harness/manifest.ts`. The only accepted entries are `latest.json` and an optional `proofs/`. Anything else, including `manifest.json` and `allocations.json`, is refused with `unexpected "<path>" in rewards DB`.
+- The file stays `src/distribution/package.ts`, because the spec calls the rewards DB at the CID root "the package".
+- Tests:
+  - The `distribute` helper uses `distributionPayouts`.
+  - The layout refusals target a missing directory and check that it is never created.
+  - There is an extra refusal for `proofs` as a file.
+  - The round trip (copy → `distribute` → `packDirectory` → `unpackCar` → copy) ends with a copy equal to the distributed directory.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
