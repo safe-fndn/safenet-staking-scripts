@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeRewardPayouts, payoutAmount } from "../src/safenet.js";
+import { mergeRewardPayouts, payoutAmount, SETTLEMENT_BLOCKS } from "../src/safenet.js";
 import { sentinelRequest } from "./harness/presets.js";
 import { createTestSafenet } from "./harness/scenario.js";
 import { emptyBlocks, namedAddress, parseSafe } from "./harness/utils.js";
@@ -14,7 +14,10 @@ describe("sentinel-rewards", () => {
 	it("pays the full grant to every sentinel at or above the participation threshold", async () => {
 		const safenet = await createTestSafenet({
 			staking: {
-				slots: emptyBlocks(4, { assertTimestamp: 36n }),
+				slots: [
+					// Up to the settlement timestamp, as every indexer is updated to it.
+					...emptyBlocks(24, { assertTimestamp: 276n }),
+				],
 			},
 			consensus: {
 				slots: [
@@ -45,6 +48,8 @@ describe("sentinel-rewards", () => {
 						assertTimestamp: 30n,
 						events: sentinelRequest({ seed: "5", reveals: ["sentinel1"] }),
 					},
+					// Up to the period's settlement block.
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS)),
 				],
 			},
 		});
@@ -68,7 +73,7 @@ describe("sentinel-rewards", () => {
 	it("treats a sentinel exactly at the participation threshold as eligible", async () => {
 		const safenet = await createTestSafenet({
 			staking: {
-				slots: emptyBlocks(3, { assertTimestamp: 24n }),
+				slots: emptyBlocks(23, { assertTimestamp: 264n }),
 			},
 			consensus: {
 				slots: [
@@ -106,6 +111,7 @@ describe("sentinel-rewards", () => {
 							...sentinelRequest({ seed: "10", reveals: [] }),
 						],
 					},
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS)),
 				],
 			},
 		});
@@ -155,7 +161,7 @@ describe("sentinel-rewards", () => {
 	it("pays and forfeits nothing for a period without requests", async () => {
 		const safenet = await createTestSafenet({
 			staking: {
-				slots: emptyBlocks(2, { assertTimestamp: 12n }),
+				slots: emptyBlocks(22, { assertTimestamp: 252n }),
 			},
 			consensus: {
 				slots: [
@@ -163,6 +169,7 @@ describe("sentinel-rewards", () => {
 						events: sentinelRequest({ seed: "1", reveals: ["sentinel1"] }),
 					},
 					...emptyBlocks(2, { assertTimestamp: 10n }),
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS)),
 				],
 			},
 		});

@@ -771,6 +771,28 @@ Changes that came up during implementation. Where they conflict with the rest of
 - The search reads `latest`, not `finalized`. Settlement only uses periods that ended at least 48 blocks ago, so a reorg at the head doesn't affect it.
 - The tests use a fake viem client with a `custom` transport instead of `MockChain`, because `MockChain` can't produce two blocks with the same timestamp.
 
+### Phase 6
+
+- `Safenet.settlement({ toTimestamp })` is public and returns `{ boundaryBlock, settlementBlock, settlementTimestamp }`, so that Phase 15 can record the consensus boundary and settlement blocks in the manifest. `src/safenet.ts` exports `SETTLEMENT_BLOCKS` (`48n`) and `Settlement`.
+- The boundary is `blockAtTimestamp(consensusClient, { timestamp: toTimestamp, fromBlock: consensusStartBlock ?? 0n })`, using `Safenet`'s backoff. The start block is the consensus one, not the sentinel oracle's.
+- Error cases:
+  - A period ending before the consensus start block throws `period end <t> is before the consensus start block`.
+  - A `toTimestamp` after the latest block throws the `blockAtTimestamp` error.
+  - A settlement block beyond the latest block throws `settlement block <n> does not exist yet`. This is checked against `getBlock("latest")` first, so it fails immediately instead of after the backoff retries.
+- `sentinelParticipation`, and therefore `sentinelRewards`, computes the settlement and then runs `index({ toTimestamp: settlementTimestamp })`. All 8 indexers on both chains share a single indexing horizon that covers work crossing the period boundary.
+  - The staking-chain queries are bounded by the period's timestamps, so indexing that chain further doesn't change their results. Paging may index past settlement, and the predicate makes that irrelevant.
+  - Because the staking chain is also indexed to `settlementTimestamp`, the call fails with `Attempting to update to a future block` until Ethereum has a block at or after that timestamp, which takes at most one more Ethereum block after the settlement block.
+  - `rewards()` and validator participation still index to `toTimestamp` until Phase 7. Their results already depend on how far the consensus chain is indexed: `TransactionAttested` has no timestamp and can land after `toTimestamp`, setting `is_transaction_attestation` on ceremonies inside the period. Phase 7's `attested_block_timestamp ≤ settlementTimestamp` predicate removes that dependency.
+- `selectParticipation` adds `AND v.block_timestamp <= @settlementTimestamp`. `requestCount` stays bounded by `toTimestamp`. `SentinelData.participation` takes a new `SettledRange` (`TimestampRange & { settlementTimestamp }`) from `src/utils/ranges.ts`, so that Phase 7 can reuse it.
+- `sentinel_reveals.block_timestamp` is a plain `INTEGER NOT NULL` column with no index, because it is only filtered after the join on `request`.
+- `totals()` (from #83) counts revealed requests with no period or settlement bound. It is a "current totals" metric, so it deliberately has no settlement predicate. #82 forces nothing: `Revealed` is unchanged, and the new `OracleResult` event is not indexed.
+- Files beyond the phase's list:
+  - `src/utils/ranges.ts` (`SettledRange`).
+  - `tests/sentinel-rewards.test.ts`, whose scenarios are extended by `SETTLEMENT_BLOCKS`.
+  - `AGENTS.md`, which documents the genesis block and the settlement requirement for scenarios. Harness scenarios that query sentinel participation or rewards must extend the consensus chain by `SETTLEMENT_BLOCKS` and the staking chain to at least the settlement timestamp.
+  - `tests/harness/chain.ts`: `MockChain` gets an empty genesis block 0 at t=0, with `parentHash = zeroHash`. The harness sets no consensus start block, so `blockAtTimestamp` needs block 0 to exist. `consensusStartBlock: 1n` doesn't work instead, because `EventIndexer` fetches block 0 for its initial timestamp.
+- The settlement tests live in `tests/sentinel-participation.test.ts`. Phase 7 creates `tests/settlement.test.ts` for attestations.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions

@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { SETTLEMENT_BLOCKS } from "../src/safenet.js";
 import { sentinelRequest } from "./harness/presets.js";
-import { createTestSafenet } from "./harness/scenario.js";
+import { createTestSafenet, type Scenario } from "./harness/scenario.js";
 import { emptyBlocks, namedAddress, requestId } from "./harness/utils.js";
 
 describe("sentinel-participation", () => {
 	it("attributes reveals to the period of the request they answer", async () => {
 		const safenet = await createTestSafenet({
 			staking: {
-				slots: emptyBlocks(4, { assertTimestamp: 36n }),
+				slots: [
+					// Up to the settlement timestamp, as every indexer is updated to it.
+					...emptyBlocks(24, { assertTimestamp: 276n }),
+				],
 			},
 			consensus: {
 				slots: [
@@ -56,16 +60,11 @@ describe("sentinel-participation", () => {
 						],
 					},
 					...emptyBlocks(1, { assertTimestamp: 40n }),
+					// Up to the settlement block 7 + 48 = 55 of the period.
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS) - 2),
 				],
 			},
 		});
-
-		// Index the whole chain first: `sentinelParticipation` only ever
-		// indexes up to the end of the period it is asked about, so the reveal
-		// landing after the period boundary needs a later indexing run to be
-		// visible at all - which is exactly what happens in practice, where
-		// rewards are computed for a period that has long since closed.
-		await safenet.index();
 
 		// Requests created in [10, 30] are "1" (t=10), "2" (t=15) and "3"
 		// (t=25), so the denominator is 3. sentinel1 revealed for all three,
@@ -87,7 +86,7 @@ describe("sentinel-participation", () => {
 	it("skips reveals for requests created before the oracle start block", async () => {
 		const safenet = await createTestSafenet({
 			staking: {
-				slots: emptyBlocks(3, { assertTimestamp: 24n }),
+				slots: emptyBlocks(23, { assertTimestamp: 264n }),
 			},
 			consensus: {
 				slots: [
@@ -116,6 +115,7 @@ describe("sentinel-participation", () => {
 						events: sentinelRequest({ seed: "1", reveals: ["sentinel1"] }),
 					},
 					...emptyBlocks(1, { assertTimestamp: 20n }),
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS)),
 				],
 			},
 			sentinelOracleStartBlock: 3n,
@@ -138,7 +138,7 @@ describe("sentinel-participation", () => {
 	it("reports empty participation for a period without requests", async () => {
 		const safenet = await createTestSafenet({
 			staking: {
-				slots: emptyBlocks(2, { assertTimestamp: 12n }),
+				slots: emptyBlocks(22, { assertTimestamp: 252n }),
 			},
 			consensus: {
 				slots: [
@@ -146,6 +146,7 @@ describe("sentinel-participation", () => {
 						events: sentinelRequest({ seed: "0", reveals: ["sentinel1"] }),
 					},
 					...emptyBlocks(2, { assertTimestamp: 10n }),
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS)),
 				],
 			},
 		});
@@ -159,6 +160,99 @@ describe("sentinel-participation", () => {
 		expect(participation).toEqual({
 			total: 0,
 			sentinels: {},
+		});
+	});
+
+	describe("settlement", () => {
+		// The period [0, 10] ends with block 3 (t=10), so it settles at block
+		// 3 + 48 = 51 (t=250). The scenario has a late reveal for request "2"
+		// exactly at the settlement block, and one just after it.
+		const lateReveal = (sentinel: string) => ({
+			name: "Revealed" as const,
+			requestId: requestId("2"),
+			sentinel: namedAddress(sentinel),
+			approved: true,
+		});
+		const scenario = ({ settled }: { settled: boolean }): Scenario => ({
+			staking: {
+				slots: emptyBlocks(22, { assertTimestamp: 252n }),
+			},
+			consensus: {
+				slots: [
+					{
+						events: sentinelRequest({
+							seed: "1",
+							reveals: ["sentinel1", "sentinel2", "sentinel3"],
+						}),
+					},
+					...emptyBlocks(1),
+					{
+						assertTimestamp: 10n,
+						events: sentinelRequest({ seed: "2", reveals: ["sentinel1"] }),
+					},
+					...emptyBlocks(Number(SETTLEMENT_BLOCKS) - 1, { assertTimestamp: 245n }),
+					...(settled
+						? [
+								{ assertTimestamp: 250n, events: [lateReveal("sentinel2")] },
+								{ assertTimestamp: 255n, events: [lateReveal("sentinel3")] },
+								...emptyBlocks(10, { assertTimestamp: 305n }),
+							]
+						: []),
+				],
+			},
+		});
+		const period = { fromTimestamp: 0n, toTimestamp: 10n };
+
+		it("counts a reveal exactly at the settlement block", async () => {
+			const safenet = await createTestSafenet(scenario({ settled: true }));
+
+			expect(await safenet.settlement(period)).toEqual({
+				boundaryBlock: 3n,
+				settlementBlock: 51n,
+				settlementTimestamp: 250n,
+			});
+
+			// sentinel2 revealed for request "2" in the settlement block itself,
+			// so it is credited for both requests.
+			const participation = await safenet.sentinelParticipation(period);
+			expect(participation.total).toBe(2);
+			expect(participation.sentinels[namedAddress("sentinel2")]).toBe(2);
+		});
+
+		it("ignores a reveal after the settlement block however far the chain is indexed", async () => {
+			// One database is only indexed as far as the settlement requires,
+			// the other one up to the head of the chain, well past the reveal
+			// one block after the settlement block. Note that the former still
+			// indexes block 52, as it is part of the same block page as the
+			// settlement block 51.
+			const settled = await createTestSafenet(scenario({ settled: true }));
+			const indexed = await createTestSafenet(scenario({ settled: true }));
+			await indexed.index();
+
+			// sentinel3 revealed for request "2" one block too late, so it is
+			// only credited for request "1".
+			const expected = {
+				total: 2,
+				sentinels: {
+					[namedAddress("sentinel1")]: 2,
+					[namedAddress("sentinel2")]: 2,
+					[namedAddress("sentinel3")]: 1,
+				},
+			};
+			expect(await settled.sentinelParticipation(period)).toEqual(expected);
+			expect(await indexed.sentinelParticipation(period)).toEqual(expected);
+		});
+
+		it("fails while the settlement block does not exist yet", async () => {
+			// The chain ends with block 50, one block short of the settlement.
+			const safenet = await createTestSafenet(scenario({ settled: false }));
+
+			await expect(safenet.settlement(period)).rejects.toThrow(
+				"settlement block 51 does not exist yet",
+			);
+			await expect(safenet.sentinelParticipation(period)).rejects.toThrow(
+				"settlement block 51 does not exist yet",
+			);
 		});
 	});
 });

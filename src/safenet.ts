@@ -5,7 +5,7 @@
 import Sqlite3 from "better-sqlite3";
 import debug, { type Debugger } from "debug";
 import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "viem";
-import { getBlockNumber, getChainId, readContract } from "viem/actions";
+import { getBlock, getBlockNumber, getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { AttestationData } from "./data/attestations.js";
 import { SanctionsData } from "./data/sanctions.js";
@@ -21,6 +21,7 @@ import { ValidatorBeneficiaries } from "./indexing/validator-beneficiaries.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
 import { type Backoff, backoff } from "./utils/backoff.js";
+import { blockAtTimestamp } from "./utils/blocks.js";
 import { formatRange } from "./utils/format.js";
 import { sqrtBigInt } from "./utils/math.js";
 import { rangeDuration, type TimestampRange, type ToTimestamp } from "./utils/ranges.js";
@@ -79,6 +80,32 @@ export type Totals = {
 	transactions: number;
 };
 
+/**
+ * The consensus blocks that a period's late-arriving events are cut off at.
+ */
+export type Settlement = {
+	/** The last consensus block with `timestamp ≤ toTimestamp`. */
+	boundaryBlock: bigint;
+	/** `boundaryBlock + SETTLEMENT_BLOCKS`. */
+	settlementBlock: bigint;
+	settlementTimestamp: bigint;
+};
+
+/**
+ * The number of consensus blocks after the end of a period during which events
+ * completing the period's work, such as sentinel reveals, are still counted.
+ *
+ * This is the `transaction_attestation_duration` default in `safenet-monitor`:
+ * "Worst case for an oracle approved transaction with the default Aegis
+ * validator configuration: 24 blocks of oracle timeout, followed by 6 blocks
+ * each for nonce commitments, signature shares and the fallback attestation,
+ * with some extra margin for transaction inclusion."
+ *
+ * It is a constant rather than configuration, as changing it changes the
+ * result for a period.
+ */
+export const SETTLEMENT_BLOCKS = 48n;
+
 /** The total amount paid out to a recipient over all reward programs. */
 export const payoutAmount = ({ stakeRewards, commission, sentinelRewards }: RewardSplit): bigint =>
 	stakeRewards + commission + sentinelRewards;
@@ -120,6 +147,8 @@ type StakingChain = {
 };
 
 type ConsensusChain = {
+	client: Client;
+	startBlock: bigint;
 	attestations: AttestationData;
 	stakers: ValidatorStakers;
 	transactions: Transactions;
@@ -355,22 +384,67 @@ export class Safenet {
 	}
 
 	/**
+	 * Compute the settlement of a period: the consensus block that events
+	 * completing the period's work are counted up to.
+	 *
+	 * Block timestamps strictly increase on the consensus chain, so counting
+	 * events with `timestamp ≤ settlementTimestamp` is the same as counting
+	 * events up to and including the settlement block. This throws while the
+	 * settlement block does not exist yet, i.e. for roughly the first
+	 * `SETTLEMENT_BLOCKS` consensus blocks after the period ends.
+	 */
+	async settlement({ toTimestamp }: ToTimestamp): Promise<Settlement> {
+		const { client, startBlock } = this.#consensus;
+		const boundary = await blockAtTimestamp(
+			client,
+			{ timestamp: toTimestamp, fromBlock: startBlock },
+			this.#backoff,
+		);
+		if (boundary === null) {
+			throw new Error(`period end ${toTimestamp} is before the consensus start block`);
+		}
+
+		// Check against the latest block first, so that a settlement block
+		// that does not exist yet fails right away instead of being retried.
+		const settlementBlock = boundary.number + SETTLEMENT_BLOCKS;
+		const latest = await this.#backoff(() => getBlock(client, { blockTag: "latest" }));
+		if (latest.number === null || latest.number < settlementBlock) {
+			throw new Error(`settlement block ${settlementBlock} does not exist yet`);
+		}
+		const { timestamp } = await this.#backoff(() =>
+			getBlock(client, { blockNumber: settlementBlock }),
+		);
+
+		this.#debug(`settling at block ${settlementBlock}@${timestamp}`);
+		return { boundaryBlock: boundary.number, settlementBlock, settlementTimestamp: timestamp };
+	}
+
+	/**
 	 * Compute sentinel participation within a period.
 	 *
 	 * Participation is the number of sentinel oracle requests a sentinel
 	 * revealed for, out of all requests created in the period. Reveals are
 	 * attributed to the period of the request they answer and not to the period
 	 * they happened in, so a reveal landing after the period boundary still
-	 * counts towards its request. This mirrors how validator participation
-	 * attributes signature shares to their signing ceremony.
+	 * counts towards its request, as long as it is no later than the period's
+	 * settlement block (see `settlement`). This mirrors how validator
+	 * participation attributes signature shares to their signing ceremony.
+	 *
+	 * Note that this indexes both chains up to the settlement block's
+	 * timestamp, so it also fails while the staking chain has no block at or
+	 * after it yet.
 	 *
 	 * Unlike validators, there is no registry of known sentinels, so only
 	 * sentinels that revealed at least once appear in the result.
 	 */
 	async sentinelParticipation(period: TimestampRange): Promise<SentinelParticipation> {
 		this.#debug(`using period ${formatRange(period)}`);
-		await this.index(period);
-		return this.#consensus.sentinels.participation(period);
+		const { settlementTimestamp } = await this.settlement(period);
+		// Every indexer, not just the sentinel oracle, is updated to the
+		// settlement, so that all data shares a single indexing horizon that
+		// covers work crossing the period boundary.
+		await this.index({ toTimestamp: settlementTimestamp });
+		return this.#consensus.sentinels.participation({ ...period, settlementTimestamp });
 	}
 
 	/**
@@ -705,6 +779,8 @@ export class Safenet {
 				sanctions: new Sanctions(sanctionsConfig),
 			},
 			consensus: {
+				client: params.consensusClient,
+				startBlock: params.consensusStartBlock ?? 0n,
 				attestations: attestationData,
 				stakers: new ValidatorStakers(validatorStakersConfig),
 				transactions: new Transactions(consensusConfig),
