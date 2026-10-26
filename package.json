@@ -23,6 +23,7 @@
 		"better-sqlite3": "^12.6.2",
 		"debug": "^4.4.3",
 		"dotenv": "^17.3.1",
+		"ipfs-unixfs-exporter": "^16.2.3",
 		"ipfs-unixfs-importer": "^17.1.1",
 		"multiformats": "^14.0.5",
 		"viem": "^2.46.3",
