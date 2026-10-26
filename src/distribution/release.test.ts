@@ -53,7 +53,6 @@ describe("releaseAssets", () => {
 		expect(carAssetName(1793059200n)).toBe("rewards-1793059200.car");
 		expect(Object.keys(releaseAssets(EXPORT))).toEqual([
 			"SHA256SUMS",
-			"answer.json",
 			"cid.txt",
 			"execute.json",
 			"merkle-root.txt",
@@ -70,7 +69,7 @@ describe("releaseAssets", () => {
 		expect(decode(assets["cid.txt"])).toBe(`${PINNED_CID}\n`);
 		expect(decode(assets["merkle-root.txt"])).toBe(`${MERKLE_ROOT}\n`);
 		expect(decode(assets["proposal.json"])).toBe(canonicalJson(PROPOSAL));
-		for (const name of ["answer", "execute", "propose"] as const) {
+		for (const name of ["execute", "propose"] as const) {
 			expect(decode(assets[`${name}.json`])).toBe(canonicalJson(EXPORT.bundles[name]));
 		}
 

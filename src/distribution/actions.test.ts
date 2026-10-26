@@ -12,13 +12,7 @@ import {
 } from "../../tests/harness/governance.js";
 import { ERC20_ABI, REALITY_ETH_ERC20_ABI, REALITY_MODULE_ABI } from "../abi.js";
 import { canonicalJson } from "../utils/json.js";
-import {
-	ANSWER_YES,
-	actionBundles,
-	answerBundle,
-	executeBundle,
-	proposeBundle,
-} from "./actions.js";
+import { ANSWER_YES, actionBundles, executeBundle, proposeBundle } from "./actions.js";
 import { MULTI_SEND_CALL_ONLY, proposal } from "./transactions.js";
 
 // The proposal re-proposes the pinned CID and root with the mainnet vectors of
@@ -33,76 +27,33 @@ const MINIMUM_BOND = 10000n * 10n ** 18n;
 const selector = (data: Hex | null) => (data === null ? null : slice(data, 0, 4));
 
 describe("proposeBundle", () => {
-	it("adds the proposal with its single transaction hash", () => {
+	it("proposes, approves the minimum bond, then answers Yes in one bundle", () => {
 		expect(PROPOSAL.proposalId).toBe(PINNED_CID);
 		expect(PROPOSAL.transaction.hash).toBe(TX_HASH);
-
+		expect(PROPOSAL.questionId).toBe(QUESTION_ID);
 		const bundle = proposeBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP);
 		expect(bundle).toEqual({
 			version: "1.0",
 			chainId: "1",
 			createdAt: CREATED_AT,
 			meta: {},
-			transactions: [
-				{
-					to: MODULE,
-					value: "0",
-					data: expect.any(String),
-					contractMethod: null,
-					contractInputsValues: null,
-				},
-			],
+			transactions: [MODULE, SAFE_TOKEN, ORACLE].map((to) => ({
+				to,
+				value: "0",
+				data: expect.any(String),
+				contractMethod: null,
+				contractInputsValues: null,
+			})),
 		});
-		expect(bundle).not.toHaveProperty("createdFromSafeAddress");
-
-		const [{ data }] = bundle.transactions;
-		expect(selector(data)).toBe("0x8dcd2661");
-		expect(decodeFunctionData({ abi: REALITY_MODULE_ABI, data: data as Hex })).toEqual({
+		const [propose, approve, submitAnswer] = bundle.transactions;
+		expect(decodeFunctionData({ abi: REALITY_MODULE_ABI, data: propose.data as Hex })).toEqual({
 			functionName: "addProposal",
 			args: [PINNED_CID, [TX_HASH]],
 		});
-	});
-});
-
-describe("answerBundle", () => {
-	it("approves the minimum bond, then answers Yes with it", () => {
-		expect(CONFIG.bondToken).toBe(SAFE_TOKEN);
-		expect(CONFIG.oracle).toBe(ORACLE);
-		expect(CONFIG.minimumBond).toBe(MINIMUM_BOND);
-		expect(PROPOSAL.questionId).toBe(QUESTION_ID);
-
-		const bundle = answerBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP);
-		expect(bundle).toEqual({
-			version: "1.0",
-			chainId: "1",
-			createdAt: CREATED_AT,
-			meta: {},
-			transactions: [
-				{
-					to: SAFE_TOKEN,
-					value: "0",
-					data: expect.any(String),
-					contractMethod: null,
-					contractInputsValues: null,
-				},
-				{
-					to: ORACLE,
-					value: "0",
-					data: expect.any(String),
-					contractMethod: null,
-					contractInputsValues: null,
-				},
-			],
-		});
-		expect(bundle).not.toHaveProperty("createdFromSafeAddress");
-
-		const [approve, submitAnswer] = bundle.transactions;
-		expect(selector(approve.data)).toBe("0x095ea7b3");
 		expect(decodeFunctionData({ abi: ERC20_ABI, data: approve.data as Hex })).toEqual({
 			functionName: "approve",
 			args: [ORACLE, MINIMUM_BOND],
 		});
-		expect(selector(submitAnswer.data)).toBe("0x2f998a6f");
 		expect(
 			decodeFunctionData({ abi: REALITY_ETH_ERC20_ABI, data: submitAnswer.data as Hex }),
 		).toEqual({
@@ -150,9 +101,8 @@ describe("executeBundle", () => {
 });
 
 describe("actionBundles", () => {
-	it("builds the three bundles", () => {
+	it("builds the two bundles", () => {
 		expect(actionBundles(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP)).toEqual({
-			answer: answerBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP),
 			execute: executeBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP),
 			propose: proposeBundle(PROPOSAL, CONFIG, SETTLEMENT_TIMESTAMP),
 		});

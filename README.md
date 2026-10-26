@@ -127,8 +127,7 @@ The package (`latest.json` and `proofs/`, the layout of the ENS-pinned rewards D
 | `cid.txt`                 | Package CID                                                                     |
 | `merkle-root.txt`         | Merkle root                                                                     |
 | `proposal.json`           | The Governance Safe transaction, its calls, its Zodiac hash and the question ID |
-| `propose.json`            | Safe Transaction Builder bundle: `addProposal`                                  |
-| `answer.json`             | Safe Transaction Builder bundle: `approve` and a **Yes** `submitAnswerERC20`    |
+| `propose.json`            | Safe Transaction Builder bundle: propose, approve the bond and answer **Yes**   |
 | `execute.json`            | Safe Transaction Builder bundle: `executeProposalWithIndex`                     |
 | `SHA256SUMS`              | Checksums of all of the above, for `sha256sum -c`                               |
 
