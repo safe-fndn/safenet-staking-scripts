@@ -2,10 +2,11 @@
  * Command to print validator statistics for a given payout period.
  */
 
-import { type Address, getAddress } from "viem";
+import type { Address } from "viem";
 import { z } from "zod";
 import { AEGIS_PARAMETERS } from "../config/aegis.js";
 import { Safenet } from "../safenet.js";
+import { addressEntries } from "../utils/addresses.js";
 import { main, rewardsPeriod } from "../utils/args.js";
 import { addressColumn, createPresenter, safeTokenColumn } from "../utils/presentation.js";
 
@@ -29,9 +30,9 @@ main(
 			],
 			args,
 		);
-		for (const [validator, { stake }] of Object.entries(validators)) {
+		for (const [validator, { stake }] of addressEntries(validators)) {
 			presenter.writeRow({
-				validator: getAddress(validator),
+				validator,
 				selfStake: stake.self.amount,
 				totalStake: stake.total,
 			});

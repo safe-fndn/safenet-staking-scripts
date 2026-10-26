@@ -7,6 +7,7 @@ import { type Address, getAddress } from "viem";
 import { z } from "zod";
 import { AEGIS_PARAMETERS } from "../config/aegis.js";
 import { type Participation, Safenet, type SentinelParticipation } from "../safenet.js";
+import { addressEntries } from "../utils/addresses.js";
 import { main, rewardsPeriod } from "../utils/args.js";
 import { readJsonFile, writeJsonFile } from "../utils/json.js";
 import {
@@ -49,7 +50,7 @@ const participationRate = (count: number, total: number): number =>
  */
 async function recordParticipation(
 	file: string,
-	counts: Record<string, number>,
+	counts: Record<Address, number>,
 	total: number,
 ): Promise<void> {
 	const data = await readJsonFile(
@@ -62,8 +63,7 @@ async function recordParticipation(
 			.array(),
 	);
 
-	for (const [participant, count] of Object.entries(counts)) {
-		const address = getAddress(participant);
+	for (const [address, count] of addressEntries(counts)) {
 		const rate = participationRate(count, total);
 		const info = data.find((info) => info.address === address);
 		if (info !== undefined) {
@@ -104,9 +104,9 @@ main(
 			const { total, validators } = validatorParticipation;
 			rows.push(
 				...sortByAddress(
-					Object.entries(validators).map(([validator, count]) => ({
+					addressEntries(validators).map(([participant, count]) => ({
 						category: "Validator" as const,
-						participant: getAddress(validator),
+						participant,
 						rate: participationRate(count, total),
 					})),
 					({ participant }) => participant,
@@ -120,9 +120,9 @@ main(
 			const { total, sentinels } = sentinelParticipation;
 			rows.push(
 				...sortByAddress(
-					Object.entries(sentinels).map(([sentinel, count]) => ({
+					addressEntries(sentinels).map(([participant, count]) => ({
 						category: "Sentinel" as const,
-						participant: getAddress(sentinel),
+						participant,
 						rate: participationRate(count, total),
 					})),
 					({ participant }) => participant,

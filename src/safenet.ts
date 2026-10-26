@@ -4,7 +4,7 @@
 
 import Sqlite3 from "better-sqlite3";
 import debug, { type Debugger } from "debug";
-import { type Address, type Client, getAddress, parseUnits, zeroAddress } from "viem";
+import { type Address, type Client, parseUnits, zeroAddress } from "viem";
 import { getBlock, getBlockNumber, getChainId, readContract } from "viem/actions";
 import { CONSENSUS_ABI, STAKING_ABI } from "./abi.js";
 import { AttestationData } from "./data/attestations.js";
@@ -21,6 +21,7 @@ import { ValidatorBeneficiaries } from "./indexing/validator-beneficiaries.js";
 import { ValidatorStakers } from "./indexing/validator-stakers.js";
 import { Validators } from "./indexing/validators.js";
 import type { Payout } from "./merkledb/index.js";
+import { addressEntries, addressKeys } from "./utils/addresses.js";
 import { type Backoff, backoff } from "./utils/backoff.js";
 import { blockAtTimestamp } from "./utils/blocks.js";
 import { formatRange } from "./utils/format.js";
@@ -271,10 +272,7 @@ export class Safenet {
 
 	#validatorRegistrations(period: TimestampRange): ValidatorRegistrations[] {
 		const set = this.#staking.staking.validatorSet(period);
-		return Object.entries(set).map(([key, registrations]) => ({
-			validator: getAddress(key),
-			registrations,
-		}));
+		return addressEntries(set).map(([validator, registrations]) => ({ validator, registrations }));
 	}
 
 	#validatorSelfStake(
@@ -316,7 +314,7 @@ export class Safenet {
 
 		const duration = rangeDuration(period);
 		result.amount /= duration;
-		for (const staker of addresses(result.stakers)) {
+		for (const staker of addressKeys(result.stakers)) {
 			result.stakers[staker] /= duration;
 		}
 
@@ -392,7 +390,7 @@ export class Safenet {
 
 		const { total, participants } = this.#consensus.attestations.participation(period);
 		const participations = Object.fromEntries(
-			[...addresses(registrations)].map((validator) => [validator, participants[validator] ?? 0]),
+			addressKeys(registrations).map((validator) => [validator, participants[validator] ?? 0]),
 		);
 		return { total, validators: participations };
 	}
@@ -865,20 +863,5 @@ export class Safenet {
 				oracle: new SentinelOracle(sentinelOracleConfig),
 			},
 		});
-	}
-}
-
-function* addresses<V>(record: Record<Address, V>): Generator<Address> {
-	for (const key in record) {
-		yield getAddress(key);
-	}
-}
-
-function* addressEntries<V>(record: Record<Address, V>): Generator<[Address, V]> {
-	for (const [key, value] of Object.entries(record)) {
-		// Note that the value comes from the entry itself and is not looked up
-		// again with the checksummed address: callers are only promised that
-		// their keys are addresses, not that they are checksummed the same way.
-		yield [getAddress(key), value];
 	}
 }

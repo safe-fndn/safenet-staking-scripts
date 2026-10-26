@@ -164,7 +164,7 @@ describe("sentinel-rewards", () => {
 		);
 	});
 
-	it("flattens merged payouts into distribution payouts with checksummed keys", () => {
+	it("flattens merged payouts and requires checksummed keys", () => {
 		// Each entry is distributed once, with its sentinel share recorded as a split of the
 		// total rather than an addition to it.
 		const staker = namedAddress("staker");
@@ -175,7 +175,7 @@ describe("sentinel-rewards", () => {
 		};
 		expect(
 			distributionPayouts({
-				[staker.toLowerCase() as Address]: { ...split, sentinelRewards: PER_SENTINEL },
+				[staker]: { ...split, sentinelRewards: PER_SENTINEL },
 				[namedAddress("sentinel1")]: {
 					stakeRewards: 0n,
 					commission: 0n,
@@ -186,6 +186,11 @@ describe("sentinel-rewards", () => {
 			[staker]: { amount: parseSafe("105") + PER_SENTINEL, sentinelAmount: PER_SENTINEL },
 			[namedAddress("sentinel1")]: { amount: PER_SENTINEL, sentinelAmount: PER_SENTINEL },
 		});
+
+		const lowercase = staker.toLowerCase() as Address;
+		expect(() => distributionPayouts({ [lowercase]: split })).toThrow(
+			`"${lowercase}" is not a checksummed address`,
+		);
 	});
 
 	it("pays and forfeits nothing for a period without requests", async () => {

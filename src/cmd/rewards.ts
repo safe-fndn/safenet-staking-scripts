@@ -2,12 +2,13 @@
  * Command to print reward payouts for a given payout period.
  */
 
-import { type Address, formatUnits, getAddress, parseUnits } from "viem";
+import { type Address, formatUnits, parseUnits } from "viem";
 import { z } from "zod";
 import { AEGIS, AEGIS_PARAMETERS } from "../config/aegis.js";
 import { kyc as committedKyc } from "../distribution/kyc.js";
 import { MerkleDb } from "../merkledb/index.js";
 import { distributionPayouts, mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
+import { addressEntries } from "../utils/addresses.js";
 import {
 	main,
 	recordRewardsDirectory,
@@ -130,8 +131,8 @@ main(
 			args,
 		);
 
-		for (const [recipient, split] of Object.entries(payouts)) {
-			presenter.writeRow({ recipient: getAddress(recipient), ...split });
+		for (const [recipient, split] of addressEntries(payouts)) {
+			presenter.writeRow({ recipient, ...split });
 		}
 
 		// Forfeited sentinel grants are reported separately from the validator
