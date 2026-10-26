@@ -322,18 +322,14 @@ export const questionId = (
  */
 export const proposal = (update: DistributionUpdate, config: GovernanceConfiguration): Proposal => {
 	const proposalId = update.cid.toString();
-	// Keys in sorted order, so that the proposal serializes exactly as it parses.
-	const [transfer, setMerkleRoot, setContenthash] = governanceCalls(update, config).map(
-		({ data, operation, to, value }) => ({ data, operation, to, value }),
-	);
-	const calls: Proposal["calls"] = [transfer, setMerkleRoot, setContenthash];
-	const { data, operation, to, value } = multiSend(calls);
-	const hash = transactionHash(config.module, { to, value, data, operation }, 0n);
+	const calls = governanceCalls(update, config);
+	const transaction = multiSend(calls);
+	const hash = transactionHash(config.module, transaction, 0n);
 	return {
 		calls,
 		proposalId,
 		questionId: questionId(buildQuestion(proposalId, [hash]), config),
-		transaction: { data, hash, operation, to, value },
+		transaction: { ...transaction, hash },
 	};
 };
 
