@@ -6,7 +6,13 @@ import { type Address, formatUnits, getAddress, parseUnits } from "viem";
 import { z } from "zod";
 import { MerkleDb } from "../merkledb/index.js";
 import { mergeRewardPayouts, payoutAmount, Safenet } from "../safenet.js";
-import { main, rewardsPeriod, sentinelRewardsAmount, totalRewardsAmount } from "../utils/args.js";
+import {
+	main,
+	recordRewardsDirectory,
+	rewardsPeriod,
+	sentinelRewardsAmount,
+	totalRewardsAmount,
+} from "../utils/args.js";
 import { writeTransactionBundle } from "../utils/bundle.js";
 import { formatSafeToken } from "../utils/format.js";
 import {
@@ -65,7 +71,11 @@ main(
 
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
-		const totalAmount = await totalRewardsAmount(args);
+		const db =
+			args.record !== undefined
+				? new MerkleDb({ root: recordRewardsDirectory(args.record) })
+				: undefined;
+		const totalAmount = await totalRewardsAmount(args, db);
 		const perSentinelAmount = sentinelRewardsAmount(args);
 
 		// Validator and sentinel rewards are two separate programs, but both are
@@ -137,9 +147,8 @@ main(
 			["Forfeited", formatUnits(forfeited, 18)],
 		);
 
-		if (args.record) {
+		if (db !== undefined) {
 			const sanctions = await safenet.sanctionedAccounts(period);
-			const db = new MerkleDb({ record: args.record });
 			const filters = { sanctions, ...args };
 			// Each entry carries its sentinel share alongside the total it is part
 			// of, so that a recipient who is both a validator staker and a
