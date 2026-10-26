@@ -12,7 +12,6 @@ import {
 	type Address,
 	type Client,
 	type ContractFunctionName,
-	getAddress,
 	namehash,
 	type ReadContractParameters,
 	zeroAddress,
@@ -39,22 +38,25 @@ const log = debug("safenet:governance");
  */
 export const governanceConfiguration = async (
 	client: Client,
-	{ module, ensName, blockNumber }: { module: Address; ensName: string; blockNumber?: bigint },
+	{
+		module,
+		ensName,
+		blockNumber: block,
+	}: { module: Address; ensName: string; blockNumber?: bigint },
 	options: Options = {},
 ): Promise<GovernanceConfiguration> => {
 	const withBackoff = options.withBackoff ?? backoff({ debug: log });
-	const block = blockNumber ?? (await withBackoff(() => getBlockNumber(client, { cacheTime: 0 })));
-	const address = getAddress(module);
+	const blockNumber = block ?? (await withBackoff(() => getBlockNumber(client, { cacheTime: 0 })));
 	// Every module getter takes no arguments.
 	const read = <F extends ContractFunctionName<typeof REALITY_MODULE_ABI, "view">>(
 		functionName: F,
 	) =>
 		withBackoff(() =>
 			readContract(client, {
-				address,
+				address: module,
 				abi: REALITY_MODULE_ABI,
 				functionName,
-				blockNumber: block,
+				blockNumber,
 			} as ReadContractParameters<typeof REALITY_MODULE_ABI, F>),
 		);
 
@@ -80,7 +82,7 @@ export const governanceConfiguration = async (
 		read("answerExpiration"),
 	]);
 	if (avatar !== target) {
-		throw new Error(`Reality Module ${address} has avatar ${avatar} but target ${target}`);
+		throw new Error(`Reality Module ${module} has avatar ${avatar} but target ${target}`);
 	}
 	const [bondToken, ensResolver] = await Promise.all([
 		withBackoff(() =>
@@ -88,7 +90,7 @@ export const governanceConfiguration = async (
 				address: oracle,
 				abi: REALITY_ETH_ERC20_ABI,
 				functionName: "token",
-				blockNumber: block,
+				blockNumber,
 			}),
 		),
 		withBackoff(() =>
@@ -97,14 +99,14 @@ export const governanceConfiguration = async (
 				abi: ENS_REGISTRY_ABI,
 				functionName: "resolver",
 				args: [namehash(ensName)],
-				blockNumber: block,
+				blockNumber,
 			}),
 		),
 	]);
 	if (ensResolver === zeroAddress) {
 		throw new Error(`ENS name ${ensName} has no resolver`);
 	}
-	log(`read the governance configuration of ${address} at block ${block}`);
+	log(`read the governance configuration of ${module} at block ${blockNumber}`);
 
 	return {
 		answerExpiration: BigInt(answerExpiration),
@@ -114,7 +116,7 @@ export const governanceConfiguration = async (
 		ensName,
 		ensResolver,
 		minimumBond,
-		module: address,
+		module,
 		oracle,
 		questionCooldown: BigInt(questionCooldown),
 		questionTimeout: BigInt(questionTimeout),

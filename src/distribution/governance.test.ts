@@ -155,22 +155,6 @@ describe("governanceConfiguration", () => {
 		);
 	});
 
-	it("checksums the module address", async () => {
-		const chain = fakeChain({});
-
-		const config = await governanceConfiguration(
-			chain.client,
-			{
-				module: CONFIG.module.toLowerCase() as Address,
-				ensName: ENS_NAME,
-				blockNumber: BLOCK_NUMBER,
-			},
-			{ withBackoff: fastBackoff },
-		);
-
-		expect(config.module).toBe(CONFIG.module);
-	});
-
 	it("retries failed calls", async () => {
 		const chain = fakeChain({ failures: 2 });
 
