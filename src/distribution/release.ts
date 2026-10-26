@@ -1,6 +1,6 @@
 /**
  * The assets of a distribution's GitHub release: the package CAR, its CID and Merkle root, the
- * proposal, the three action bundles, and `SHA256SUMS` over all of them. They are non-canonical
+ * proposal, the two action bundles, and `SHA256SUMS` over all of them. They are non-canonical
  * mirrors for proposers, answerers and pinning; the canonical references are the onchain Merkle
  * root and the ENS `contenthash`.
  *
@@ -59,7 +59,6 @@ export const releaseAssets = ({
 >): ReleaseAssets => {
 	const assets: ReleaseAssets = {
 		[carAssetName(period.toTimestamp)]: car,
-		"answer.json": text(canonicalJson(bundles.answer)),
 		"cid.txt": text(`${cid}\n`),
 		"execute.json": text(canonicalJson(bundles.execute)),
 		"merkle-root.txt": text(`${merkleRoot}\n`),

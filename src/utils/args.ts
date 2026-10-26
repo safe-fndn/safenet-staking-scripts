@@ -7,13 +7,13 @@ import { z } from "zod";
 import { type MerkleDb, nextRewardsStart } from "../merkledb/index.js";
 import { dateToTimestamp, type TimestampRange } from "../utils/ranges.js";
 import {
+	AEGIS_REWARDS_DURATION,
+	AEGIS_REWARDS_PERIOD,
 	AEGIS_REWARDS_START,
+	AEGIS_SENTINEL_REWARDS,
 	AEGIS_VALIDATOR_REWARDS,
-	AEGIS_VALIDATOR_REWARDS_DURATION,
 	BETA_REWARDS_UNTIL,
 	BETA_TOKEN_TOTAL,
-	SENTINEL_REWARDS_PER_YEAR,
-	SENTINEL_REWARDS_YEAR,
 } from "./sep.js";
 
 // The fixed Aegis values are not configuration, see `src/config/aegis.ts`.
@@ -132,7 +132,6 @@ export const rewardsPeriod = (period: {
 	// specified take the last two week period ending on the very start of the
 	// last Tuesday. This just makes it easier to run rewards scripts, as not
 	// manually specifying a rewards period will Do The Right Thing™.
-	const TWO_WEEKS = BigInt(60 * 60 * 24 * 7 * 2);
 	const lastTuesday = () => {
 		const now = new Date();
 		// Day '2' is Tuesday, so we get just subtract the day of the week from
@@ -151,8 +150,10 @@ export const rewardsPeriod = (period: {
 
 	const toTimestamp =
 		period.rewardPeriodEnd ??
-		(period.rewardPeriodStart !== undefined ? period.rewardPeriodStart + TWO_WEEKS : lastTuesday());
-	const fromTimestamp = period.rewardPeriodStart ?? toTimestamp - TWO_WEEKS;
+		(period.rewardPeriodStart !== undefined
+			? period.rewardPeriodStart + AEGIS_REWARDS_PERIOD
+			: lastTuesday());
+	const fromTimestamp = period.rewardPeriodStart ?? toTimestamp - AEGIS_REWARDS_PERIOD;
 	return { fromTimestamp, toTimestamp };
 };
 
@@ -195,7 +196,7 @@ export const totalRewardsAmount = async (
 	const periodDuration = period.toTimestamp - period.fromTimestamp;
 
 	if (db === undefined) {
-		return (AEGIS_VALIDATOR_REWARDS * periodDuration) / AEGIS_VALIDATOR_REWARDS_DURATION;
+		return (AEGIS_VALIDATOR_REWARDS * periodDuration) / AEGIS_REWARDS_DURATION;
 	}
 
 	// Aegis rewards are always recorded on top of the rewards DB pinned at the
@@ -212,13 +213,12 @@ export const totalRewardsAmount = async (
 	// Measure the elapsed time from the start of the period following the
 	// record, so that a record ending with Beta has paid nothing of Aegis yet.
 	const paidRewardsDuration = nextRewardsStart(rewardsUntil) - AEGIS_REWARDS_START;
-	if (paidRewardsDuration >= AEGIS_VALIDATOR_REWARDS_DURATION) {
+	if (paidRewardsDuration >= AEGIS_REWARDS_DURATION) {
 		return 0n;
 	}
 
 	const newTokenTotal =
-		(AEGIS_VALIDATOR_REWARDS * (paidRewardsDuration + periodDuration)) /
-		AEGIS_VALIDATOR_REWARDS_DURATION;
+		(AEGIS_VALIDATOR_REWARDS * (paidRewardsDuration + periodDuration)) / AEGIS_REWARDS_DURATION;
 	return newTokenTotal - (index.tokenTotal - index.sentinelTokenTotal - BETA_TOKEN_TOTAL);
 };
 
@@ -242,5 +242,5 @@ export const sentinelRewardsAmount = (args: {
 	const period = rewardsPeriod(args);
 	const periodDuration = period.toTimestamp - period.fromTimestamp;
 
-	return (SENTINEL_REWARDS_PER_YEAR * periodDuration) / SENTINEL_REWARDS_YEAR;
+	return (AEGIS_SENTINEL_REWARDS * periodDuration) / AEGIS_REWARDS_DURATION;
 };

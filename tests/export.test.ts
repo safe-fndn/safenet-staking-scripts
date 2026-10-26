@@ -33,13 +33,12 @@ import { MerkleDb } from "../src/merkledb/index.js";
 import { Safenet, SETTLEMENT_BLOCKS } from "../src/safenet.js";
 import { canonicalJson } from "../src/utils/json.js";
 import {
+	AEGIS_REWARDS_DURATION,
 	AEGIS_REWARDS_START,
+	AEGIS_SENTINEL_REWARDS,
 	AEGIS_VALIDATOR_REWARDS,
-	AEGIS_VALIDATOR_REWARDS_DURATION,
 	BETA_REWARDS_UNTIL,
 	BETA_TOKEN_TOTAL,
-	SENTINEL_REWARDS_PER_YEAR,
-	SENTINEL_REWARDS_YEAR,
 } from "../src/utils/sep.js";
 import { CONFIG, CUMULATIVE_MERKLE_DROP, SAFE_TOKEN } from "./harness/governance.js";
 import { attestedTransaction, sentinelRequest } from "./harness/presets.js";
@@ -286,8 +285,8 @@ describe("exportInputs", () => {
 				rewardsUntil: BETA_REWARDS_UNTIL,
 			},
 			period: FIRST_AEGIS_PERIOD,
-			totalRewards: (AEGIS_VALIDATOR_REWARDS * TWO_WEEKS) / AEGIS_VALIDATOR_REWARDS_DURATION,
-			sentinelRewards: (SENTINEL_REWARDS_PER_YEAR * TWO_WEEKS) / SENTINEL_REWARDS_YEAR,
+			totalRewards: (AEGIS_VALIDATOR_REWARDS * TWO_WEEKS) / AEGIS_REWARDS_DURATION,
+			sentinelRewards: (AEGIS_SENTINEL_REWARDS * TWO_WEEKS) / AEGIS_REWARDS_DURATION,
 		});
 		// The 11 governance reads and the 3 reads of the previous rewards DB.
 		expect(blockTags).toEqual(Array(14).fill(toHex(BLOCK_NUMBER)));
@@ -330,7 +329,7 @@ describe("exportInputs", () => {
 
 	it("derives the two weeks after a previous Aegis rewards DB", async () => {
 		// The first Aegis period paid 5 SAFE less than its share, which the next period catches up.
-		const firstShare = (AEGIS_VALIDATOR_REWARDS * TWO_WEEKS) / AEGIS_VALIDATOR_REWARDS_DURATION;
+		const firstShare = (AEGIS_VALIDATOR_REWARDS * TWO_WEEKS) / AEGIS_REWARDS_DURATION;
 		const previous = await previousRewardsDb({ firstAegisPayout: firstShare - parseSafe("5") });
 		const { result, dir } = await run(previous);
 
@@ -342,12 +341,12 @@ describe("exportInputs", () => {
 			toTimestamp: FIRST_AEGIS_PERIOD.toTimestamp + TWO_WEEKS,
 		});
 		expect(inputs.totalRewards).toBe(
-			(AEGIS_VALIDATOR_REWARDS * 2n * TWO_WEEKS) / AEGIS_VALIDATOR_REWARDS_DURATION -
+			(AEGIS_VALIDATOR_REWARDS * 2n * TWO_WEEKS) / AEGIS_REWARDS_DURATION -
 				firstShare +
 				parseSafe("5"),
 		);
 		expect(inputs.sentinelRewards).toBe(
-			(SENTINEL_REWARDS_PER_YEAR * TWO_WEEKS) / SENTINEL_REWARDS_YEAR,
+			(AEGIS_SENTINEL_REWARDS * TWO_WEEKS) / AEGIS_REWARDS_DURATION,
 		);
 		expect(await readTree(dir)).toEqual(await readTree(previous.root));
 		expect(await readdir(exportTmpdir)).toEqual([]);
@@ -466,8 +465,8 @@ describe("exportPackage", () => {
 		// the prorated grant of 400,000 SAFE a year (52 weeks) for two weeks, ≈ 15,384.62 SAFE.
 		// The withheld and the sanctioned rewards count towards `tokenTotal`, so the transfer
 		// covers the whole budget and both grants.
-		const totalRewards = (AEGIS_VALIDATOR_REWARDS * TWO_WEEKS) / AEGIS_VALIDATOR_REWARDS_DURATION;
-		const sentinelRewards = (SENTINEL_REWARDS_PER_YEAR * TWO_WEEKS) / SENTINEL_REWARDS_YEAR;
+		const totalRewards = (AEGIS_VALIDATOR_REWARDS * TWO_WEEKS) / AEGIS_REWARDS_DURATION;
+		const sentinelRewards = (AEGIS_SENTINEL_REWARDS * TWO_WEEKS) / AEGIS_REWARDS_DURATION;
 		const split = { stakeRewards: 0n, commission: 0n, sentinelRewards: 0n };
 		expect(result).toEqual({
 			stakingChainId: 1,
@@ -529,7 +528,7 @@ describe("exportPackage", () => {
 		// The proposal is about the package, and its bundles are created at the settlement.
 		const proposal = zProposal.parse(JSON.parse(canonicalJson(result.proposal)));
 		expect(proposal.proposalId).toBe(result.cid.toString());
-		expect(Object.keys(result.bundles).sort()).toEqual(["answer", "execute", "propose"]);
+		expect(Object.keys(result.bundles).sort()).toEqual(["execute", "propose"]);
 		for (const bundle of Object.values(result.bundles)) {
 			expect(bundle.createdAt).toBe(Number(SETTLEMENT_TIMESTAMP) * 1000);
 		}

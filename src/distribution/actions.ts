@@ -23,7 +23,6 @@ export const ANSWER_YES: Hex = numberToHex(1, { size: 32 });
  * The action bundles of a distribution, keyed by the name of their release asset without `.json`.
  */
 export type ActionBundles = {
-	answer: TransactionBundle;
 	execute: TransactionBundle;
 	propose: TransactionBundle;
 };
@@ -33,12 +32,16 @@ export type ActionBundles = {
 const createdAt = (settlementTimestamp: bigint): number => Number(settlementTimestamp) * 1000;
 
 /**
- * `propose.json`: `RealityModule.addProposal(proposalId, [transaction.hash])`, which asks the
- * proposal's Reality.eth question with nonce `0`. It needs no bond.
+ * `propose.json`: asks the proposal's nonce-0 Reality.eth question with `addProposal`, approves
+ * the minimum bond to the oracle, then submits the first Yes answer with that bond.
+ * The proposing Safe needs the bond token, and the proposal must not already exist.
+ *
+ * A `max_previous` of `0` disables Reality.eth's previous-bond check. Later answers require
+ * at least double the current bond and must be submitted manually.
  */
 export const proposeBundle = (
 	proposal: Proposal,
-	config: Pick<GovernanceConfiguration, "module">,
+	config: Pick<GovernanceConfiguration, "bondToken" | "minimumBond" | "module" | "oracle">,
 	settlementTimestamp: bigint,
 ): TransactionBundle =>
 	transactionBundle(
@@ -51,26 +54,6 @@ export const proposeBundle = (
 					args: [proposal.proposalId, [proposal.transaction.hash]],
 				}),
 			},
-		],
-		createdAt(settlementTimestamp),
-	);
-
-/**
- * `answer.json`: `bondToken.approve(oracle, minimumBond)`, then
- * `oracle.submitAnswerERC20(questionId, bytes32(1), 0, minimumBond)`, the first **Yes** answer
- * with the module's minimum bond.
- *
- * A `max_previous` of `0` disables Reality.eth's previous-bond check. The answer still reverts
- * once anyone has answered, because every later answer must at least double the current bond,
- * which is at least the minimum bond.
- */
-export const answerBundle = (
-	proposal: Pick<Proposal, "questionId">,
-	config: Pick<GovernanceConfiguration, "bondToken" | "minimumBond" | "oracle">,
-	settlementTimestamp: bigint,
-): TransactionBundle =>
-	transactionBundle(
-		[
 			{
 				to: config.bondToken,
 				data: encodeFunctionData({
@@ -118,14 +101,13 @@ export const executeBundle = (
 };
 
 /**
- * All three action bundles of a distribution.
+ * Both action bundles of a distribution.
  */
 export const actionBundles = (
 	proposal: Proposal,
 	config: Pick<GovernanceConfiguration, "bondToken" | "minimumBond" | "module" | "oracle">,
 	settlementTimestamp: bigint,
 ): ActionBundles => ({
-	answer: answerBundle(proposal, config, settlementTimestamp),
 	execute: executeBundle(proposal, config, settlementTimestamp),
 	propose: proposeBundle(proposal, config, settlementTimestamp),
 });

@@ -21,10 +21,19 @@ export const BETA_REWARDS_UNTIL = BigInt(Date.UTC(2026, 9, 6) / 1000);
 export const AEGIS_REWARDS_START = BigInt(Date.UTC(2026, 9, 13) / 1000);
 
 /**
+ * The shared duration of the Aegis validator and sentinel rewards allocations.
+ */
+export const AEGIS_REWARDS_DURATION = 52n * WEEK;
+
+/**
+ * The shared payout period for Aegis validator and sentinel rewards.
+ */
+export const AEGIS_REWARDS_PERIOD = 2n * WEEK;
+
+/**
  * The validator rewards budget of the Aegis program, distributed evenly over its duration.
  */
 export const AEGIS_VALIDATOR_REWARDS = parseUnits("5000000.0", 18);
-export const AEGIS_VALIDATOR_REWARDS_DURATION = 52n * WEEK;
 
 /**
  * The `tokenTotal` of the rewards DB pinned at the end of Beta, which had no sentinel spend. None
@@ -34,7 +43,6 @@ export const AEGIS_VALIDATOR_REWARDS_DURATION = 52n * WEEK;
 export const BETA_TOKEN_TOTAL = 4499987774807670271201970n;
 
 /**
- * The grant to each eligible sentinel per year of service.
+ * The grant to each eligible sentinel over the Aegis rewards duration.
  */
-export const SENTINEL_REWARDS_PER_YEAR = parseUnits("400000.0", 18);
-export const SENTINEL_REWARDS_YEAR = 52n * WEEK;
+export const AEGIS_SENTINEL_REWARDS = parseUnits("400000.0", 18);
