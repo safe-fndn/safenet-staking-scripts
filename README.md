@@ -41,6 +41,7 @@ All scripts read configuration from environment variables (or from a `.env` file
 | `SANCTIONS_LIST_ADDRESS`         | Address of the Chainalysis sanctions list oracle.                                          | `0x40C57923924B5c5c5455c48D93317139ADDaC8fb` |
 | `SANCTIONS_LIST_START_BLOCK`     | Block at which the sanctions list oracle was deployed.                                     | `14356508`                                   |
 | `SANCTIONS_ADDRESS_REPO`         | GitHub `owner/name` repo of the UN/EU/UK/Swiss SECO/US OFAC address lists (optional).      | `safe-fndn/sanctions-address-lists`          |
+| `GITHUB_TOKEN`                   | GitHub token for the release listing API (optional; avoids the 60/hour IP rate limit).     | _(unset)_                                    |
 | `CUMULATIVE_MERKLE_DROP_ADDRESS` | Address of the merkle drop rewards contract.                                               | `0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2` |
 | `CONSENSUS_RPC_URL`              | RPC endpoint for the consensus chain (Gnosis Chain).                                       | `https://gnosis.gateway.tenderly.co`         |
 | `CONSENSUS_BLOCK_PAGE_SIZE`      | Number of blocks to fetch logs for in a single RPC call on the consensus chain.            | `25`                                         |
