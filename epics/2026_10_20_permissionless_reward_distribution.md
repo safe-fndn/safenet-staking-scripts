@@ -1191,6 +1191,10 @@ These entries describe the behaviour of Phase 13 as a whole. The 13a–13d entri
 
 - None. `tests/harness/governance.ts` and `transactions.test.ts` match the unsplit Phase 13, except that the header of `governance.ts` names only `transactions.test.ts` until 13b adds `actions.test.ts`.
 
+### Phase 13b
+
+- None. `proposeBundle` and the shared `createdAt` helper match the unsplit Phase 13. Only the module header is narrowed to proposing, and `REALITY_MODULE_ABI` holds `addProposal` alone.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
