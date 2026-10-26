@@ -759,6 +759,18 @@ Changes that came up during implementation. Where they conflict with the rest of
 - `cmd:rewards` builds its `MerkleDb` once, before indexing, whenever `args.record !== undefined`, and shares it between `totalRewardsAmount` and `distribute`. Recording used to test `if (args.record)`, so the only behaviour change is that an empty `--record=` now records to a relative `assets/rewards` instead of silently skipping. `totalRewardsAmount` already treated an empty string as set.
 - Phase 4 also changes `src/utils/args.test.ts`, `tests/merkledb-gap.test.ts`, `tests/merkledb-index.test.ts` and `AGENTS.md`. Test fixtures create the rewards directory directly, without `assets/rewards`.
 
+### Phase 5
+
+- The lookup is `blockAtTimestamp(client, { timestamp, fromBlock = 0n }, withBackoff?)` in `src/utils/blocks.ts`. It returns the last block with `timestamp ≤ t` as a `BlockTimestamp` (`{ number, timestamp }`, from `src/indexing/events.ts`), or `null`. The backoff defaults to `backoff({ debug: debug("safenet:blocks") })`.
+- It searches `[fromBlock, latest]`, and callers pass the chain's start block as `fromBlock`. It fetches `latest`, then `fromBlock`, then bisects, so it makes about 2 + ⌈log2(latest − fromBlock)⌉ backed-off `getBlock` calls.
+- Edge cases:
+  - A `t` before the `fromBlock` block's timestamp returns `null`, and that answer is final.
+  - A `t` after the latest block's timestamp throws `timestamp <t> is after the latest block`, because the answer isn't settled yet. This mirrors `EventIndexer.update`.
+  - A `t` equal to the latest block's timestamp returns the latest block. That relies on strictly increasing timestamps on Ethereum and Gnosis Chain.
+  - Timestamps only need to be non-decreasing. Of several consecutive blocks with the same timestamp, the last is returned.
+- The search reads `latest`, not `finalized`. Settlement only uses periods that ended at least 48 blocks ago, so a reorg at the head doesn't affect it.
+- The tests use a fake viem client with a `custom` transport instead of `MockChain`, because `MockChain` can't produce two blocks with the same timestamp.
+
 ## Open Questions and Assumptions
 
 ### Resolved decisions
