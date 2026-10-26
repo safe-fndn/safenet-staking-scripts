@@ -13,6 +13,7 @@ main(
 	{
 		rewardPeriodEnd: z.coerce.bigint().optional(),
 		record: z.string(),
+		transactions: z.string().optional(),
 		positionals: z.array(z.string().transform((v) => getAddress(v))).min(1),
 		cumulativeMerkleDropAddress: z
 			.string()
@@ -20,6 +21,12 @@ main(
 			.optional(),
 	},
 	async (args) => {
+		// Check up front, so that a misconfigured run fails before recording
+		// anything rather than after.
+		if (args.transactions !== undefined && args.cumulativeMerkleDropAddress === undefined) {
+			throw new Error("--transactions requires CUMULATIVE_MERKLE_DROP_ADDRESS");
+		}
+
 		const safenet = await Safenet.create(args);
 		const period = rewardsPeriod(args);
 
@@ -28,8 +35,8 @@ main(
 		const update = await db.kyc(period, args.positionals, sanctions);
 		console.log(`Merkle Root:        ${update.merkleRoot}`);
 
-		if (args.cumulativeMerkleDropAddress !== undefined) {
-			const bundle = await writeTransactionBundle(args.record, `kyc-${period.toTimestamp}`, [
+		if (args.transactions !== undefined && args.cumulativeMerkleDropAddress !== undefined) {
+			const bundle = await writeTransactionBundle(args.transactions, `kyc-${period.toTimestamp}`, [
 				{
 					to: args.cumulativeMerkleDropAddress,
 					contractMethod: {
