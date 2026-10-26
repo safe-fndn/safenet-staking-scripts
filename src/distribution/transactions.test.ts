@@ -25,6 +25,7 @@ import {
 	governanceTransaction,
 	MULTI_SEND_CALL_ONLY,
 	multiSend,
+	transactionHash,
 } from "./transactions.js";
 
 // Every vector below was read from Ethereum mainnet at block 26247049 with read-only `eth_call`s
@@ -33,13 +34,17 @@ import {
 // - the resolver and `contenthash` of `rewards.safenet-gov.eth` from the ENS registry's
 //   `resolver(namehash(name))` and the resolver's `contenthash(namehash(name))`;
 // - the Merkle root from `CumulativeMerkleDrop.merkleRoot()`, and the SAFE token from
-//   `Staking.SAFE_TOKEN()`.
+//   `Staking.SAFE_TOKEN()`;
+// - `OTHER_TX_HASH` from the Reality Module `0x8DFc…83dC`'s
+//   `getTransactionHash(0x…01, 1, 0x, 1, 7)`, which covers a value, a delegatecall and a nonzero
+//   nonce.
 //
 // At block 26247609, the Governance Safe `0xAd21…ff59` reports `VERSION()` 1.4.1, has no
 // transaction guard or module guard set, and `MULTI_SEND_CALL_ONLY` has the runtime code hash
 // `0xecd5…9939` that `safe-deployments` lists for the canonical 1.4.1 `MultiSendCallOnly`.
 // `execTransactionFromModule(MULTI_SEND_CALL_ONLY, 0, BATCH_DATA, 1)` called on the Safe from the
-// Reality Module returns `true`.
+// Reality Module returns `true`, and the module's
+// `getTransactionHash(MULTI_SEND_CALL_ONLY, 0, BATCH_DATA, 1, 0)` is `TX_HASH`.
 //
 // The transactions re-propose the current onchain state with a 172,603.12 SAFE transfer.
 
@@ -47,6 +52,7 @@ const PINNED_CID = "bafybeiczeo7uiupwte7dfa3yaus6dogwauxbookpvcgmxebbga5jtp7afq"
 const PINNED_CONTENTHASH =
 	"0xe301017012205923bf4451f6993e3283780525e1b8d6052e17394fa88ccb9021303a99bfe02c";
 
+const MODULE: Address = "0x8DFc5Db2C83200Cf0cC84d7e3C441d7721ef83dC";
 const SAFE_TOKEN: Address = "0x5aFE3855358E112B5647B952709E6165e1c1eEEe";
 const CUMULATIVE_MERKLE_DROP: Address = "0xe5139Fc0FB8eae81e30d8a85C22E88c6757120f2";
 const RESOLVER: Address = "0xF29100983E058B709F3D539b0c765937B804AC15";
@@ -77,6 +83,9 @@ const SET_CONTENTHASH_DATA =
 
 const BATCH_DATA =
 	"0x8d80ff0a0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000020b005afe3855358e112b5647b952709e6165e1c1eeee00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000044a9059cbb000000000000000000000000e5139fc0fb8eae81e30d8a85c22e88c6757120f200000000000000000000000000000000000000000000248cd5796d7a1918000000e5139fc0fb8eae81e30d8a85c22e88c6757120f2000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000247cb64759668901980a6c69b801f37cdef375059369dab712db8651a463d1d336b65cfdef00f29100983e058b709f3d539b0c765937b804ac15000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a4304e6ade2ca43be3a22c27d01383e19bcae6429fce3b62edb69123ec3d512c9f5f44849100000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000026e301017012205923bf4451f6993e3283780525e1b8d6052e17394fa88ccb9021303a99bfe02c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+const TX_HASH = "0xa7686cf4c2267bbbf49e0c39d9b8e9fc3de1d0113130bd2b8fa79a781353de42";
+const OTHER_TX_HASH = "0x3e089cd52dda6a23342304de204d11b1bfe0c824496da98f45ef8f3eec1f92bc";
 
 // Decodes `multiSend` calldata back into its packed calls, independently of `multiSend`.
 const decodeMultiSend = (data: Hex) => {
@@ -192,6 +201,19 @@ describe("governanceTransaction", () => {
 			CUMULATIVE_MERKLE_DROP,
 			0n,
 		]);
+	});
+});
+
+describe("transactionHash", () => {
+	it("matches the module's getTransactionHash", () => {
+		expect(transactionHash(MODULE, governanceTransaction(UPDATE, CONFIG), 0n)).toBe(TX_HASH);
+		expect(
+			transactionHash(
+				MODULE,
+				{ to: "0x0000000000000000000000000000000000000001", value: 1n, data: "0x", operation: 1 },
+				7n,
+			),
+		).toBe(OTHER_TX_HASH);
 	});
 });
 
