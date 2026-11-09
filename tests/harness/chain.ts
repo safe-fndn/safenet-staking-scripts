@@ -150,6 +150,7 @@ export class MockChain {
 	}
 
 	blockNumber(): bigint {
+		// biome-ignore lint/complexity/useMathMinMax: `Math.max` does not support `bigint`s.
 		return [...this.#blocks.keys()].reduce((max, n) => (n > max ? n : max), 0n);
 	}
 

@@ -27,15 +27,12 @@ describe("AEGIS", () => {
 		expect(new Set(addresses).size).toBe(addresses.length);
 	});
 
-	it.each([
-		"staking",
-		"delegateRegistry",
-		"sanctionsList",
-		"consensus",
-		"sentinelOracle",
-	] as const)("starts indexing %s at a non-zero block", (name) => {
-		expect(indexed[name].startBlock).toBeGreaterThan(0n);
-	});
+	it.each(["staking", "delegateRegistry", "sanctionsList", "consensus", "sentinelOracle"] as const)(
+		"starts indexing %s at a non-zero block",
+		(name) => {
+			expect(indexed[name].startBlock).toBeGreaterThan(0n);
+		},
+	);
 
 	it("deployed the sentinel oracle after the consensus contract", () => {
 		expect(gnosis.sentinelOracle.startBlock).toBeGreaterThanOrEqual(gnosis.consensus.startBlock);

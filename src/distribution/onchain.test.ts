@@ -184,26 +184,26 @@ describe("findProposal", () => {
 		]);
 	});
 
-	it.each([
-		false,
-		true,
-	])("reads matching current question and executed=%s using question-text hash", async (executed) => {
-		const chain = fakeChain(pair(), { executed });
-		expect(await lookup(chain)).toEqual({
-			blockNumber: HEAD,
-			matching: [{ ...entry(), currentQuestionId: PROPOSAL.questionId, executed }],
-			different: [],
-		});
-		const hash = keccak256(toHex(QUESTION));
-		expect(chain.calls).toEqual([
-			{ functionName: "questionIds", args: [hash], blockTag: toHex(HEAD) },
-			{
-				functionName: "executedProposalTransactions",
-				args: [hash, PROPOSAL.transaction.hash],
-				blockTag: toHex(HEAD),
-			},
-		]);
-	});
+	it.each([false, true])(
+		"reads matching current question and executed=%s using question-text hash",
+		async (executed) => {
+			const chain = fakeChain(pair(), { executed });
+			expect(await lookup(chain)).toEqual({
+				blockNumber: HEAD,
+				matching: [{ ...entry(), currentQuestionId: PROPOSAL.questionId, executed }],
+				different: [],
+			});
+			const hash = keccak256(toHex(QUESTION));
+			expect(chain.calls).toEqual([
+				{ functionName: "questionIds", args: [hash], blockTag: toHex(HEAD) },
+				{
+					functionName: "executedProposalTransactions",
+					args: [hash, PROPOSAL.transaction.hash],
+					blockTag: toHex(HEAD),
+				},
+			]);
+		},
+	);
 
 	it("keeps different questions alone and alongside matching questions", async () => {
 		const different = buildQuestion(PROPOSAL.proposalId, [zeroHash]);
@@ -248,13 +248,13 @@ describe("findProposal", () => {
 		]);
 	});
 
-	it.each([
-		zeroHash,
-		`0x${"ff".repeat(32)}` as Hex,
-	])("preserves a cleared or invalidated current mapping %s", async (current) => {
-		const chain = fakeChain(pair(), { current });
-		expect((await lookup(chain)).matching[0].currentQuestionId).toBe(current);
-	});
+	it.each([zeroHash, `0x${"ff".repeat(32)}` as Hex])(
+		"preserves a cleared or invalidated current mapping %s",
+		async (current) => {
+			const chain = fakeChain(pair(), { current });
+			expect((await lookup(chain)).matching[0].currentQuestionId).toBe(current);
+		},
+	);
 
 	it("throws when a module question has no oracle log, including beside a match", async () => {
 		const id = questionId("missing", CONFIG);
@@ -353,13 +353,12 @@ describe("findProposal", () => {
 		expect(chain.filters).toEqual([]);
 	});
 
-	it.each([
-		"eth_blockNumber",
-		"eth_getLogs",
-		"eth_call",
-	])("retries failed %s requests", async (failMethod) => {
-		const chain = fakeChain(pair(), { failMethod });
-		expect((await lookup(chain)).matching).toHaveLength(1);
-		expect(chain.failures()).toBeGreaterThanOrEqual(3);
-	});
+	it.each(["eth_blockNumber", "eth_getLogs", "eth_call"])(
+		"retries failed %s requests",
+		async (failMethod) => {
+			const chain = fakeChain(pair(), { failMethod });
+			expect((await lookup(chain)).matching).toHaveLength(1);
+			expect(chain.failures()).toBeGreaterThanOrEqual(3);
+		},
+	);
 });

@@ -1,4 +1,3 @@
-
 ---
 
 ## CLA signature

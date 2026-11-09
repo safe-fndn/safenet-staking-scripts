@@ -5,7 +5,7 @@ This file provides guidance to AI agents (such as Claude Code or OpenAI Codex) w
 ## Commands
 
 ```sh
-npm ci                                   # install dependencies (Node.js 24+)
+npm ci                                   # install dependencies (Node.js 26+)
 npm run check                            # Biome lint + tsc type-check (what CI runs)
 npm run fix                              # Biome auto-fix
 npm test                                 # run all Vitest tests
@@ -104,8 +104,8 @@ Pre-compute exact `bigint` values and annotate the arithmetic in a comment direc
 // 4 validators each with 4.5 M total stake at 100% participation
 // each gets 25,000 SAFE; self reward = 25000 × 3.5M/4.5M ≈ 19,444.44 SAFE
 const { payouts, unpaid } = await safenet.rewards(
-    { fromTimestamp: 60n, toTimestamp: 120n },
-    parseSafe("100000"),
+	{ fromTimestamp: 60n, toTimestamp: 120n },
+	parseSafe("100000"),
 );
 expect(payouts).toEqual({ [namedAddress("staker")]: parseSafe("...") });
 expect(unpaid).toBe(4n); // rounding residue; assert explicitly
