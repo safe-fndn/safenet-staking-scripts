@@ -17,7 +17,7 @@ Instead of loading all consensus events into memory at once, the scripts first i
 
 ## Setup
 
-**Prerequisites:** Node.js v24+, npm.
+**Prerequisites:** Node.js v26+, npm.
 
 ```sh
 npm ci
@@ -253,10 +253,12 @@ npm run cmd:sanctions
 The scripts can also be run as a Docker container. You can either:
 
 - Build the image locally:
+
   ```sh
   docker build -t safenet-staking-scripts .
   ```
 - Pull the image hosted on the GitHub Container Registry:
+
   ```sh
   docker pull ghcr.io/safe-fndn/safenet-staking-scripts:main
   ```

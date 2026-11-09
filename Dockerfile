@@ -1,5 +1,5 @@
 # ---- Base Image ----
-FROM node:24-slim AS base
+FROM node:26-slim AS base
 WORKDIR /app
 
 # ---- Builder Stage ----
@@ -7,7 +7,7 @@ FROM base AS builder
 
 # Copy over package files and install dependencies.
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 # Copy over our source and build.
 COPY src/ src/
@@ -21,9 +21,8 @@ FROM base AS runner
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 
-# Copy the compiled code and compiled native code from the builder stage.
+# Copy the compiled code from the builder stage.
 COPY --from=builder /app/dist/ dist/
-COPY --from=builder /app/node_modules/better-sqlite3/build/ node_modules/better-sqlite3/build/
 
 # Copy the container entrypoint script.
 COPY bin/entrypoint.sh bin/entrypoint.sh

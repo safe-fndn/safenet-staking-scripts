@@ -155,30 +155,30 @@ describe("cmd:verify", () => {
 		expect(process.exitCode).toBe(0);
 	});
 
-	it.each([
-		false,
-		true,
-	])("reports the current re-asked mapping with executed=%s", async (executed) => {
-		const current = questionId(QUESTION, CONFIG, 2n);
-		matching(current, executed);
-		const output = await run();
-		expect(output).toContain(
-			`Proposal:           current question mapping ${current}, ${executed ? "executed" : "not executed"}`,
-		);
-		for (const question of result.onchain.matching) {
-			expect(output).toContain(`Matching Question:  ${question.questionId}`);
-		}
-		expect(process.exitCode).toBe(0);
-	});
+	it.each([false, true])(
+		"reports the current re-asked mapping with executed=%s",
+		async (executed) => {
+			const current = questionId(QUESTION, CONFIG, 2n);
+			matching(current, executed);
+			const output = await run();
+			expect(output).toContain(
+				`Proposal:           current question mapping ${current}, ${executed ? "executed" : "not executed"}`,
+			);
+			for (const question of result.onchain.matching) {
+				expect(output).toContain(`Matching Question:  ${question.questionId}`);
+			}
+			expect(process.exitCode).toBe(0);
+		},
+	);
 
-	it.each([
-		zeroHash,
-		`0x${"ff".repeat(32)}` as Hex,
-	])("preserves cleared/invalidated mapping %s", async (current) => {
-		matching(current);
-		expect(await run()).toContain(`current question mapping ${current}, not executed`);
-		expect(process.exitCode).toBe(0);
-	});
+	it.each([zeroHash, `0x${"ff".repeat(32)}` as Hex])(
+		"preserves cleared/invalidated mapping %s",
+		async (current) => {
+			matching(current);
+			expect(await run()).toContain(`current question mapping ${current}, not executed`);
+			expect(process.exitCode).toBe(0);
+		},
+	);
 
 	it.each([false, true])("names every conflict and fails with matching=%s", async (hasMatch) => {
 		if (hasMatch) matching();
@@ -202,18 +202,18 @@ describe("cmd:verify", () => {
 		expect(process.exitCode).toBe(1);
 	});
 
-	it.each([
-		false,
-		true,
-	])("fails a CID mismatch with matching=%s and names expected/derived CIDs", async (hasMatch) => {
-		if (hasMatch) matching();
-		const output = await run("--cid", "another-cid");
-		expect(console.error).toHaveBeenCalledExactlyOnceWith(
-			`CID mismatch: expected another-cid, derived ${UPDATE.cid}`,
-		);
-		expect(output).toMatch(/FAILED$/);
-		expect(process.exitCode).toBe(1);
-	});
+	it.each([false, true])(
+		"fails a CID mismatch with matching=%s and names expected/derived CIDs",
+		async (hasMatch) => {
+			if (hasMatch) matching();
+			const output = await run("--cid", "another-cid");
+			expect(console.error).toHaveBeenCalledExactlyOnceWith(
+				`CID mismatch: expected another-cid, derived ${UPDATE.cid}`,
+			);
+			expect(output).toMatch(/FAILED$/);
+			expect(process.exitCode).toBe(1);
+		},
+	);
 
 	it("accepts CID, previous CAR and gateway through environment variables", async () => {
 		vi.stubEnv("CID", UPDATE.cid.toString());

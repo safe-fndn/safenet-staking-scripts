@@ -232,19 +232,18 @@ describe("cmd:status", () => {
 		}
 	});
 
-	it.each([
-		99n,
-		100n,
-		147n,
-	])("succeeds unsettled at head %s (not ended, boundary, or missing 48th block)", async (latest) => {
-		head = latest;
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => new Response(Uint8Array.from((await packDirectory(fixture)).car))),
-		);
-		expect((await run()).settled).toBe(false);
-		expect(process.exitCode).toBe(0);
-	});
+	it.each([99n, 100n, 147n])(
+		"succeeds unsettled at head %s (not ended, boundary, or missing 48th block)",
+		async (latest) => {
+			head = latest;
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () => new Response(Uint8Array.from((await packDirectory(fixture)).car))),
+			);
+			expect((await run()).settled).toBe(false);
+			expect(process.exitCode).toBe(0);
+		},
+	);
 
 	it("uses the last block before a period end that falls between blocks", async () => {
 		offset = 1n; // Boundary is 99, settlement is 147, with head exactly at settlement.

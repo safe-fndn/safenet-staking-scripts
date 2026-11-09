@@ -48,13 +48,13 @@ docker run \
 
 Run `cmd:verify` again after the proposal and before every answer. It rebuilds the package, re-derives the Governance Safe transaction and checks every Reality Module question for the derived CID.
 
-| Output | Exit | Action |
-| --- | --- | --- |
-| `Proposal: none yet`, `OK` | 0 | Nothing proposed for this CID yet. Propose after review. |
-| `Proposal: current question mapping <id>, executed` or `not executed`, `Matching Question: <id>` lines, `OK` | 0 | Every question for the CID proposes exactly the derived transaction. Answer the **current mapping**, not an older matching ID. |
-| `Other questions: <id> proposes a different transaction for this CID: answer No`, `FAILED` | 1 | Answer **No** to each listed question (see [Superseded and Invalid Proposals](#superseded-and-invalid-proposals)), even next to a matching one. |
-| `CID mismatch: expected <cid>, derived <cid>`, `FAILED` | 1 | Your checkout derives another package. Compare code, lockfile and `kyc.json`. |
-| An error | 1 | Not verified. A period that has not settled fails here too. |
+| Output                                                                                                       | Exit | Action                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Proposal: none yet`, `OK`                                                                                   | 0    | Nothing proposed for this CID yet. Propose after review.                                                                                        |
+| `Proposal: current question mapping <id>, executed` or `not executed`, `Matching Question: <id>` lines, `OK` | 0    | Every question for the CID proposes exactly the derived transaction. Answer the **current mapping**, not an older matching ID.                  |
+| `Other questions: <id> proposes a different transaction for this CID: answer No`, `FAILED`                   | 1    | Answer **No** to each listed question (see [Superseded and Invalid Proposals](#superseded-and-invalid-proposals)), even next to a matching one. |
+| `CID mismatch: expected <cid>, derived <cid>`, `FAILED`                                                      | 1    | Your checkout derives another package. Compare code, lockfile and `kyc.json`.                                                                   |
+| An error                                                                                                     | 1    | Not verified. A period that has not settled fails here too.                                                                                     |
 
 Then review the summary:
 

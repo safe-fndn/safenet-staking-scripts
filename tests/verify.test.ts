@@ -244,30 +244,30 @@ describe("verifyProposal", () => {
 		);
 	});
 
-	it.each([
-		false,
-		true,
-	])("fails any different question with matching=%s, retaining both lists", async (matching) => {
-		const result = await fakeChain([...(matching ? pair() : []), ...pair(DIFFERENT)]).run();
-		expect(result.outcome).toBe("different");
-		expect(result.onchain.different).toEqual([entry(DIFFERENT)]);
-		expect(result.onchain.matching).toEqual(
-			matching ? [{ ...entry(), currentQuestionId: PROPOSAL.questionId, executed: false }] : [],
-		);
-		expect(await readdir(temporary)).toEqual([]);
-	});
+	it.each([false, true])(
+		"fails any different question with matching=%s, retaining both lists",
+		async (matching) => {
+			const result = await fakeChain([...(matching ? pair() : []), ...pair(DIFFERENT)]).run();
+			expect(result.outcome).toBe("different");
+			expect(result.onchain.different).toEqual([entry(DIFFERENT)]);
+			expect(result.onchain.matching).toEqual(
+				matching ? [{ ...entry(), currentQuestionId: PROPOSAL.questionId, executed: false }] : [],
+			);
+			expect(await readdir(temporary)).toEqual([]);
+		},
+	);
 
-	it.each([
-		120n,
-		125n,
-	])("scans inclusively from the Ethereum settlement boundary for t=%s", async (timestamp) => {
-		settlementTimestamp = timestamp;
-		const chain = fakeChain([...pair(DIFFERENT, 0n, FROM - 1n), ...pair()]);
-		const result = await chain.run();
-		expect(result.outcome).toBe("matching");
-		expect(chain.filters[0]).toMatchObject({ fromBlock: toHex(FROM), toBlock: toHex(HEAD) });
-		expect(result.onchain.different).toEqual([]);
-	});
+	it.each([120n, 125n])(
+		"scans inclusively from the Ethereum settlement boundary for t=%s",
+		async (timestamp) => {
+			settlementTimestamp = timestamp;
+			const chain = fakeChain([...pair(DIFFERENT, 0n, FROM - 1n), ...pair()]);
+			const result = await chain.run();
+			expect(result.outcome).toBe("matching");
+			expect(chain.filters[0]).toMatchObject({ fromBlock: toHex(FROM), toBlock: toHex(HEAD) });
+			expect(result.onchain.different).toEqual([]);
+		},
+	);
 
 	it("cleans a partial export and propagates its error without starting lookup", async () => {
 		const error = new Error("export failed");
