@@ -62,7 +62,7 @@ describe("sentinel-rewards", () => {
 
 		// Five requests in [10, 30], answered by sentinel1 five times (100%),
 		// by sentinel2 four times (80%) and by sentinel3 three times (60%). So
-		// only sentinel3 misses the 70% threshold, and the two sentinels above
+		// only sentinel3 misses the 75% threshold, and the two sentinels above
 		// it receive the identical full grant - the amount does not scale with
 		// the participation rate.
 		const { payouts, forfeited } = await safenet.sentinelRewards(
@@ -88,10 +88,6 @@ describe("sentinel-rewards", () => {
 						events: [
 							...sentinelRequest({ seed: "1", reveals: ["sentinel1", "sentinel2"] }),
 							...sentinelRequest({ seed: "2", reveals: ["sentinel1", "sentinel2"] }),
-						],
-					},
-					{
-						events: [
 							...sentinelRequest({ seed: "3", reveals: ["sentinel1", "sentinel2"] }),
 							...sentinelRequest({ seed: "4", reveals: ["sentinel1", "sentinel2"] }),
 						],
@@ -100,21 +96,35 @@ describe("sentinel-rewards", () => {
 						events: [
 							...sentinelRequest({ seed: "5", reveals: ["sentinel1", "sentinel2"] }),
 							...sentinelRequest({ seed: "6", reveals: ["sentinel1", "sentinel2"] }),
+							...sentinelRequest({ seed: "7", reveals: ["sentinel1", "sentinel2"] }),
+							...sentinelRequest({ seed: "8", reveals: ["sentinel1", "sentinel2"] }),
 						],
 					},
 					{
 						events: [
-							...sentinelRequest({ seed: "7", reveals: ["sentinel1"] }),
+							...sentinelRequest({ seed: "9", reveals: ["sentinel1", "sentinel2"] }),
+							...sentinelRequest({ seed: "10", reveals: ["sentinel1", "sentinel2"] }),
+							...sentinelRequest({ seed: "11", reveals: ["sentinel1", "sentinel2"] }),
+							...sentinelRequest({ seed: "12", reveals: ["sentinel1", "sentinel2"] }),
+						],
+					},
+					{
+						events: [
+							...sentinelRequest({ seed: "13", reveals: ["sentinel1", "sentinel2"] }),
+							...sentinelRequest({ seed: "14", reveals: ["sentinel1", "sentinel2"] }),
+							...sentinelRequest({ seed: "15", reveals: ["sentinel1"] }),
 							// Requests that nobody answered still count towards
 							// the denominator.
-							...sentinelRequest({ seed: "8", reveals: [] }),
+							...sentinelRequest({ seed: "16", reveals: [] }),
 						],
 					},
 					{
 						assertTimestamp: 20n,
 						events: [
-							...sentinelRequest({ seed: "9", reveals: [] }),
-							...sentinelRequest({ seed: "10", reveals: [] }),
+							...sentinelRequest({ seed: "17", reveals: [] }),
+							...sentinelRequest({ seed: "18", reveals: [] }),
+							...sentinelRequest({ seed: "19", reveals: [] }),
+							...sentinelRequest({ seed: "20", reveals: [] }),
 						],
 					},
 					...emptyBlocks(Number(SETTLEMENT_BLOCKS)),
@@ -122,9 +132,9 @@ describe("sentinel-rewards", () => {
 			},
 		});
 
-		// Ten requests in [0, 20], answered by sentinel1 seven times and by
-		// sentinel2 six times. The threshold is inclusive, so sentinel1 is
-		// eligible at exactly 70% while sentinel2 forfeits its grant at 60%.
+		// Twenty requests in [0, 20], answered by sentinel1 fifteen times and
+		// by sentinel2 fourteen times. The threshold is inclusive, so sentinel1
+		// is eligible at exactly 75% while sentinel2 forfeits its grant at 70%.
 		const { payouts, forfeited } = await safenet.sentinelRewards(
 			{ fromTimestamp: 0n, toTimestamp: 20n },
 			PER_SENTINEL,

@@ -662,7 +662,7 @@ export class Safenet {
 	/**
 	 * Compute sentinel rewards within a period.
 	 *
-	 * Eligibility is binary: every sentinel that revealed for at least 70% of
+	 * Eligibility is binary: every sentinel that revealed for at least 75% of
 	 * the oracle requests created in the period receives the full `perSentinel`
 	 * grant. There is no pool to divide, no stake to weight by, no delegation
 	 * and no commission - the aggregate spend is bounded upstream by the
@@ -691,7 +691,7 @@ export class Safenet {
 		let forfeited = 0n;
 		for (const [sentinel, reveals] of addressEntries(sentinels)) {
 			const participationRate = reveals / total;
-			if (participationRate < 0.7) {
+			if (participationRate < 0.75) {
 				forfeited += perSentinel;
 			} else {
 				payouts[sentinel] = perSentinel;
