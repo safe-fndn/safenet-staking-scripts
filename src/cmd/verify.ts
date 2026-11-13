@@ -71,7 +71,7 @@ main(
 		}
 		for (const question of onchain.different) {
 			console.log(
-				`Other questions:    ${question.questionId} proposes a different transaction for this CID: answer No`,
+				`Other questions:    ${question.questionId} does not propose this distribution: answer No`,
 			);
 		}
 		const cidMismatch = args.cid !== undefined && args.cid !== result.cid.toString();

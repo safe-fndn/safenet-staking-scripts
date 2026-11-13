@@ -190,7 +190,7 @@ describe("cmd:verify", () => {
 		const output = await run("--cid", UPDATE.cid.toString());
 		for (const question of result.onchain.different) {
 			expect(output).toContain(
-				`Other questions:    ${question.questionId} proposes a different transaction for this CID: answer No`,
+				`Other questions:    ${question.questionId} does not propose this distribution: answer No`,
 			);
 		}
 		if (hasMatch)

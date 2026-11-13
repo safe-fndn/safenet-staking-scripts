@@ -166,7 +166,7 @@ const entry = (text = QUESTION, nonce = 0n) => ({
 });
 
 describe("findProposal", () => {
-	it("returns no proposal without logs and filters the CID from the inclusive start", async () => {
+	it("returns no proposal without logs and filters every question from the inclusive start", async () => {
 		const chain = fakeChain();
 		expect(await lookup(chain)).toEqual({ blockNumber: HEAD, matching: [], different: [] });
 		expect(chain.calls).toEqual([]);
@@ -176,7 +176,6 @@ describe("findProposal", () => {
 				topics: encodeEventTopics({
 					abi: REALITY_MODULE_ABI,
 					eventName: "ProposalQuestionCreated",
-					args: { proposalId: PROPOSAL.proposalId },
 				}),
 				fromBlock: toHex(FROM),
 				toBlock: toHex(HEAD),
@@ -207,6 +206,8 @@ describe("findProposal", () => {
 
 	it("keeps different questions alone and alongside matching questions", async () => {
 		const different = buildQuestion(PROPOSAL.proposalId, [zeroHash]);
+		const otherCid = "bafkreigz7k4ry5uo3j5xhat2bwqt3gc6menqpxgkomjo6x7t3mkradztq";
+		const otherProposal = buildQuestion(otherCid, [PROPOSAL.transaction.hash]);
 		for (const matching of [[], pair()]) {
 			const chain = fakeChain([
 				...matching,
@@ -214,6 +215,8 @@ describe("findProposal", () => {
 				...pair(different, 1n),
 				...pair(`${QUESTION} `),
 				...pair(QUESTION.toUpperCase()),
+				moduleLog(questionId(otherProposal, CONFIG), FROM, otherCid),
+				oracleLog(otherProposal),
 			]);
 			const result = await lookup(chain);
 			expect(result.different).toEqual([
@@ -221,6 +224,7 @@ describe("findProposal", () => {
 				entry(different, 1n),
 				entry(`${QUESTION} `),
 				entry(QUESTION.toUpperCase()),
+				entry(otherProposal),
 			]);
 			expect(result.matching).toHaveLength(matching.length ? 1 : 0);
 			expect(chain.calls).toHaveLength(matching.length ? 2 : 0);
@@ -296,12 +300,11 @@ describe("findProposal", () => {
 		});
 	});
 
-	it("handles lowercase configuration and ignores other modules, CIDs and out-of-range logs", async () => {
+	it("handles lowercase configuration and ignores other modules and out-of-range logs", async () => {
 		const chain = fakeChain([
 			...pair(),
 			...pair("before", 0n, FROM - 1n),
 			...pair("after", 0n, HEAD + 1n),
-			moduleLog(questionId("other CID", CONFIG), FROM, "another CID"),
 			moduleLog(
 				questionId("other module", CONFIG),
 				FROM,
