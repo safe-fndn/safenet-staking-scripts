@@ -153,7 +153,7 @@ It also prints the derived transaction hash and the Ethereum block used for prop
 
 - With no proposal yet, it prints `Proposal: none yet` and `OK`, and exits 0 if `--cid` is omitted or matches.
 - With only matching questions, it prints the current mapping and execution status, then `OK`, and exits 0 if `--cid` is omitted or matches.
-- With any different question, including alongside matching questions, it names every conflicting question with `answer No`, prints `FAILED`, and exits nonzero.
+- With any different question, including alongside matching questions, it names every conflicting question with `answer No`, prints `FAILED`, and exits nonzero. Every question the Reality Module asked since the settlement block is checked, whatever its proposal ID, since a Yes to any of them executes transactions from the Governance Safe.
 - A CID mismatch prints a clear expected/derived CID error and `FAILED`, and exits nonzero. RPC or rebuild errors also exit nonzero.
 
 There are no period, proposal, question, post-execution or reward override flags. After a proposal executes and advances ENS, this command verifies the distribution following the newly pinned DB; historic and post-execution verification are outside its scope.
@@ -257,6 +257,7 @@ The scripts can also be run as a Docker container. You can either:
   ```sh
   docker build -t safenet-staking-scripts .
   ```
+
 - Pull the image hosted on the GitHub Container Registry:
 
   ```sh

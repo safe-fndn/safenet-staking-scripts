@@ -12,14 +12,18 @@ export type OnchainProposal = {
 	blockNumber: bigint;
 	/** All matching question IDs, including earlier asks with the same text. */
 	matching: (ProposalQuestion & { currentQuestionId: Hex; executed: boolean })[];
-	/** Every different question for the CID, even when a matching question exists. */
+	/**
+	 * Every other question the module asked, whatever its proposal ID, even when a matching question
+	 * exists.
+	 */
 	different: ProposalQuestion[];
 };
 
 /**
- * Finds questions for the proposal's CID from the inclusive `fromBlock` through the latest block
+ * Finds every question the module asked from the inclusive `fromBlock` through the latest block
  * (or an explicit snapshot). Matching is exact question text, independent of the nonce-0 ID in
- * `proposal`. The current module mapping and execution flag belong to the question text hash,
+ * `proposal`. Questions are not filtered by proposal ID: a question for any other proposal ID
+ * executes transactions that are not this distribution's if answered Yes, so it is different too. The current module mapping and execution flag belong to the question text hash,
  * shared by every re-ask. Missing oracle logs throw rather than imply there is no proposal.
  */
 export const findProposal = async (
@@ -42,7 +46,6 @@ export const findProposal = async (
 			address: module,
 			abi: REALITY_MODULE_ABI,
 			eventName: "ProposalQuestionCreated",
-			args: { proposalId: proposal.proposalId },
 			fromBlock,
 			toBlock: block,
 			strict: true,

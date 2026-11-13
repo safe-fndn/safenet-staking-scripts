@@ -89,13 +89,13 @@ const rawLog = (address: Address, topics: readonly Hex[], data: Hex, block: bigi
 	removed: false,
 });
 
-const pair = (text = QUESTION, nonce = 0n, block = FROM) => [
+const pair = (text = QUESTION, nonce = 0n, block = FROM, cid = PROPOSAL.proposalId) => [
 	rawLog(
 		CONFIG.module,
 		encodeEventTopics({
 			abi: REALITY_MODULE_ABI,
 			eventName: "ProposalQuestionCreated",
-			args: { questionId: questionId(text, CONFIG, nonce), proposalId: PROPOSAL.proposalId },
+			args: { questionId: questionId(text, CONFIG, nonce), proposalId: cid },
 		}) as Hex[],
 		"0x",
 		block,
@@ -256,6 +256,15 @@ describe("verifyProposal", () => {
 			expect(await readdir(temporary)).toEqual([]);
 		},
 	);
+
+	it("fails a question for another proposal ID", async () => {
+		const cid = "bafkreigz7k4ry5uo3j5xhat2bwqt3gc6menqpxgkomjo6x7t3mkradztq";
+		const other = buildQuestion(cid, [PROPOSAL.transaction.hash]);
+		const result = await fakeChain([...pair(), ...pair(other, 0n, FROM, cid)]).run();
+		expect(result.outcome).toBe("different");
+		expect(result.onchain.different).toEqual([entry(other)]);
+		expect(result.onchain.matching).toHaveLength(1);
+	});
 
 	it.each([120n, 125n])(
 		"scans inclusively from the Ethereum settlement boundary for t=%s",
