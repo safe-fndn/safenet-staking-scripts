@@ -158,6 +158,24 @@ It also prints the derived transaction hash and the Ethereum block used for prop
 
 There are no period, proposal, question, post-execution or reward override flags. After a proposal executes and advances ENS, this command verifies the distribution following the newly pinned DB; historic and post-execution verification are outside its scope.
 
+### `cmd:claim`
+
+Writes a Safe Transaction Builder bundle, `claim.json`, that claims the bonds and bounty of a finalized Reality Module question. It needs only `STAKING_RPC_URL`, plus `--question` and `--out`.
+
+```sh
+# Claim the exported distribution's question
+npm run cmd:claim -- --question="$(jq -r .questionId ./distribution/proposal.json)" --out=./claim
+
+# Claim any other question, such as one answered No
+npm run cmd:claim -- --question=0x… --out=./claim
+```
+
+`proposal.json` holds the nonce-0 question; pass the re-asked question's ID instead if the proposal was re-asked.
+
+The oracle is read from the Reality Module, and the question's answers from its `LogNewAnswer` events. Every history hash is recomputed and checked against the oracle's stored history hash, so the bundle is exactly what the oracle verifies. The bundle is created at the question's finalization and holds one call, `claimWinnings(questionId, historyHashes, addrs, bonds, answers)`, with the answers not claimed yet, newest first. Any Safe can execute it: the winnings are credited to the winners' oracle balances. It does not `withdraw`, because the oracle spends a balance before pulling tokens for the next bond, so leaving it there saves gas on the next proposal or answer.
+
+The summary prints the question, oracle, block, finalization time, the claimed answers and every answerer's current oracle balance. The command fails for a question that is not finalized, is already claimed (for example from the Reality.eth UI) or has an unrevealed commitment, and never overwrites an existing `claim.json` in `--out`.
+
 ### `cmd:rewards`
 
 Computes and prints SAFE token reward payouts for each recipient over a reward period. Validator rewards are distributed proportionally to each validator's participation-weighted stake; sentinel grants are paid on top of them, in the same table and the same distribution.

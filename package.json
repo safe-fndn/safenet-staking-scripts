@@ -5,6 +5,7 @@
 	"scripts": {
 		"build": "rimraf dist && tsc --project tsconfig.dist.json",
 		"check": "biome check && tsc",
+		"cmd:claim": "tsx src/cmd/claim.ts",
 		"cmd:export": "tsx src/cmd/export.ts",
 		"cmd:index": "tsx src/cmd/index.ts",
 		"cmd:kyc": "tsx src/cmd/kyc.ts",
