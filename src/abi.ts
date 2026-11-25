@@ -80,4 +80,10 @@ export const REALITY_ETH_ERC20_ABI = parseAbi([
 	"event LogNewQuestion(bytes32 indexed question_id, address indexed user, uint256 template_id, string question, bytes32 indexed content_hash, address arbitrator, uint32 timeout, uint32 opening_ts, uint256 nonce, uint256 created)",
 	"function token() external view returns (address token)",
 	"function submitAnswerERC20(bytes32 questionId, bytes32 answer, uint256 maxPrevious, uint256 tokens) external",
+	"event LogNewAnswer(bytes32 answer, bytes32 indexed question_id, bytes32 history_hash, address indexed user, uint256 bond, uint256 ts, bool is_commitment)",
+	"function isFinalized(bytes32 question_id) external view returns (bool)",
+	"function getHistoryHash(bytes32 question_id) external view returns (bytes32)",
+	"function getFinalizeTS(bytes32 question_id) external view returns (uint32)",
+	"function claimWinnings(bytes32 question_id, bytes32[] history_hashes, address[] addrs, uint256[] bonds, bytes32[] answers) external",
+	"function balanceOf(address account) external view returns (uint256)",
 ]);

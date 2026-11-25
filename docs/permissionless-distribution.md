@@ -70,12 +70,13 @@ Finally review the exported `proposal.json` (run `sha256sum -c SHA256SUMS` from 
 
 Decode them in the Transaction Builder or any ABI decoder, and check the targets, amount, root and CID against the summary. The batch is atomic: if any call reverts, nothing executes, so the root and the `contenthash` never disagree.
 
-## Propose, Answer and Execute
+## Propose, Answer, Execute and Claim
 
 Load the bundles into the Transaction Builder of **any** Safe on Ethereum mainnet; the Governance Safe executes the batch through its Reality Module.
 
 1. **Propose and answer Yes:** execute `propose.json` as one batch. It calls `addProposal(CID, [hash])`, approves the module's `minimumBond` of the bond token to the oracle, then calls `submitAnswerERC20(questionId, bytes32(1), 0, minimumBond)`. The proposing Safe needs the bond token. The bundle creates the original nonce-0 question and posts its first answer; it cannot be used for an existing proposal or a re-asked question. Review and run `cmd:verify` before submitting, then rerun it after confirmation. For existing questions, answer manually as in [Challenges](#challenges).
 2. **Execute:** once the answer is final **Yes**, the cooldown has passed and the answer has not expired, `execute.json` calls `executeProposalWithIndex(CID, [hash], MultiSendCallOnly, 0, data, 1, 0)`. It uses the module's current question mapping, so it also works after a re-ask. Then check the module's execution flag, the drop's `merkleRoot()` and the ENS `contenthash`. The Governance Safe must hold the SAFE to transfer, or the execution reverts.
+3. **Claim:** once the question is final, run `npm run cmd:claim -- --question="$(jq -r .questionId ./distribution/proposal.json)" --out=./claim` (or the re-asked question's ID) and execute `claim.json` from any Safe. It calls `claimWinnings` with the question's answer history, which credits the winners' oracle balances. It does not withdraw them: the oracle spends a balance before pulling tokens for the next bond, so leaving it there saves gas. For any question you answered **No**, such as a different question, pass its ID with `--question=<questionId>` once it is final. The summary lists every answerer's oracle balance.
 
 ## Challenges
 
