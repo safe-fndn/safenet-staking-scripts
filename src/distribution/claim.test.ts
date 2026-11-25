@@ -85,7 +85,8 @@ describe("claimArguments", () => {
 
 describe("claimBundle", () => {
 	it("claims the winnings, created at the finalization", () => {
-		const bundle = claimBundle(ORACLE, claim());
+		const [bundle, args] = claimBundle(ORACLE, claim());
+		expect(args).toEqual(claimArguments(claim()));
 		expect(bundle).toEqual({
 			version: "1.0",
 			chainId: "1",

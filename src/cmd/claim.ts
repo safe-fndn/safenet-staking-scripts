@@ -7,7 +7,7 @@ import { getBlockNumber, getChainId, readContract } from "viem/actions";
 import { z } from "zod";
 import { REALITY_MODULE_ABI } from "../abi.js";
 import { AEGIS } from "../config/aegis.js";
-import { claimArguments, claimBundle, questionClaim } from "../distribution/claim.js";
+import { claimBundle, questionClaim } from "../distribution/claim.js";
 import { GOVERNANCE_CHAIN_ID } from "../distribution/transactions.js";
 import { main } from "../utils/args.js";
 import { backoff } from "../utils/backoff.js";
@@ -45,8 +45,7 @@ main(
 			{ oracle, questionId: args.question, blockNumber },
 			{ withBackoff },
 		);
-		const bundle = claimBundle(oracle, claim);
-		const unclaimed = claimArguments(claim);
+		const [bundle, unclaimed] = claimBundle(oracle, claim);
 
 		await mkdir(args.out, { recursive: true });
 		const file = join(args.out, "claim.json");

@@ -176,10 +176,17 @@ export const claimArguments = (claim: QuestionClaim): ClaimArguments => {
  * `claim.json`: `claimWinnings` for the answers not claimed yet. It is created at the question's
  * finalization, in milliseconds since the Unix epoch, so that it does not depend on when it was
  * built.
+ *
+ * It returns the bundle together with the `claimArguments` it encodes, so that callers can use
+ * both without being able to pair a claim with arguments derived from another.
  */
-export const claimBundle = (oracle: Address, claim: QuestionClaim): TransactionBundle => {
-	const { historyHashes, addrs, bonds, answers } = claimArguments(claim);
-	return transactionBundle(
+export const claimBundle = (
+	oracle: Address,
+	claim: QuestionClaim,
+): [TransactionBundle, ClaimArguments] => {
+	const args = claimArguments(claim);
+	const { historyHashes, addrs, bonds, answers } = args;
+	const bundle = transactionBundle(
 		[
 			{
 				to: oracle,
@@ -192,4 +199,5 @@ export const claimBundle = (oracle: Address, claim: QuestionClaim): TransactionB
 		],
 		Number(claim.finalizeTimestamp) * 1000,
 	);
+	return [bundle, args];
 };
